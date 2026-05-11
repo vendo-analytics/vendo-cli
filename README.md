@@ -55,20 +55,83 @@ vendo doctor            # full health check
 vendo logout
 ```
 
-## Common commands
+## What you can do
+
+The CLI is a full management surface — not just read commands. Every resource (`apps`, `sources`, `integrations`, `metrics`) supports the standard set: `list`, `get`, `create`, `update`, `delete`, plus operational verbs like `pause`, `resume`, and `sync`. Jobs add `watch`, `tail`, and `cancel`.
+
+### Browse
 
 ```bash
-vendo apps list                          # list installed apps
-vendo sources list                       # list data sources
-vendo int list                           # list export integrations
-vendo jobs watch                         # live view of running jobs
-vendo jobs tail <job-id>                 # tail one job
-vendo catalog list                       # browse the connector catalog
-vendo measurement methodologies list     # marketing measurement
+vendo apps list                          # installed apps
+vendo sources list                       # data sources
+vendo int list                           # export integrations
+vendo models list                        # data models
 vendo metrics list                       # custom metrics
+vendo catalog list                       # connector catalog (apps you can install)
+vendo measurement methodologies list     # marketing measurement methodologies
+vendo measurement ltv list               # LTV cohorts
+vendo measurement signals list           # per-signal availability
+vendo jobs list                          # recent sync jobs
 ```
 
-Each command supports `--json` for machine-readable output and `--help` for full usage.
+### Inspect one thing
+
+```bash
+vendo apps get <app-id>
+vendo sources get <source-id>
+vendo int get <integration-id>
+vendo jobs get <job-id>
+vendo models get <model-id>
+vendo metrics get <metric-id>
+```
+
+### Create / update / delete
+
+```bash
+vendo apps create --type <type> --credentials-file creds.json
+vendo sources create --app <app-id> --config-file config.json
+vendo int create  --source <id> --dest <id> --config-file config.json
+vendo metrics create --name "<name>" --formula "<sql>"
+
+vendo apps update    <app-id>    --credentials-file creds.json
+vendo sources update <source-id> --config-file config.json
+vendo int update     <int-id>    --config-file config.json
+vendo metrics update <metric-id> --formula "<sql>"
+
+vendo apps delete    <app-id>    -y     # -y skips the confirmation prompt
+vendo sources delete <source-id> -y
+vendo int delete     <int-id>    -y
+vendo metrics delete <metric-id> -y
+```
+
+### Run + watch jobs
+
+```bash
+vendo sources sync <source-id>           # trigger a manual import
+vendo sources sync <source-id> --watch   # …and wait for it
+vendo int sync     <int-id> --watch      # same for export integrations
+vendo jobs watch                         # live polling view of running jobs
+vendo jobs tail <job-id>                 # tail one job's events live
+vendo jobs tail --source <source-id> --next   # wait for the next new job, then tail it
+vendo jobs cancel <job-id> -y            # cancel a queued/running job
+```
+
+### Pause + resume
+
+```bash
+vendo apps pause <app-id>      # stop everything tied to this app
+vendo apps resume <app-id>
+vendo sources pause <source-id>
+vendo sources resume <source-id>
+vendo int pause <int-id>
+vendo int resume <int-id>
+```
+
+### Discover everything
+
+`vendo --help` lists every command group. `vendo <group> --help` (e.g. `vendo int --help`, `vendo jobs --help`) lists the verbs under that group. `vendo <group> <verb> --help` shows the full options for that verb. `vendo doctor` is a one-shot health check of your local setup + API auth.
+
+Every command supports `--json` for machine-readable output (so you can pipe through `jq`), and `--debug` for verbose request diagnostics.
 
 ## Multi-account
 
