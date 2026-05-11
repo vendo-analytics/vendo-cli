@@ -187,17 +187,20 @@ main() {
   require_command uname
   require_command mktemp
 
-  local target tag asset_name checksum_name tmp_dir asset_path checksum_path version
+  local target tag asset_name checksum_name asset_path checksum_path version
   target="$(detect_target)"
   tag="$(resolve_tag)"
   version="${tag#cli-v}"
   asset_name="vendo-${target}"
   checksum_name="${asset_name}.sha256"
+  # tmp_dir is intentionally script-scope (not local) so the EXIT trap can
+  # see it after main() returns — local vars are out of scope by then,
+  # which with `set -u` produces an "unbound variable" error at cleanup.
   tmp_dir="$(mktemp -d)"
   asset_path="${tmp_dir}/${asset_name}"
   checksum_path="${tmp_dir}/${checksum_name}"
 
-  trap 'rm -rf "${tmp_dir}"' EXIT
+  trap 'rm -rf "${tmp_dir:-}"' EXIT
 
   log "Installing Vendo CLI ${version} for ${target}"
   curl -fsSL -o "$asset_path" "${DOWNLOAD_BASE}/${tag}/${asset_name}"
