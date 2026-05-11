@@ -1,0 +1,59 @@
+{
+  "name": "vendo-cli",
+  "version": "0.3.0",
+  "description": "Vendo CLI — manage your data pipeline from the terminal",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "vendo": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.29.2",
+  "keywords": [
+    "vendo",
+    "cli",
+    "data-pipeline",
+    "etl"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vendo-analytics/vendo-cli"
+  },
+  "homepage": "https://vendodata.com",
+  "scripts": {
+    "build": "tsup",
+    "build:sea-bundle": "tsup --config tsup.sea.config.ts",
+    "build:standalone": "pnpm run build:sea-bundle && node ./scripts/build-standalone.mjs",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --check \"src/**/*.ts\"",
+    "format:fix": "prettier --write \"src/**/*.ts\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "cli-table3": "^0.6.5",
+    "commander": "^13.1.0",
+    "ora": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "postject": "1.0.0-alpha.6",
+    "prettier": "^3.0.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
+  }
+}

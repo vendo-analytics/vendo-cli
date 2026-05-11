@@ -1,0 +1,121 @@
+name: Release vendo-cli
+
+on:
+  push:
+    tags:
+      - 'cli-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Run typecheck
+        run: pnpm typecheck
+
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#cli-v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="$(cat <<'EOF'
+          Install with:
+
+          curl -fsSL https://app2.vendodata.com/install.sh | bash
+
+          Staging: curl -fsSL https://stg.vendodata.com/install.sh | bash
+          EOF
+          )"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "Vendo CLI ${GITHUB_REF_NAME#cli-v}" \
+              --notes "$NOTES"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "Vendo CLI ${GITHUB_REF_NAME#cli-v}" \
+              --notes "$NOTES"
+          fi
+
+  publish:
+    name: Publish ${{ matrix.target }}
+    needs: release
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux-x64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+          - runner: macos-13
+            target: darwin-x64
+          - runner: macos-14
+            target: darwin-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build standalone binary
+        run: pnpm build:standalone
+
+      - name: Smoke test binary
+        run: ./dist/vendo-${{ matrix.target }} --version
+
+      - name: Write checksum
+        shell: bash
+        run: |
+          cd dist
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "vendo-${{ matrix.target }}" > "vendo-${{ matrix.target }}.sha256"
+          else
+            shasum -a 256 "vendo-${{ matrix.target }}" > "vendo-${{ matrix.target }}.sha256"
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            "dist/vendo-${{ matrix.target }}" \
+            "dist/vendo-${{ matrix.target }}.sha256" \
+            --clobber
