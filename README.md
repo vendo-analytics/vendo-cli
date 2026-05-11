@@ -4,16 +4,8 @@ Manage your [Vendo](https://vendodata.com) data pipeline from the terminal.
 
 ## Install
 
-**Production** (uses `https://app2.vendodata.com`):
-
 ```bash
 curl -fsSL https://app2.vendodata.com/install.sh | bash
-```
-
-**Staging** (uses `https://stg.vendodata.com`):
-
-```bash
-curl -fsSL https://stg.vendodata.com/install.sh | bash
 ```
 
 The installer downloads the right standalone binary for your platform from this repo's [GitHub Releases](https://github.com/vendo-analytics/vendo-cli/releases), verifies its SHA-256, and installs `vendo` into `~/.local/bin`. Shell completions are installed when possible.
@@ -29,12 +21,38 @@ vendo whoami     # show the active account
 vendo status     # check service health
 ```
 
-Log in once and every subsequent command works with no flags:
+## Authentication
+
+The CLI stores credentials in a profile at `~/.config/vendo/config.json`. **Log in once and every subsequent command works with no flags.**
+
+**Browser login (recommended).** Opens a browser window where you confirm the account; the CLI saves the resulting profile and you're done:
 
 ```bash
-vendo login                # opens a browser window
-# or, for CI / scripts:
+vendo login
+```
+
+If you have access to multiple Vendo accounts the browser flow lets you pick which one to authenticate against, and saves the profile keyed by the account slug.
+
+**Headless login.** For CI, automation, or any environment without a browser, mint an account-scoped API key from the Vendo dashboard (Settings → API Keys) and pass both the key and the account id:
+
+```bash
 vendo login --api-key vendo_sk_… --account <account-id>
+```
+
+This validates the credentials against `/api/v1/me` and writes the same profile that the browser flow would, so future commands need no flags.
+
+**Inspecting the active session.**
+
+```bash
+vendo whoami            # which account you're authenticated as
+vendo profile current   # active profile + where each effective value comes from
+vendo doctor            # full health check
+```
+
+**Logging out.**
+
+```bash
+vendo logout
 ```
 
 ## Common commands
@@ -59,14 +77,6 @@ vendo profile list                       # show saved profiles
 vendo profile switch <account-slug>      # change the active profile
 vendo profile current                    # what's active right now
 vendo --profile <name> <command>         # one-off override
-```
-
-Env-var overrides (handy in CI):
-
-```bash
-VENDO_API_KEY=…           # Bearer key
-VENDO_ACCOUNT_ID=…        # Account UUID
-VENDO_API_URL=…           # API base URL (defaults to https://app2.vendodata.com)
 ```
 
 ## Self-update
