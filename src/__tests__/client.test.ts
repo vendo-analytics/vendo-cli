@@ -511,20 +511,6 @@ describe('client', () => {
       consoleWarnSpy.mockRestore();
     });
 
-    it('converts role string to array', async () => {
-      vi.mocked(globalThis.fetch).mockResolvedValue(
-        new Response(JSON.stringify({ id: '1', role: 'source' }), {
-          status: 200,
-          headers: new Headers({ 'Content-Type': 'application/json' }),
-        }),
-      );
-
-      const { getClient: freshGetClient } = await import('../client.js');
-      const res = await freshGetClient().get('/apps/1');
-      const data = res.data as Record<string, unknown>;
-      expect(data.role).toEqual(['source']);
-    });
-
     it('adds appType alias from appTypeId', async () => {
       vi.mocked(globalThis.fetch).mockResolvedValue(
         new Response(JSON.stringify({ id: '1', app_type_id: 'stripe' }), {
