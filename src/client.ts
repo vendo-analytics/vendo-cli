@@ -451,10 +451,6 @@ function fixFieldTypes(obj: unknown): unknown {
   }
   if (obj !== null && typeof obj === 'object') {
     const record = obj as Record<string, unknown>;
-    // role: API returns string, CLI expects string[]
-    if (typeof record.role === 'string') {
-      record.role = [record.role];
-    }
     // appTypeId → appType alias (CLI uses appType for display)
     if (record.appTypeId && !record.appType) {
       record.appType = record.appTypeId;

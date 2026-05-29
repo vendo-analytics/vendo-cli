@@ -25,7 +25,7 @@ interface AppItem {
   id: string;
   appType: string;
   displayName: string;
-  role: string[];
+  permissions: string[];
   state: string;
   errorMessage?: string | null;
   lastSyncAt?: string | null;
@@ -33,10 +33,46 @@ interface AppItem {
 }
 
 interface AppDetail extends AppItem {
-  permissions?: unknown;
   config?: unknown;
   consecutiveFailureCount?: number;
   updatedAt: string;
+}
+
+// ── role ↔ permissions bridge ────────────────────────────────────────────────
+// The API migrated from a `role` field to granular `permissions`. The CLI keeps
+// the familiar `--role source,destination` UX and derives permissions from it
+// client-side (conservative — never grants campaign_changes by default).
+const SOURCE_PERMISSIONS = ['performance_data'];
+const DESTINATION_PERMISSIONS = [
+  'send_conversions',
+  'sync_audiences',
+  'campaign_changes',
+  'campaign_adjust_bids',
+  'campaign_adjust_spend',
+  'campaign_toggle',
+];
+
+function permissionsFromRoles(roles: string[]): string[] {
+  const perms: string[] = [];
+  if (roles.includes('source') || roles.includes('both')) {
+    perms.push('performance_data');
+  }
+  if (roles.includes('destination') || roles.includes('both')) {
+    perms.push('send_conversions', 'sync_audiences');
+  }
+  return perms.length > 0 ? perms : ['performance_data'];
+}
+
+/** Human-readable capability label derived from permissions (for display). */
+function capabilityLabel(permissions: string[] = []): string {
+  const isSource = permissions.some((p) => SOURCE_PERMISSIONS.includes(p));
+  const isDestination = permissions.some((p) =>
+    DESTINATION_PERMISSIONS.includes(p),
+  );
+  if (isSource && isDestination) return 'source, destination';
+  if (isDestination) return 'destination';
+  if (isSource) return 'source';
+  return '—';
 }
 
 export function registerAppsCommand(program: Command): void {
@@ -48,7 +84,10 @@ export function registerAppsCommand(program: Command): void {
     .description('List all app connections')
     .option('--state <state>', 'Filter by state (active, inactive)')
     .option('--type <type>', 'Filter by app type')
-    .option('--role <role>', 'Filter by role (source, destination)')
+    .option(
+      '--role <role>',
+      'Filter by capability (source, destination) — derived from permissions',
+    )
     .option('--limit <n>', 'Number of results', '20')
     .option('--offset <n>', 'Pagination offset', '0')
     .option('--json', 'Output raw JSON')
@@ -60,7 +99,7 @@ export function registerAppsCommand(program: Command): void {
         getClient().get<AppItem[]>('/apps', {
           state: opts.state,
           app_type: opts.type,
-          role: opts.role,
+          capability: opts.role,
           limit: opts.limit,
           offset: opts.offset,
         }),
@@ -93,7 +132,7 @@ export function registerAppsCommand(program: Command): void {
           c.dim(shortId(app.id)),
           app.displayName,
           app.appType,
-          app.role.join(', '),
+          capabilityLabel(app.permissions),
           colorStatus(app.state),
           timeAgo(app.lastSyncAt),
         ]);
@@ -130,7 +169,8 @@ export function registerAppsCommand(program: Command): void {
       console.log();
       console.log(`  ID:          ${app.id}`);
       console.log(`  Type:        ${app.appType}`);
-      console.log(`  Role:        ${app.role.join(', ')}`);
+      console.log(`  Capability:  ${capabilityLabel(app.permissions)}`);
+      console.log(`  Permissions: ${(app.permissions ?? []).join(', ') || '—'}`);
       console.log(`  State:       ${colorStatus(app.state)}`);
       console.log(`  Last Sync:   ${timeAgo(app.lastSyncAt)}`);
       console.log(`  Created:     ${timeAgo(app.createdAt)}`);
@@ -304,8 +344,12 @@ export function registerAppsCommand(program: Command): void {
     )
     .option(
       '--role <role>',
-      'Comma-separated roles: source, destination',
+      'Comma-separated capability: source, destination (derives default permissions)',
       'source',
+    )
+    .option(
+      '--permissions <permissions>',
+      'Comma-separated granular permissions (e.g. performance_data,send_conversions). Overrides --role.',
     )
     .option(
       '--credentials-file <path>',
@@ -318,10 +362,18 @@ export function registerAppsCommand(program: Command): void {
     .option('--json', 'Output raw JSON')
     .option('--output <field>', 'Print a single field (e.g. id)')
     .action(async (opts) => {
-      const role = String(opts.role)
-        .split(',')
-        .map((r: string) => r.trim())
-        .filter(Boolean);
+      // Explicit --permissions wins; otherwise derive from --role capability.
+      const permissions: string[] = opts.permissions
+        ? String(opts.permissions)
+            .split(',')
+            .map((p: string) => p.trim())
+            .filter(Boolean)
+        : permissionsFromRoles(
+            String(opts.role)
+              .split(',')
+              .map((r: string) => r.trim())
+              .filter(Boolean),
+          );
 
       // No credentials → request the browser-assisted OAuth flow. The API
       // bounces back 202 with an authUrl, we open the browser and wait for
@@ -332,7 +384,7 @@ export function registerAppsCommand(program: Command): void {
         const { appId } = await runBrowserOAuth({
           appType: opts.type,
           displayName: opts.name,
-          role,
+          permissions,
           config: opts.configFile ? readJsonFile(opts.configFile) : undefined,
         });
 
@@ -352,7 +404,7 @@ export function registerAppsCommand(program: Command): void {
       const body = {
         appType: opts.type,
         displayName: opts.name,
-        role,
+        permissions,
         credentials: readJsonFile(opts.credentialsFile),
         config: opts.configFile ? readJsonFile(opts.configFile) : undefined,
       };
@@ -383,7 +435,7 @@ export function registerAppsCommand(program: Command): void {
         `App ${c.bold(app.displayName)} (${shortId(app.id)}) created.`,
       );
       printLabel('Type', app.appType);
-      printLabel('Role', app.role.join(', '));
+      printLabel('Capability', capabilityLabel(app.permissions));
       printLabel('State', colorStatus(app.state));
     });
 
@@ -397,7 +449,14 @@ export function registerAppsCommand(program: Command): void {
     .command('update <appId>')
     .description('Update an app connection')
     .option('--name <displayName>', 'New display name')
-    .option('--role <role>', 'Comma-separated roles: source, destination')
+    .option(
+      '--role <role>',
+      'Comma-separated capability: source, destination (derives permissions)',
+    )
+    .option(
+      '--permissions <permissions>',
+      'Comma-separated granular permissions. Overrides --role.',
+    )
     .option('--credentials-file <path>', 'Replace credentials from a JSON file')
     .option('--config-file <path>', 'Replace config from a JSON file')
     .option('--json', 'Output raw JSON')
@@ -405,11 +464,18 @@ export function registerAppsCommand(program: Command): void {
     .action(async (appId: string, opts) => {
       const body: Record<string, unknown> = {};
       if (opts.name) body.displayName = opts.name;
-      if (opts.role) {
-        body.role = String(opts.role)
+      if (opts.permissions) {
+        body.permissions = String(opts.permissions)
           .split(',')
-          .map((r: string) => r.trim())
+          .map((p: string) => p.trim())
           .filter(Boolean);
+      } else if (opts.role) {
+        body.permissions = permissionsFromRoles(
+          String(opts.role)
+            .split(',')
+            .map((r: string) => r.trim())
+            .filter(Boolean),
+        );
       }
       if (opts.credentialsFile) {
         body.credentials = readJsonFile(opts.credentialsFile);
@@ -457,7 +523,7 @@ function readJsonFile(path: string): unknown {
 interface OAuthAssistInput {
   appType: string;
   displayName: string;
-  role: string[];
+  permissions: string[];
   config?: unknown;
 }
 
@@ -488,7 +554,7 @@ async function runBrowserOAuth(
       client.post<OAuthAssistResponse>('/apps', {
         appType: input.appType,
         displayName: input.displayName,
-        role: input.role,
+        permissions: input.permissions,
         config: input.config,
         oauthAssist: { caller: 'cli', httpCallbackPort: port },
       }),
