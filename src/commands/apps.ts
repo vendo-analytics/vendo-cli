@@ -42,6 +42,14 @@ interface AppDetail extends AppItem {
 // The API migrated from a `role` field to granular `permissions`. The CLI keeps
 // the familiar `--role source,destination` UX and derives permissions from it
 // client-side (conservative — never grants campaign_changes by default).
+//
+// Detection-set vs grant-set divergence is intentional:
+//   - DESTINATION_PERMISSIONS below is the *detection* set used by
+//     capabilityLabel to recognise a destination app (so it must include
+//     campaign_changes and the other write scopes the API may return).
+//   - permissionsFromRoles is the *grant* set requested by `--role`. It must
+//     stay conservative and NEVER grant campaign_changes (or other write
+//     scopes) implicitly from a role alone.
 const SOURCE_PERMISSIONS = ['performance_data'];
 const DESTINATION_PERMISSIONS = [
   'send_conversions',
@@ -52,15 +60,21 @@ const DESTINATION_PERMISSIONS = [
   'campaign_toggle',
 ];
 
+// `--role` derives a conservative superset of permissions: it asks for what the
+// role *might* need without knowing the per-platform capability matrix (e.g.
+// not every destination supports send_conversions). The CLI deliberately does
+// NOT replicate that matrix — the API clamps the requested permissions down to
+// the platform's actual allowed set (dropping unsupported scopes, erroring only
+// if none remain), so over-requesting here is safe.
 function permissionsFromRoles(roles: string[]): string[] {
   const perms: string[] = [];
   if (roles.includes('source') || roles.includes('both')) {
-    perms.push('performance_data');
+    perms.push(...SOURCE_PERMISSIONS);
   }
   if (roles.includes('destination') || roles.includes('both')) {
     perms.push('send_conversions', 'sync_audiences');
   }
-  return perms.length > 0 ? perms : ['performance_data'];
+  return perms.length > 0 ? perms : [...SOURCE_PERMISSIONS];
 }
 
 /** Human-readable capability label derived from permissions (for display). */
