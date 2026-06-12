@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 
-import { getClient } from '../client.js';
+import { ClientError, getClient } from '../client.js';
 import {
   addExamples,
   c,
@@ -681,14 +681,18 @@ async function pollSession(
   sessionId: string,
 ): Promise<CallbackResult> {
   const deadline = Date.now() + 5 * 60 * 1000;
+  let consecutiveNotFound = 0;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2000));
     try {
+      // GLOBAL route: GET /api/v1/apps/oauth-session/{sessionId}
+      // (excluded from account-prefix injection in client.ts).
       const res = await client.get<{
         status: string;
         appId: string | null;
         error: string | null;
       }>(`/apps/oauth-session/${sessionId}`);
+      consecutiveNotFound = 0;
       const data = res.data;
       if (!data) continue;
       if (data.status === 'completed') {
@@ -703,8 +707,24 @@ async function pollSession(
           error: data.error ?? undefined,
         };
       }
-    } catch {
-      // transient — keep polling
+    } catch (err) {
+      // A 404 means the session does not exist server-side (expired,
+      // deleted, or the polling route is unavailable). Tolerate a couple
+      // in case of lag, then fail fast instead of silently polling for
+      // 5 minutes. Other errors are treated as transient — keep polling.
+      if (err instanceof ClientError && err.statusCode === 404) {
+        consecutiveNotFound += 1;
+        if (consecutiveNotFound >= 3) {
+          return {
+            status: 'failed',
+            error:
+              `OAuth session ${sessionId} was not found on the server ` +
+              `(GET /apps/oauth-session/${sessionId} returned 404 ` +
+              `${consecutiveNotFound} times). The session may have ` +
+              'expired — run the command again.',
+          };
+        }
+      }
     }
   }
   return { status: 'failed', error: 'Timed out after 5 minutes' };

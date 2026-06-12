@@ -51,6 +51,11 @@ const ACCOUNT_SCOPED_PREFIXES = [
   '/bigquery',
 ];
 
+// Paths that share an account-scoped prefix but are GLOBAL API routes
+// (no /accounts/{id} segment). The server scopes them via the API key.
+// e.g. /api/v1/apps/oauth-session/{sessionId}
+const GLOBAL_PATH_EXCEPTIONS = ['/apps/oauth-session'];
+
 const ACCOUNT_HEADER_PATHS = ['/me'];
 
 const COLLECTION_RESPONSE_KEYS = new Set([
@@ -62,16 +67,12 @@ const COLLECTION_RESPONSE_KEYS = new Set([
   'models',
   'streams',
   'catalog',
-  'destinations',
   'integrations',
   'triggers',
   'events',
   'costs',
   'usage',
 ]);
-
-// Action sub-paths where CLI sends POST but API expects PATCH
-const PATCH_ACTION_PATTERNS = [/\/(pause|resume|activate)$/];
 
 class VendoClient {
   private apiKey: string;
@@ -86,10 +87,13 @@ class VendoClient {
     path: string,
     options: RequestOptions = {},
   ): Promise<ApiResponse<T>> {
-    // `method` is reassigned below for action-style POST → PATCH mapping;
-    // body/params/timeout never are, so split into let + const.
-    let { method = 'GET' } = options;
-    const { body, params, timeout = 30_000, rawPath = false } = options;
+    const {
+      method = 'GET',
+      body,
+      params,
+      timeout = 30_000,
+      rawPath = false,
+    } = options;
 
     let accountId: string | undefined;
     if (!rawPath) {
@@ -99,14 +103,6 @@ class VendoClient {
         ? requireAccountId()
         : undefined;
       path = this.injectAccountPrefix(path, accountId);
-
-      // Fix HTTP method: CLI sends POST for actions, API expects PATCH
-      if (
-        method === 'POST' &&
-        PATCH_ACTION_PATTERNS.some((p) => p.test(path))
-      ) {
-        method = 'PATCH';
-      }
     }
 
     // Build URL with query params. rawPath calls pass an absolute API path
@@ -275,22 +271,10 @@ class VendoClient {
    * Map CLI paths to the actual API paths.
    *
    * - /integrations → /connections (with account prefix)
-   * - /catalog/{type} → /connectors/{type}/catalog (global)
-   * - /catalog → /connectors (global)
+   * - /catalog and /catalog/{type} pass through unchanged (global routes)
    * - Account-scoped paths get /accounts/{id} prefix
    */
   private mapPath(path: string): string {
-    // /catalog/{type} → /connectors/{type}/catalog
-    const catalogMatch = path.match(/^\/catalog\/(.+)$/);
-    if (catalogMatch) {
-      return `/connectors/${catalogMatch[1]}/catalog`;
-    }
-
-    // /catalog → /connectors
-    if (path === '/catalog') {
-      return '/connectors';
-    }
-
     // /integrations → /connections
     if (path.startsWith('/integrations')) {
       path = path.replace('/integrations', '/connections');
@@ -299,7 +283,15 @@ class VendoClient {
     return path;
   }
 
+  private isGlobalException(path: string): boolean {
+    return GLOBAL_PATH_EXCEPTIONS.some((prefix) => path.startsWith(prefix));
+  }
+
   private requiresAccountContext(path: string): boolean {
+    if (this.isGlobalException(path)) {
+      return false;
+    }
+
     return (
       ACCOUNT_SCOPED_PREFIXES.some((prefix) => path.startsWith(prefix)) ||
       ACCOUNT_HEADER_PATHS.some(
@@ -311,6 +303,7 @@ class VendoClient {
   private injectAccountPrefix(path: string, accountId?: string): string {
     if (
       accountId &&
+      !this.isGlobalException(path) &&
       ACCOUNT_SCOPED_PREFIXES.some((prefix) => path.startsWith(prefix))
     ) {
       return `/accounts/${accountId}${path}`;

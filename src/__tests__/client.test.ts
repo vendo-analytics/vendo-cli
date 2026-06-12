@@ -392,12 +392,13 @@ describe('client', () => {
       expect(url).toContain('/api/v1/accounts/acct-123/connections');
     });
 
-    it('maps /catalog to /connectors (no account prefix)', async () => {
+    it('passes /catalog through unchanged (no account prefix)', async () => {
       const { getClient: freshGetClient } = await import('../client.js');
       await freshGetClient().get('/catalog');
 
       const url = vi.mocked(globalThis.fetch).mock.calls[0]![0] as string;
-      expect(url).toContain('/api/v1/connectors');
+      expect(url).toContain('/api/v1/catalog');
+      expect(url).not.toContain('/connectors');
       expect(url).not.toContain('/accounts/');
     });
 
@@ -407,7 +408,7 @@ describe('client', () => {
       });
 
       vi.mocked(globalThis.fetch).mockResolvedValue(
-        new Response(JSON.stringify({ connectors: [] }), {
+        new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: new Headers({ 'Content-Type': 'application/json' }),
         }),
@@ -426,12 +427,34 @@ describe('client', () => {
       mockRequireAccountId.mockImplementation(() => 'acct-123');
     });
 
-    it('maps /catalog/stripe to /connectors/stripe/catalog', async () => {
+    it('passes /catalog/stripe through unchanged', async () => {
       const { getClient: freshGetClient } = await import('../client.js');
       await freshGetClient().get('/catalog/stripe');
 
       const url = vi.mocked(globalThis.fetch).mock.calls[0]![0] as string;
-      expect(url).toContain('/api/v1/connectors/stripe/catalog');
+      expect(url).toContain('/api/v1/catalog/stripe');
+      expect(url).not.toContain('/connectors');
+      expect(url).not.toContain('/accounts/');
+    });
+
+    it('does not account-scope /apps/oauth-session (global route)', async () => {
+      mockRequireAccountId.mockImplementation(() => {
+        throw new Error('No account configured');
+      });
+
+      const { getClient: freshGetClient } = await import('../client.js');
+      await freshGetClient().get('/apps/oauth-session/sess-123');
+
+      const url = vi.mocked(globalThis.fetch).mock.calls[0]![0] as string;
+      expect(url).toContain('/api/v1/apps/oauth-session/sess-123');
+      expect(url).not.toContain('/accounts/');
+
+      const fetchCall = vi.mocked(globalThis.fetch).mock.calls[0]!;
+      const options = fetchCall[1] as RequestInit;
+      const headers = options.headers as Record<string, string>;
+      expect(headers['X-Account-Id']).toBeUndefined();
+
+      mockRequireAccountId.mockImplementation(() => 'acct-123');
     });
 
     it('adds account prefix for /apps', async () => {
@@ -451,7 +474,7 @@ describe('client', () => {
     });
   });
 
-  describe('HTTP method override', () => {
+  describe('HTTP methods for action paths', () => {
     let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
@@ -470,22 +493,22 @@ describe('client', () => {
       consoleWarnSpy.mockRestore();
     });
 
-    it('converts POST to PATCH for /pause actions', async () => {
+    it('keeps POST as POST for /pause actions (API action routes are POST)', async () => {
       const { getClient: freshGetClient } = await import('../client.js');
       await freshGetClient().post('/integrations/123/pause');
 
       const fetchCall = vi.mocked(globalThis.fetch).mock.calls[0]!;
       const options = fetchCall[1] as RequestInit;
-      expect(options.method).toBe('PATCH');
+      expect(options.method).toBe('POST');
     });
 
-    it('converts POST to PATCH for /resume actions', async () => {
+    it('keeps POST as POST for /resume actions (API action routes are POST)', async () => {
       const { getClient: freshGetClient } = await import('../client.js');
       await freshGetClient().post('/integrations/123/resume');
 
       const fetchCall = vi.mocked(globalThis.fetch).mock.calls[0]!;
       const options = fetchCall[1] as RequestInit;
-      expect(options.method).toBe('PATCH');
+      expect(options.method).toBe('POST');
     });
 
     it('keeps POST as POST for non-action paths', async () => {
