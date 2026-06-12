@@ -77,7 +77,11 @@ jobs:
             target: linux-x64
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-          - runner: macos-13
+          # macos-13 (the old Intel label) was retired by GitHub — jobs queue
+          # forever and auto-cancel after 24h (this is why cli-v0.3.0 shipped
+          # without a darwin-x64 binary). macos-15-intel is the supported
+          # Intel macOS runner.
+          - runner: macos-15-intel
             target: darwin-x64
           - runner: macos-14
             target: darwin-arm64
