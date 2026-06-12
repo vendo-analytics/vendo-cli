@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Import after mocks
 import { checkForUpdates } from '../update-check.js';
 
+// Injected by vitest `define` from package.json (see vitest.config.ts) —
+// use it instead of hardcoding the current version in assertions.
+declare const __CLI_VERSION__: string;
+
 // Mock filesystem
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
@@ -80,8 +84,11 @@ describe('update-check', () => {
       const now = Date.now();
       vi.setSystemTime(now);
 
-      // __CLI_VERSION__ is read from package.json (currently 0.3.0)
-      const cache = { lastCheck: now - 3600 * 1000, latestVersion: '0.3.0' };
+      // __CLI_VERSION__ is read from package.json
+      const cache = {
+        lastCheck: now - 3600 * 1000,
+        latestVersion: __CLI_VERSION__,
+      };
       mockReadFileSync.mockReturnValue(JSON.stringify(cache));
 
       await checkForUpdates();
@@ -175,7 +182,7 @@ describe('update-check', () => {
 
       // Same version as __CLI_VERSION__ (read from package.json)
       vi.mocked(globalThis.fetch).mockResolvedValue(
-        new Response(JSON.stringify({ tag_name: 'cli-v0.3.0' }), {
+        new Response(JSON.stringify({ tag_name: `cli-v${__CLI_VERSION__}` }), {
           status: 200,
           headers: new Headers({ 'Content-Type': 'application/json' }),
         }),
