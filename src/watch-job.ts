@@ -6,7 +6,7 @@ import {
   formatCompletedJobSummary,
   formatJobDuration,
 } from './job-output.js';
-import { formatJobProgress } from './job-progress.js';
+import { formatJobProgress, getActiveJobs } from './job-progress.js';
 import {
   c,
   colorStatus,
@@ -26,10 +26,6 @@ interface JobListItem {
 }
 
 type JobDetail = JobOutputDetail;
-
-interface ActiveJobListItem extends JobOutputDetail {
-  createdAt: string;
-}
 
 interface WatchJobOptions {
   intervalMs?: number;
@@ -83,7 +79,11 @@ export async function watchActiveJobs(
 
     isPolling = true;
     try {
-      const jobs = await getActiveJobs(options);
+      const jobs = await getActiveJobs({
+        limit: 20,
+        sourceId: options.sourceId,
+        integrationId: options.integrationId,
+      });
       const snapshot = renderActiveJobsSnapshot(jobs, intervalSeconds, options);
       renderSnapshot(snapshot, lastRendered);
       lastRendered = snapshot;
@@ -276,22 +276,8 @@ function renderTailSnapshot(
   return lines.join('\n');
 }
 
-async function getActiveJobs(
-  options: WatchActiveJobsOptions,
-): Promise<ActiveJobListItem[]> {
-  const res = await getClient().get<ActiveJobListItem[]>('/jobs', {
-    status: 'running,pending',
-    limit: 20,
-    source_id: options.sourceId,
-    integration_id: options.integrationId,
-    sort: 'created_at:desc',
-  });
-
-  return res.data;
-}
-
 function renderActiveJobsSnapshot(
-  jobs: ActiveJobListItem[] | undefined,
+  jobs: JobOutputDetail[] | undefined,
   intervalSeconds: number,
   options: WatchActiveJobsOptions,
   pollError?: string,

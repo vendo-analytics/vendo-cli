@@ -1,4 +1,5 @@
 import { getClient } from './client.js';
+import { type JobOutputDetail } from './job-output.js';
 import { c, formatNumber } from './output.js';
 
 export interface ProgressJob {
@@ -13,11 +14,28 @@ export interface ProgressJob {
   totalChunks?: number | null;
 }
 
-export async function getActiveJobs(limit = 100): Promise<ProgressJob[]> {
-  const res = await getClient().get<ProgressJob[]>('/jobs', {
+export interface ActiveJobsQuery {
+  limit?: number;
+  sourceId?: string;
+  integrationId?: string;
+}
+
+/**
+ * Fetch running/pending jobs, optionally scoped to a single source or
+ * integration. The full {@link JobOutputDetail} shape is returned so callers
+ * that render rich tables (e.g. `watchActiveJobs`) have the fields they need;
+ * lighter callers simply read the subset they care about.
+ */
+export async function getActiveJobs(
+  query: ActiveJobsQuery = {},
+): Promise<JobOutputDetail[]> {
+  const { limit = 100, sourceId, integrationId } = query;
+  const res = await getClient().get<JobOutputDetail[]>('/jobs', {
     status: 'running,pending',
     limit,
     sort: 'created_at:desc',
+    source_id: sourceId,
+    integration_id: integrationId,
   });
 
   return res.data;
