@@ -12,22 +12,6 @@ export default [
         ecmaVersion: 2022,
         sourceType: 'module',
       },
-      globals: {
-        process: 'readonly',
-        console: 'readonly',
-        Buffer: 'readonly',
-        URL: 'readonly',
-        fetch: 'readonly',
-        Response: 'readonly',
-        Headers: 'readonly',
-        AbortController: 'readonly',
-        AbortSignal: 'readonly',
-        setTimeout: 'readonly',
-        clearTimeout: 'readonly',
-        setInterval: 'readonly',
-        clearInterval: 'readonly',
-        globalThis: 'readonly',
-      },
     },
     plugins: {
       '@typescript-eslint': tseslint,
@@ -35,6 +19,11 @@ export default [
     rules: {
       // Terminal UI directly writes to stdout — that's the product.
       'no-console': 'off',
+      // TypeScript already reports undefined identifiers during type
+      // checking, and `no-undef` misfires on type-only globals (e.g.
+      // `RequestInit`) while forcing a hand-maintained globals allowlist.
+      // Per typescript-eslint guidance, turn it off for TS sources.
+      'no-undef': 'off',
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': [
         'error',
