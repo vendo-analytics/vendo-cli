@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 
-import { getClient } from '../client.js';
+import { webApp } from '../api/web-app.js';
 import {
   addExamples,
   c,
@@ -14,37 +14,6 @@ import {
   shortId,
   timeAgo,
 } from '../output.js';
-
-interface MetricRow {
-  id: string;
-  account_id: string;
-  name: string;
-  description: string | null;
-  category: string | null;
-  metric_type: string;
-  formula: string | null;
-  format: string;
-  higher_is_better: boolean;
-  unit: string | null;
-  status: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface MetricDetail extends MetricRow {
-  building_blocks: unknown[];
-}
-
-interface MetricsListResponse {
-  metrics: MetricRow[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-interface MetricResponse {
-  metric: MetricDetail;
-}
 
 export function registerMetricsCommand(program: Command): void {
   const cmd = program
@@ -65,7 +34,7 @@ export function registerMetricsCommand(program: Command): void {
       const outputMode = resolveOutputMode(opts);
 
       const { data: res } = await runAction('Fetching metrics...', () =>
-        getClient().getRaw<MetricsListResponse>('/api/metrics', {
+        webApp.metrics.list({
           status: opts.status,
           category: opts.category,
           limit: opts.limit,
@@ -131,7 +100,7 @@ export function registerMetricsCommand(program: Command): void {
     .option('--json', 'Output raw JSON')
     .action(async (metricId: string, opts: { json?: boolean }) => {
       const { data: res } = await runAction('Fetching metric...', () =>
-        getClient().getRaw<MetricResponse>(`/api/metrics/${metricId}`),
+        webApp.metrics.get(metricId),
       );
 
       if (opts.json) {
@@ -229,7 +198,7 @@ export function registerMetricsCommand(program: Command): void {
       if (opts.unit) body.unit = opts.unit;
 
       const { data: res } = await runAction('Creating metric...', () =>
-        getClient().postRaw<MetricResponse>('/api/metrics', body),
+        webApp.metrics.create(body),
       );
 
       if (opts.json) {
@@ -286,7 +255,7 @@ export function registerMetricsCommand(program: Command): void {
       }
 
       const { data: res } = await runAction('Updating metric...', () =>
-        getClient().patchRaw<MetricResponse>(`/api/metrics/${metricId}`, body),
+        webApp.metrics.update(metricId, body),
       );
 
       if (opts.json) {
@@ -311,9 +280,7 @@ export function registerMetricsCommand(program: Command): void {
     .option('--json', 'Output raw JSON')
     .action(async (metricId: string, opts: { json?: boolean }) => {
       const { data: res } = await runAction('Activating metric...', () =>
-        getClient().patchRaw<MetricResponse>(`/api/metrics/${metricId}`, {
-          status: 'active',
-        }),
+        webApp.metrics.update(metricId, { status: 'active' }),
       );
 
       if (opts.json) {
@@ -346,9 +313,7 @@ export function registerMetricsCommand(program: Command): void {
         }
 
         const { data: res } = await runAction('Deleting metric...', () =>
-          getClient().deleteRaw<{ deleted: boolean; id: string }>(
-            `/api/metrics/${metricId}`,
-          ),
+          webApp.metrics.remove(metricId),
         );
 
         if (opts.json) {

@@ -1,6 +1,10 @@
 import { Command } from 'commander';
 
-import { getClient } from '../client.js';
+import {
+  type CohortLtvRow,
+  type MethodologyRow,
+  webApp,
+} from '../api/web-app.js';
 import {
   addExamples,
   c,
@@ -15,175 +19,6 @@ import {
   showArgError,
   timeAgo,
 } from '../output.js';
-
-// ── Types mirroring `apps/web/lib/vendo/measurement/queries.ts` ──────────────
-// The web API returns snake_case verbatim through `getRaw`/`postRaw`, so the
-// types here use snake_case to match the wire format.
-
-interface MethodologyRow {
-  id: string;
-  account_id: string | null;
-  name: string;
-  description: string | null;
-  click_path_model: string;
-  ensemble_weights: Record<string, number>;
-  signal_params: Record<string, unknown> | null;
-  is_system: boolean;
-  version: number;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-interface MethodologyListResponse {
-  methodologies: MethodologyRow[];
-}
-
-interface RulePreviewRow {
-  context: {
-    campaign_objective: string | null;
-    channel_grouping: string | null;
-    custom_label: string | null;
-  };
-  sample_count: number;
-  resolved_methodology: {
-    id: string;
-    name: string;
-    click_path_model: string;
-  };
-  matched_rule_id: string | null;
-  via: 'rule' | 'default_fallback';
-}
-
-interface RulePreviewResponse {
-  previews: RulePreviewRow[];
-  total_distinct_contexts: number;
-}
-
-interface CohortLtvRow {
-  cohort_period: string;
-  cohort_granularity: string;
-  segment_key: string;
-  cohort_size: number;
-  realised: {
-    ltv_30d: number | null;
-    ltv_90d: number | null;
-    ltv_12m: number | null;
-    ltv_full: number | null;
-    cac: number | null;
-    cac_ltv_ratio: number | null;
-    payback_period_days: number | null;
-    computed_at: string | null;
-  };
-  predicted: unknown | null;
-}
-
-interface CohortLtvResponse {
-  granularity: 'daily' | 'weekly' | 'monthly';
-  segment_key: string;
-  cohorts: CohortLtvRow[];
-  total_returned: number;
-}
-
-interface SignalRow {
-  id: 'click_path' | 'mmm' | 'geo_lift' | 'survey';
-  state: 'live' | 'stub';
-  availability: {
-    available: boolean;
-    reason?: string | null;
-    [key: string]: unknown;
-  } | null;
-}
-
-interface SignalListResponse {
-  signals: SignalRow[];
-}
-
-// /api/measurement/ltv/cohort/[period] — getCohortDetail() shape.
-interface CohortDetailResponse {
-  cohort_period: string;
-  cohort_granularity: 'daily' | 'weekly' | 'monthly';
-  segment_key: string;
-  cohort_size: number;
-  retention_matrix: Array<{
-    period_offset_days: number;
-    retained_customers: number;
-    retained_revenue: number;
-    retention_rate: number | null;
-  }>;
-  cumulative_curve: Array<{
-    period_offset_days: number;
-    cumulative_gross_revenue: number;
-    cumulative_revenue_after_cogs: number;
-  }>;
-  prediction: {
-    method: string;
-    ltv_30d_predicted: number | null;
-    ltv_90d_predicted: number | null;
-    ltv_12m_predicted: number | null;
-    metadata: Record<string, unknown> | null;
-    computed_at: string | null;
-  } | null;
-}
-
-// /api/measurement/ltv/customer/[customer_id] — getCustomerLtv() shape.
-interface CustomerLtvResponse {
-  cohort: {
-    customer_id: string;
-    acquisition_date: string;
-    cohort_period_daily: string;
-    cohort_period_weekly: string;
-    cohort_period_monthly: string;
-    acquisition_channel: string | null;
-    acquisition_campaign: string | null;
-    country: string | null;
-    is_reactivated: boolean;
-    [key: string]: unknown;
-  } | null;
-  revenue: Array<{
-    revenue_period_daily: string;
-    period_offset_days: number;
-    gross_revenue: number;
-    refund_amount: number;
-    cogs_amount: number;
-    revenue_after_cogs: number;
-    order_count: number;
-    is_subscription: boolean;
-  }>;
-  realised: {
-    ltv_30d: number | null;
-    ltv_90d: number | null;
-    ltv_12m: number | null;
-    ltv_full: number | null;
-    ltv_30d_after_cogs: number | null;
-    ltv_90d_after_cogs: number | null;
-    ltv_12m_after_cogs: number | null;
-    ltv_full_after_cogs: number | null;
-  };
-}
-
-// /api/measurement/signals/click-path — getClickPathStatus() shape.
-interface ClickPathStatusResponse {
-  status: {
-    enabled: boolean;
-    lastComputedAt: string | null;
-    sampleEstimates: Array<{
-      tier_label?: string | null;
-      attribution_decision?: string | null;
-      [key: string]: unknown;
-    }>;
-    readiness: {
-      available: boolean;
-      reason?: string | null;
-      readiness?: Array<{
-        key: string;
-        label: string;
-        ok: boolean;
-        detail?: string | null;
-      }>;
-      [key: string]: unknown;
-    };
-  };
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -264,10 +99,7 @@ function registerMethodologiesGroup(parent: Command): void {
       if (opts.system === false) params.include_system = 'false';
 
       const res = await runAction('Fetching methodologies...', () =>
-        getClient().getRaw<MethodologyListResponse>(
-          '/api/measurement/methodologies',
-          params,
-        ),
+        webApp.measurement.methodologies(params),
       );
 
       if (outputMode === 'json') {
@@ -318,10 +150,7 @@ function registerMethodologiesGroup(parent: Command): void {
     .action(async (methodologyId: string, opts: { json?: boolean }) => {
       // No dedicated GET-by-id endpoint in Phase 1c; filter the list response.
       const res = await runAction('Fetching methodology...', () =>
-        getClient().getRaw<MethodologyListResponse>(
-          '/api/measurement/methodologies',
-          {},
-        ),
+        webApp.measurement.methodologies(),
       );
 
       const row = res.data.methodologies.find((m) => m.id === methodologyId);
@@ -398,10 +227,11 @@ function registerRulesGroup(parent: Command): void {
         }
 
         const res = await runAction('Previewing segmentation rules...', () =>
-          getClient().postRaw<RulePreviewResponse>(
-            '/api/measurement/methodologies/rules/preview',
-            { from_date: opts.from, to_date: opts.to, limit },
-          ),
+          webApp.measurement.previewRules({
+            from_date: opts.from,
+            to_date: opts.to,
+            limit,
+          }),
         );
 
         if (opts.json) {
@@ -466,7 +296,7 @@ function registerLtvGroup(parent: Command): void {
       const outputMode = resolveOutputMode(opts);
 
       const res = await runAction('Fetching LTV cohorts...', () =>
-        getClient().getRaw<CohortLtvResponse>('/api/measurement/ltv', params),
+        webApp.measurement.ltv(params),
       );
 
       if (outputMode === 'json') {
@@ -537,13 +367,10 @@ function registerLtvGroup(parent: Command): void {
         }
 
         const res = await runAction('Fetching cohort...', () =>
-          getClient().getRaw<CohortDetailResponse>(
-            `/api/measurement/ltv/cohort/${encodeURIComponent(period)}`,
-            {
-              granularity: opts.granularity,
-              segment_key: opts.segment,
-            },
-          ),
+          webApp.measurement.cohort(period, {
+            granularity: opts.granularity,
+            segment_key: opts.segment,
+          }),
         );
 
         if (opts.json) {
@@ -617,9 +444,7 @@ function registerLtvGroup(parent: Command): void {
       }
 
       const res = await runAction('Fetching customer LTV...', () =>
-        getClient().getRaw<CustomerLtvResponse>(
-          `/api/measurement/ltv/customer/${encodeURIComponent(customerId)}`,
-        ),
+        webApp.measurement.customer(customerId),
       );
 
       if (opts.json) {
@@ -700,7 +525,7 @@ function registerSignalsGroup(parent: Command): void {
     .option('--json', 'Output raw JSON')
     .action(async (opts: { json?: boolean }) => {
       const res = await runAction('Fetching signal availability...', () =>
-        getClient().getRaw<SignalListResponse>('/api/measurement/signals'),
+        webApp.measurement.signals(),
       );
 
       if (opts.json) {
@@ -759,10 +584,7 @@ function registerSignalsGroup(parent: Command): void {
       }
 
       const res = await runAction('Fetching click-path status...', () =>
-        getClient().getRaw<ClickPathStatusResponse>(
-          '/api/measurement/signals/click-path',
-          params,
-        ),
+        webApp.measurement.clickPath(params),
       );
 
       if (opts.json) {
