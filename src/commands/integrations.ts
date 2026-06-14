@@ -1,5 +1,4 @@
 import { Command } from 'commander';
-import { readFileSync } from 'node:fs';
 
 import { getClient } from '../client.js';
 import {
@@ -11,21 +10,24 @@ import {
   addExamples,
   c,
   colorStatus,
-  confirm,
   createTable,
   printCount,
-  printDryRun,
   printField,
   printJson,
   printLabel,
-  printSingleField,
   printSuccess,
   resolveOutputMode,
   runAction,
   shortId,
   timeAgo,
 } from '../output.js';
-import { watchTriggeredResourceJob } from '../watch-job.js';
+import {
+  type PipelineResourceConfig,
+  readJsonFile,
+  registerDeleteCommand,
+  registerStateActionCommand,
+  registerSyncCommand,
+} from './pipeline-resource.js';
 
 interface IntegrationItem {
   id: string;
@@ -55,11 +57,11 @@ interface IntegrationDetail extends IntegrationItem {
   updatedAt: string;
 }
 
-interface SyncTriggerResponse {
-  jobId?: string;
-  status?: string;
-  message?: string;
-}
+const RESOURCE: PipelineResourceConfig = {
+  singular: 'integration',
+  idParam: 'integrationId',
+  apiPath: '/integrations',
+};
 
 export function registerIntegrationsCommand(program: Command): void {
   const cmd = program
@@ -226,284 +228,56 @@ export function registerIntegrationsCommand(program: Command): void {
   ]);
 
   // integrations sync (with idempotent check)
-  const syncCmd = cmd
-    .command('sync <integrationId>')
-    .description('Trigger a manual sync')
-    .option('--json', 'Output raw JSON')
-    .option('--watch', 'Watch the job until it completes')
-    .option('--dry-run', 'Preview the action without executing')
-    .option('--output <field>', 'Print a single field (e.g. id for job ID)')
-    .action(
-      async (
-        integrationId: string,
-        opts: {
-          json?: boolean;
-          watch?: boolean;
-          dryRun?: boolean;
-          output?: string;
-        },
-      ) => {
-        // Dry-run: show what would happen
-        if (opts.dryRun) {
-          const [intRes, activeJob] = await runAction(
-            'Checking integration...',
-            async () =>
-              Promise.all([
-                getClient().get<IntegrationDetail>(
-                  `/integrations/${integrationId}`,
-                ),
-                getActiveJobForResource('integration', integrationId),
-              ]),
-          );
-          printDryRun('trigger sync for', 'integration', integrationId, {
-            Source: intRes.data.sourceAppName ?? '—',
-            Destination: intRes.data.destinationAppName ?? '—',
-            'Data Type': intRes.data.dataType,
-            'Active Job': activeJob
-              ? `${shortId(activeJob.id)} (${activeJob.status})`
-              : 'none',
-          });
-          return;
-        }
-
-        // Idempotent: check for existing active job
-        const existingJob = await runAction('Checking for active jobs...', () =>
-          getActiveJobForResource('integration', integrationId),
-        );
-
-        if (existingJob) {
-          const outputMode = resolveOutputMode(opts);
-
-          if (outputMode === 'json') {
-            printJson({
-              data: {
-                jobId: existingJob.id,
-                status: existingJob.status,
-                message: 'Sync already in progress',
-              },
-            });
-            return;
-          }
-
-          if (outputMode === 'field') {
-            printSingleField(
-              existingJob as unknown as Record<string, unknown>,
-              opts.output ?? 'id',
-            );
-            return;
-          }
-
-          console.log(
-            c.yellow('Sync already in progress'),
-            `for integration ${shortId(integrationId)}.`,
-          );
-          console.log(
-            `  Job: ${existingJob.id} (${colorStatus(existingJob.status)})`,
-          );
-
-          if (opts.watch) {
-            await watchTriggeredResourceJob(
-              integrationId,
-              'integration',
-              existingJob.id,
-              new Date().toISOString(),
-            );
-          }
-          return;
-        }
-
-        // No active job — trigger a new sync
-        const syncRequestedAt = new Date().toISOString();
-        const res = await runAction('Triggering sync...', () =>
-          getClient().post<SyncTriggerResponse>(
-            `/integrations/${integrationId}/sync`,
-          ),
-        );
-
-        const outputMode = resolveOutputMode(opts);
-
-        if (outputMode === 'json') {
-          printJson(res);
-          return;
-        }
-
-        if (outputMode === 'field') {
-          printSingleField(
-            { id: res.data.jobId ?? integrationId, ...res.data } as Record<
-              string,
-              unknown
-            >,
-            opts.output ?? 'id',
-          );
-          return;
-        }
-
-        printSuccess(
-          `Sync triggered for integration ${shortId(integrationId)}.`,
-        );
-
-        if (opts.watch) {
-          await watchTriggeredResourceJob(
-            integrationId,
-            'integration',
-            res.data.jobId,
-            syncRequestedAt,
-          );
-        } else {
-          console.log(
-            c.dim(
-              `Use 'vendo jobs list --integration ${integrationId}' to monitor.`,
-            ),
-          );
-        }
-      },
-    );
-
-  addExamples(syncCmd, [
-    'vendo integrations sync <integrationId>',
-    'vendo int sync <integrationId> --watch',
-    'vendo integrations sync <integrationId> --dry-run',
-  ]);
+  registerSyncCommand<IntegrationDetail>(
+    cmd,
+    RESOURCE,
+    (int) => ({
+      Source: int.sourceAppName ?? '—',
+      Destination: int.destinationAppName ?? '—',
+      'Data Type': int.dataType,
+    }),
+    [
+      'vendo integrations sync <integrationId>',
+      'vendo int sync <integrationId> --watch',
+      'vendo integrations sync <integrationId> --dry-run',
+    ],
+  );
 
   // integrations pause
-  const pauseCmd = cmd
-    .command('pause <integrationId>')
-    .description('Pause an integration')
-    .option('--json', 'Output raw JSON')
-    .option('--dry-run', 'Preview the action without executing')
-    .option('--output <field>', 'Print a single field (e.g. id)')
-    .action(
-      async (
-        integrationId: string,
-        opts: { json?: boolean; dryRun?: boolean; output?: string },
-      ) => {
-        if (opts.dryRun) {
-          printDryRun('pause', 'integration', integrationId);
-          return;
-        }
-
-        const res = await runAction('Pausing integration...', () =>
-          getClient().post(`/integrations/${integrationId}/pause`),
-        );
-
-        const outputMode = resolveOutputMode(opts);
-
-        if (outputMode === 'json') {
-          printJson(res);
-          return;
-        }
-
-        if (outputMode === 'field') {
-          console.log(integrationId);
-          return;
-        }
-
-        printSuccess(`Integration ${shortId(integrationId)} paused.`);
-      },
-    );
-
-  addExamples(pauseCmd, [
-    'vendo integrations pause <integrationId>',
-    'vendo int pause <integrationId> --dry-run',
-  ]);
+  registerStateActionCommand(cmd, RESOURCE, {
+    name: 'pause',
+    gerund: 'Pausing',
+    pastTense: 'paused',
+    description: 'Pause an integration',
+    examples: [
+      'vendo integrations pause <integrationId>',
+      'vendo int pause <integrationId> --dry-run',
+    ],
+  });
 
   // integrations resume
-  const resumeCmd = cmd
-    .command('resume <integrationId>')
-    .description('Resume a paused integration')
-    .option('--json', 'Output raw JSON')
-    .option('--dry-run', 'Preview the action without executing')
-    .option('--output <field>', 'Print a single field (e.g. id)')
-    .action(
-      async (
-        integrationId: string,
-        opts: { json?: boolean; dryRun?: boolean; output?: string },
-      ) => {
-        if (opts.dryRun) {
-          printDryRun('resume', 'integration', integrationId);
-          return;
-        }
-
-        const res = await runAction('Resuming integration...', () =>
-          getClient().post(`/integrations/${integrationId}/resume`),
-        );
-
-        const outputMode = resolveOutputMode(opts);
-
-        if (outputMode === 'json') {
-          printJson(res);
-          return;
-        }
-
-        if (outputMode === 'field') {
-          console.log(integrationId);
-          return;
-        }
-
-        printSuccess(`Integration ${shortId(integrationId)} resumed.`);
-      },
-    );
-
-  addExamples(resumeCmd, [
-    'vendo integrations resume <integrationId>',
-    'vendo integrations resume <integrationId> --dry-run',
-  ]);
+  registerStateActionCommand(cmd, RESOURCE, {
+    name: 'resume',
+    gerund: 'Resuming',
+    pastTense: 'resumed',
+    description: 'Resume a paused integration',
+    examples: [
+      'vendo integrations resume <integrationId>',
+      'vendo integrations resume <integrationId> --dry-run',
+    ],
+  });
 
   // integrations delete
-  const deleteCmd = cmd
-    .command('delete <integrationId>')
-    .description('Delete an integration (soft delete)')
-    .option('--json', 'Output raw JSON')
-    .option('-y, --yes', 'Skip confirmation prompt')
-    .option('--dry-run', 'Preview the action without executing')
-    .option('--output <field>', 'Print a single field (e.g. id)')
-    .action(
-      async (
-        integrationId: string,
-        opts: {
-          json?: boolean;
-          yes?: boolean;
-          dryRun?: boolean;
-          output?: string;
-        },
-      ) => {
-        if (opts.dryRun) {
-          printDryRun('delete', 'integration', integrationId);
-          return;
-        }
-
-        if (!opts.yes && !opts.json) {
-          const ok = await confirm(
-            `Delete integration ${shortId(integrationId)}?`,
-          );
-          if (!ok) return;
-        }
-
-        const res = await runAction('Deleting integration...', () =>
-          getClient().delete(`/integrations/${integrationId}`),
-        );
-
-        const outputMode = resolveOutputMode(opts);
-
-        if (outputMode === 'json') {
-          printJson(res);
-          return;
-        }
-
-        if (outputMode === 'field') {
-          console.log(integrationId);
-          return;
-        }
-
-        printSuccess(`Integration ${shortId(integrationId)} deleted.`);
-      },
-    );
-
-  addExamples(deleteCmd, [
-    'vendo integrations delete <integrationId>',
-    'vendo int delete <integrationId> --yes',
-    'vendo integrations delete <integrationId> --dry-run',
-  ]);
+  registerDeleteCommand(
+    cmd,
+    RESOURCE,
+    'Delete an integration (soft delete)',
+    [
+      'vendo integrations delete <integrationId>',
+      'vendo int delete <integrationId> --yes',
+      'vendo integrations delete <integrationId> --dry-run',
+    ],
+  );
 
   // integrations create
   const createCmd = cmd
@@ -640,13 +414,4 @@ export function registerIntegrationsCommand(program: Command): void {
     'vendo int update <integrationId> --frequency 6 --unit hours',
     'vendo int update <integrationId> --config-file new-tasks.json',
   ]);
-}
-
-function readJsonFile(path: string): unknown {
-  try {
-    return JSON.parse(readFileSync(path, 'utf-8'));
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'read error';
-    throw new Error(`Failed to read ${path}: ${msg}`);
-  }
 }
