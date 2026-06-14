@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 
-import { getClient } from '../client.js';
+import { type MeResponse, getClient } from '../client.js';
 import { getEffectiveConfig, listProfileSummaries } from '../config.js';
 import { addExamples, c, printJson, runAction } from '../output.js';
 import {
@@ -8,14 +8,6 @@ import {
   getEnvOverrideNames,
 } from '../profile-display.js';
 import { checkForUpdates } from '../update-check.js';
-
-interface MeResponse {
-  accountId: string;
-  accountName: string | null;
-  accountSlug: string | null;
-  apiKeyId: string;
-  scopes: string[];
-}
 
 export function registerWhoamiCommand(program: Command): void {
   const cmd = program
@@ -55,8 +47,8 @@ export function registerWhoamiCommand(program: Command): void {
         `  Profile:     ${config.selectedProfile ?? c.dim('none selected')}`,
       );
       console.log(`  Base URL:    ${config.baseUrl}`);
-      console.log(`  API Key:     ${c.dim(me.apiKeyId)}`);
-      if (me.scopes.length > 0) {
+      console.log(`  API Key:     ${c.dim(me.apiKeyId ?? 'unknown')}`);
+      if (me.scopes && me.scopes.length > 0) {
         console.log(`  Scopes:      ${me.scopes.join(', ')}`);
       } else {
         console.log(`  Scopes:      ${c.dim('full access')}`);

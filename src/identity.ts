@@ -1,14 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { ClientError, type MeResponse, createClient } from './client.js';
 
-import { toCamelCaseDeep } from './client.js';
-
-export interface MeResponse {
-  accountId: string;
-  accountName: string | null;
-  accountSlug: string | null;
-  apiKeyId?: string;
-  scopes?: string[];
-}
+export type { MeResponse };
 
 export class IdentityFetchError extends Error {
   constructor(
@@ -21,33 +13,29 @@ export class IdentityFetchError extends Error {
 }
 
 /**
- * Fetch `/api/v1/me` and return the camelCased identity payload.
+ * Validate credentials by fetching `/api/v1/me` with an explicit (not-yet-saved)
+ * API key and account ID. A thin wrapper over the shared {@link createClient}
+ * transport so login/doctor/init use the same request pipeline (timeouts,
+ * debug logging, snake_case → camelCase normalization) as the rest of the CLI.
  *
- * The pipelines API returns snake_case; the rest of the CLI consumes
- * camelCase via the shared client normaliser. Without applying it here
- * `accountSlug` / `accountName` would be undefined at runtime even though
- * the TypeScript cast suggests otherwise — silently demoting saved
- * profile names to the raw account UUID.
+ * HTTP error responses are surfaced as {@link IdentityFetchError} (preserving
+ * the status/statusText callers format); network/timeout failures propagate as
+ * the underlying error.
  */
 export async function fetchIdentity(
   apiKey: string,
   accountId: string,
   baseUrl: string,
 ): Promise<MeResponse> {
-  const res = await fetch(new URL('/api/v1/me', baseUrl), {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-      'X-API-Secret': apiKey,
-      'X-Account-Id': accountId,
-      'X-Request-Id': `cli-${randomUUID()}`,
-      'X-Actor': 'vendo-cli',
-    },
-  });
-
-  if (!res.ok) {
-    throw new IdentityFetchError(res.status, res.statusText);
+  try {
+    return await createClient({ apiKey, accountId, baseUrl }).verify();
+  } catch (err) {
+    if (err instanceof ClientError && err.statusCode > 0) {
+      throw new IdentityFetchError(
+        err.statusCode,
+        err.statusText ?? err.message,
+      );
+    }
+    throw err;
   }
-
-  return toCamelCaseDeep(await res.json()) as MeResponse;
 }

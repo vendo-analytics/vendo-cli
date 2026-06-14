@@ -23,6 +23,23 @@ export interface ApiError {
   };
 }
 
+/** Identity payload returned by `/api/v1/me`. */
+export interface MeResponse {
+  accountId: string;
+  accountName: string | null;
+  accountSlug: string | null;
+  apiKeyId?: string;
+  scopes?: string[];
+}
+
+export interface VendoClientOptions {
+  /** Explicit credentials, used to probe `/me` before config is persisted
+   *  (login/doctor/init). When omitted, values are read from config. */
+  apiKey?: string;
+  accountId?: string;
+  baseUrl?: string;
+}
+
 export interface RequestOptions {
   method?: string;
   body?: unknown;
@@ -77,10 +94,16 @@ const COLLECTION_RESPONSE_KEYS = new Set([
 class VendoClient {
   private apiKey: string;
   private baseUrl: string;
+  private explicitAccountId?: string;
 
-  constructor() {
-    this.apiKey = requireApiKey();
-    this.baseUrl = getBaseUrl();
+  constructor(options: VendoClientOptions = {}) {
+    this.apiKey = options.apiKey ?? requireApiKey();
+    this.baseUrl = options.baseUrl ?? getBaseUrl();
+    this.explicitAccountId = options.accountId;
+  }
+
+  private resolveAccountId(): string {
+    return this.explicitAccountId ?? requireAccountId();
   }
 
   async request<T = unknown>(
@@ -100,7 +123,7 @@ class VendoClient {
       // Map CLI paths to API paths
       path = this.mapPath(path);
       accountId = this.requiresAccountContext(path)
-        ? requireAccountId()
+        ? this.resolveAccountId()
         : undefined;
       path = this.injectAccountPrefix(path, accountId);
     }
@@ -198,6 +221,7 @@ class VendoClient {
             {
               requestId,
               serverRequestId,
+              statusText: res.statusText,
             },
           );
         }
@@ -223,6 +247,7 @@ class VendoClient {
             requestId,
             serverRequestId,
             details: errorBody.error?.details,
+            statusText: res.statusText,
           },
         );
       }
@@ -382,6 +407,18 @@ class VendoClient {
   }
 
   /**
+   * Fetch the authenticated identity from `/api/v1/me`.
+   *
+   * The single source of truth for "who am I" across the CLI — used both for
+   * the `whoami` display and (via {@link createClient} with explicit creds)
+   * to validate credentials during login/doctor/init before they're saved.
+   */
+  async verify(): Promise<MeResponse> {
+    const res = await this.request<MeResponse>('/me');
+    return res.data;
+  }
+
+  /**
    * GET a non-`/api/v1` endpoint by absolute API path (e.g. `/api/measurement/...`).
    * Bypasses path mapping, account injection, and key normalization. The response is
    * returned verbatim under `data` so callers see the endpoint's canonical shape.
@@ -517,6 +554,9 @@ export class ClientError extends Error {
   public requestId?: string;
   public serverRequestId?: string;
   public details?: unknown;
+  /** Raw HTTP status text from the response, when the error came from an
+   *  HTTP response (absent for network/timeout failures). */
+  public statusText?: string;
 
   constructor(
     message: string,
@@ -526,6 +566,7 @@ export class ClientError extends Error {
       requestId?: string;
       serverRequestId?: string;
       details?: unknown;
+      statusText?: string;
     },
   ) {
     super(message);
@@ -533,6 +574,7 @@ export class ClientError extends Error {
     this.requestId = metadata?.requestId;
     this.serverRequestId = metadata?.serverRequestId;
     this.details = metadata?.details;
+    this.statusText = metadata?.statusText;
   }
 }
 
@@ -543,4 +585,12 @@ export function getClient(): VendoClient {
     _client = new VendoClient();
   }
   return _client;
+}
+
+/**
+ * Build a one-off client with explicit credentials, bypassing the config-backed
+ * singleton. Use for credential probing before config is persisted.
+ */
+export function createClient(options: VendoClientOptions): VendoClient {
+  return new VendoClient(options);
 }
