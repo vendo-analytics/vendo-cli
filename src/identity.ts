@@ -21,6 +21,12 @@ export class IdentityFetchError extends Error {
  * HTTP error responses are surfaced as {@link IdentityFetchError} (preserving
  * the status/statusText callers format); network/timeout failures propagate as
  * the underlying error.
+ *
+ * The discriminator is `statusText`: the transport sets it (from
+ * `res.statusText`) only when an actual HTTP response came back, so a missing
+ * `statusText` marks a synthetic client-side failure — a 30s timeout
+ * (`ClientError(..., 408)`) or a network error (`ClientError(..., 0)`) — which
+ * must propagate rather than masquerade as a credential rejection.
  */
 export async function fetchIdentity(
   apiKey: string,
@@ -30,11 +36,8 @@ export async function fetchIdentity(
   try {
     return await createClient({ apiKey, accountId, baseUrl }).verify();
   } catch (err) {
-    if (err instanceof ClientError && err.statusCode > 0) {
-      throw new IdentityFetchError(
-        err.statusCode,
-        err.statusText ?? err.message,
-      );
+    if (err instanceof ClientError && err.statusText !== undefined) {
+      throw new IdentityFetchError(err.statusCode, err.statusText);
     }
     throw err;
   }
