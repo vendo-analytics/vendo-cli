@@ -351,8 +351,6 @@ function formatSource(source: string): string {
       return 'from env';
     case 'profile':
       return 'from profile';
-    case 'legacy':
-      return 'from config';
     case 'default':
       return 'default';
     default:

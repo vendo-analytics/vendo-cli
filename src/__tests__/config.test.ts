@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Import after mocks are set up
 import {
+  clearActiveProfile,
   deleteConfig,
   findProfilesByAccountId,
   getAccountId,
@@ -21,6 +22,7 @@ import {
   listProfiles,
   loadConfig,
   maskApiKey,
+  migrateLegacyConfig,
   requireAccountId,
   requireApiKey,
   saveConfig,
@@ -495,6 +497,138 @@ describe('config', () => {
 
     it('masks keys exactly 9 characters', () => {
       expect(maskApiKey('123456789')).toBe('1234...6789');
+    });
+  });
+
+  describe('migrateLegacyConfig', () => {
+    it('leaves a profiles-only config untouched', () => {
+      const config = {
+        profiles: { team: { apiKey: 'k', accountId: 'a' } },
+        activeProfile: 'team',
+      };
+      const result = migrateLegacyConfig(config);
+      expect(result.migrated).toBe(false);
+      expect(result.config).toBe(config);
+    });
+
+    it('folds flat-only config into a default profile', () => {
+      const result = migrateLegacyConfig({
+        apiKey: 'flat_key',
+        accountId: 'flat-id',
+        baseUrl: 'https://flat.com',
+      });
+
+      expect(result.migrated).toBe(true);
+      expect(result.config).toEqual({
+        profiles: {
+          default: {
+            apiKey: 'flat_key',
+            accountId: 'flat-id',
+            baseUrl: 'https://flat.com',
+          },
+        },
+        activeProfile: 'default',
+      });
+      // Flat fields are gone from the top level.
+      expect(result.config.apiKey).toBeUndefined();
+    });
+
+    it('backfills the active profile from legacy fields (profile wins)', () => {
+      const result = migrateLegacyConfig({
+        apiKey: 'flat_key',
+        accountId: 'flat-id',
+        profiles: { team: { apiKey: 'profile_key' } },
+        activeProfile: 'team',
+      });
+
+      expect(result.migrated).toBe(true);
+      // profile_key kept; accountId backfilled from legacy.
+      expect(result.config.profiles?.team).toEqual({
+        apiKey: 'profile_key',
+        accountId: 'flat-id',
+      });
+      expect(result.config.apiKey).toBeUndefined();
+    });
+
+    it('creates default when activeProfile points to a missing profile', () => {
+      const result = migrateLegacyConfig({
+        apiKey: 'flat_key',
+        accountId: 'flat-id',
+        activeProfile: 'nonexistent',
+        profiles: {},
+      });
+
+      expect(result.config.profiles?.default).toEqual({
+        apiKey: 'flat_key',
+        accountId: 'flat-id',
+      });
+      expect(result.config.activeProfile).toBe('default');
+    });
+
+    it('migrates an account-only config (no api key)', () => {
+      const result = migrateLegacyConfig({ accountId: 'flat-id' });
+      expect(result.config.profiles?.default).toEqual({ accountId: 'flat-id' });
+      expect(result.config.activeProfile).toBe('default');
+    });
+
+    it('avoids clobbering an existing default profile', () => {
+      const result = migrateLegacyConfig({
+        apiKey: 'flat_key',
+        profiles: { default: { apiKey: 'existing' } },
+        // no activeProfile, so legacy needs a fresh slot
+      });
+
+      expect(result.config.profiles?.default).toEqual({ apiKey: 'existing' });
+      expect(result.config.profiles?.['default-2']).toEqual({
+        apiKey: 'flat_key',
+      });
+      expect(result.config.activeProfile).toBe('default-2');
+    });
+  });
+
+  describe('legacy config auto-migration on read', () => {
+    it('persists the migrated profiles-only config to disk', () => {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ apiKey: 'flat_key', accountId: 'flat-id' }),
+      );
+
+      // Any resolution read triggers migration.
+      expect(getApiKey()).toBe('flat_key');
+
+      const written = mockWriteFileSync.mock.calls.at(-1)![1] as string;
+      const parsed = JSON.parse(written);
+      expect(parsed).toEqual({
+        profiles: { default: { apiKey: 'flat_key', accountId: 'flat-id' } },
+        activeProfile: 'default',
+      });
+    });
+  });
+
+  describe('clearActiveProfile', () => {
+    it('removes the active profile and unsets activeProfile', () => {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          profiles: {
+            team: { apiKey: 'team_key', accountId: 'team-id' },
+            other: { apiKey: 'other_key' },
+          },
+          activeProfile: 'team',
+        }),
+      );
+
+      const cleared = clearActiveProfile();
+      expect(cleared).toBe('team');
+
+      const written = mockWriteFileSync.mock.calls.at(-1)![1] as string;
+      const parsed = JSON.parse(written);
+      expect(parsed.profiles.team).toBeUndefined();
+      expect(parsed.profiles.other).toEqual({ apiKey: 'other_key' });
+      expect(parsed.activeProfile).toBeUndefined();
+    });
+
+    it('returns undefined when there is no active profile', () => {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ profiles: {} }));
+      expect(clearActiveProfile()).toBeUndefined();
     });
   });
 });
