@@ -138,16 +138,25 @@ export function migrateLegacyConfig(config: VendoConfig): {
  * persisted once (the next read sees the rewritten, profiles-only file). All
  * resolution and profile-aware writers go through this, never `loadConfig`
  * directly, so the legacy shape is invisible above this layer.
+ *
+ * Persisting is best-effort: this is a read path, so a read-only or
+ * permission-restricted config dir must not make every command fail. If the
+ * write fails we fall back to the in-memory migration (the file stays in its
+ * legacy shape and is re-migrated on the next read).
  */
 function readConfig(): VendoConfig {
   const { config, migrated } = migrateLegacyConfig(loadConfig());
   if (migrated) {
-    mkdirSync(dirname(CONFIG_PATH), { recursive: true });
-    writeFileSync(
-      CONFIG_PATH,
-      JSON.stringify(config, null, 2) + '\n',
-      'utf-8',
-    );
+    try {
+      mkdirSync(dirname(CONFIG_PATH), { recursive: true });
+      writeFileSync(
+        CONFIG_PATH,
+        JSON.stringify(config, null, 2) + '\n',
+        'utf-8',
+      );
+    } catch {
+      // Best-effort — degrade to the in-memory migration.
+    }
   }
   return config;
 }

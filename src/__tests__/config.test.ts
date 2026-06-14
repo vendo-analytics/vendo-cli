@@ -602,6 +602,24 @@ describe('config', () => {
         activeProfile: 'default',
       });
     });
+
+    it('still resolves when the migration write fails (read-only FS)', () => {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ apiKey: 'flat_key', accountId: 'flat-id' }),
+      );
+      // Simulate a read-only / permission-restricted config dir.
+      mockWriteFileSync.mockImplementation(() => {
+        throw new Error('EROFS: read-only file system');
+      });
+
+      // Reads must degrade to the in-memory migration, not throw.
+      expect(() => getApiKey()).not.toThrow();
+      expect(getApiKey()).toBe('flat_key');
+      expect(getAccountId()).toBe('flat-id');
+
+      // Restore the no-op write impl (clearAllMocks keeps implementations).
+      mockWriteFileSync.mockImplementation(() => {});
+    });
   });
 
   describe('clearActiveProfile', () => {
