@@ -5,7 +5,6 @@ import {
   getConfigPath,
   getEffectiveConfig,
   listProfileSummaries,
-  loadConfig,
   maskApiKey,
   saveResolvedConfigValues,
 } from '../config.js';
@@ -56,7 +55,6 @@ export function registerConfigCommand(program: Command): void {
     .description('Inspect low-level CLI configuration')
     .action(() => {
       const effective = getEffectiveConfig();
-      const config = loadConfig();
 
       console.log(c.bold('Vendo CLI Config Inspect'));
       console.log();
@@ -82,17 +80,6 @@ export function registerConfigCommand(program: Command): void {
         `  Active Profile: ${effective.selectedProfile ?? c.dim('none selected')}`,
       );
       console.log(`  Config Path:    ${c.dim(getConfigPath())}`);
-
-      console.log();
-      console.log(c.bold('Stored Fallback Values'));
-      console.log();
-      console.log(
-        `  Legacy API Key: ${config.apiKey ? maskApiKey(config.apiKey) : c.dim('not set')}`,
-      );
-      console.log(
-        `  Legacy Base URL:${config.baseUrl ? ` ${config.baseUrl}` : ` ${c.dim('not set')}`}`,
-      );
-      console.log(`  Legacy Account: ${config.accountId ?? c.dim('not set')}`);
 
       console.log();
       console.log(c.bold('Saved Profiles'));
