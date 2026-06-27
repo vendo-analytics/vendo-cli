@@ -5,6 +5,10 @@ on:
     tags:
       - 'cli-v*'
 
+concurrency:
+  group: release-vendo-cli-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
