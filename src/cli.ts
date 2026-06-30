@@ -10,6 +10,7 @@ import { registerIntegrationsCommand } from './commands/integrations.js';
 import { registerJobsCommand } from './commands/jobs.js';
 import { registerLoginCommand } from './commands/login.js';
 import { registerLogoutCommand } from './commands/logout.js';
+import { registerMcpCommand } from './commands/mcp.js';
 import { registerMeasurementCommand } from './commands/measurement.js';
 import { registerMetricsCommand } from './commands/metrics.js';
 import { registerModelsCommand } from './commands/models.js';
@@ -41,6 +42,7 @@ const registerCommands = [
   registerMetricsCommand,
   registerModelsCommand,
   registerMeasurementCommand,
+  registerMcpCommand,
   registerCompletionsCommand,
   registerDoctorCommand,
   registerSelfUpdateCommand,
