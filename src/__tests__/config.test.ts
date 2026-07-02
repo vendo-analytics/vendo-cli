@@ -314,6 +314,16 @@ describe('config', () => {
       );
     });
 
+    it('rejects explicitly-empty flag values instead of falling through to prod (VE-1603)', () => {
+      // `--base-url "$UNSET_VAR"` / `--env "$UNSET_VAR"` reach commander as ''.
+      // Silently falling back to the prod default is the exact wrong-instance
+      // login the flags exist to prevent — fail loudly instead.
+      expect(() => resolveLoginBaseUrl({ baseUrl: '' })).toThrow(
+        /Invalid --base-url/,
+      );
+      expect(() => resolveLoginBaseUrl({ env: '' })).toThrow(/Unknown --env/);
+    });
+
     it('falls back to VENDO_API_URL, then the prod default', () => {
       process.env.VENDO_API_URL = 'https://env.example.com';
       expect(resolveLoginBaseUrl({})).toBe('https://env.example.com');

@@ -18,14 +18,21 @@ export interface RefreshWindow {
   requestedEnd: string;
 }
 
+/** Datetime string already carrying a timezone: trailing Z or ±hh[:]mm. */
+const HAS_TIMEZONE_RE = /(?:[zZ]|[+-]\d{2}:?\d{2})$/;
+
 /**
- * Parse a `--from`/`--to` value. Accepts a full ISO datetime or a bare
- * `YYYY-MM-DD` (interpreted as UTC midnight). Throws on anything Date can't
- * parse, naming the flag so the error reads well.
+ * Parse a `--from`/`--to` value as UTC. Accepts a full ISO datetime or a bare
+ * `YYYY-MM-DD` (UTC midnight). Offset-less datetimes (`2026-07-01T10:00:00`)
+ * are ALSO treated as UTC — ECMA-262 would parse them as local time, which
+ * would make the same command request different windows on a laptop vs a UTC
+ * CI runner (VE-1603). Throws on anything unparseable, naming the flag so the
+ * error reads well.
  */
 function parseWindowBound(flag: string, value: string): Date {
-  // Bare dates parse as UTC midnight per ECMA-262 date-only forms.
-  const parsed = new Date(value);
+  const normalized =
+    value.includes('T') && !HAS_TIMEZONE_RE.test(value) ? `${value}Z` : value;
+  const parsed = new Date(normalized);
   if (Number.isNaN(parsed.getTime())) {
     throw new Error(
       `Invalid ${flag} value: "${value}". Use an ISO datetime (2026-07-01T00:00:00Z) or date (2026-07-01).`,

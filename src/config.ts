@@ -37,12 +37,15 @@ export const STAGING_BASE_URL = 'https://stg.vendodata.com';
  * `--base-url` wins, then `--env` (staging | prod), then the normal chain
  * (VENDO_API_URL → active profile → prod default). Throws on an invalid
  * URL or unknown environment so `vendo login` fails before opening a
- * browser at the wrong instance.
+ * browser at the wrong instance. Explicitly-passed EMPTY values (an unset
+ * shell variable: `--base-url "$VENDO_STAGING_URL"`) are errors too — falling
+ * through to the prod default would be the exact silent wrong-instance login
+ * this flag exists to prevent (VE-1603).
  */
 export function resolveLoginBaseUrl(
   opts: { env?: string; baseUrl?: string } = {},
 ): string {
-  if (opts.baseUrl) {
+  if (opts.baseUrl !== undefined) {
     let parsed: URL;
     try {
       parsed = new URL(opts.baseUrl);
@@ -60,7 +63,7 @@ export function resolveLoginBaseUrl(
     return parsed.origin;
   }
 
-  if (opts.env) {
+  if (opts.env !== undefined) {
     switch (opts.env.toLowerCase()) {
       case 'staging':
       case 'stg':

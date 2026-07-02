@@ -30,6 +30,29 @@ describe('resolveRefreshWindow', () => {
     expect(window.requestedEnd).toBe('2026-06-10T00:00:00.000Z');
   });
 
+  it('treats offset-less datetimes as UTC regardless of the machine timezone (VE-1603)', () => {
+    // Without normalization, ECMA-262 parses `2026-07-01T10:00:00` as LOCAL
+    // time — the same command would request different windows on a laptop vs
+    // a UTC CI runner.
+    const window = resolveRefreshWindow(
+      '2026-06-29T06:30:00',
+      '2026-07-01T10:00:00',
+      NOW,
+    );
+    expect(window.requestedStart).toBe('2026-06-29T06:30:00.000Z');
+    expect(window.requestedEnd).toBe('2026-07-01T10:00:00.000Z');
+  });
+
+  it('preserves explicit timezone offsets', () => {
+    const window = resolveRefreshWindow(
+      '2026-06-29T00:00:00+02:00',
+      '2026-07-01T00:00:00-0500',
+      NOW,
+    );
+    expect(window.requestedStart).toBe('2026-06-28T22:00:00.000Z');
+    expect(window.requestedEnd).toBe('2026-07-01T05:00:00.000Z');
+  });
+
   it('rejects invalid dates, naming the flag', () => {
     expect(() => resolveRefreshWindow('not-a-date', undefined, NOW)).toThrow(
       /--from/,
