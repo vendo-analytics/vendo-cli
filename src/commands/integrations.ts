@@ -287,12 +287,19 @@ export function registerIntegrationsCommand(program: Command): void {
             ),
         );
 
+        const summary = summarizeEnsureSourceData(res.data);
+
         if (opts.json) {
+          // Keep stdout pure JSON, but preserve the failure exit code — CI
+          // chains like `refresh-source --json && sync` must stop on
+          // `unavailable` exactly like the human-readable path does (VE-1603).
           printJson(res);
+          if (summary.tone === 'error') {
+            process.exit(1);
+          }
           return;
         }
 
-        const summary = summarizeEnsureSourceData(res.data);
         if (summary.tone === 'error') {
           exitWithError(new Error(summary.headline));
         }
