@@ -2,6 +2,11 @@ import { Command } from 'commander';
 
 import { getClient } from '../client.js';
 import {
+  type EnsureSourceDataResult,
+  resolveRefreshWindow,
+  summarizeEnsureSourceData,
+} from '../source-refresh.js';
+import {
   formatJobProgress,
   getActiveJobForResource,
   getActiveJobs,
@@ -11,6 +16,7 @@ import {
   c,
   colorStatus,
   createTable,
+  exitWithError,
   printCount,
   printField,
   printJson,
@@ -242,6 +248,78 @@ export function registerIntegrationsCommand(program: Command): void {
       'vendo integrations sync <integrationId> --dry-run',
     ],
   );
+
+  // integrations refresh-source (ensure-source-data, VE-1565)
+  const refreshCmd = cmd
+    .command('refresh-source <integrationId>')
+    .description(
+      'Check source-data availability for a window and trigger top-up imports for missing ranges',
+    )
+    .option(
+      '--from <date>',
+      'Window start — ISO datetime or YYYY-MM-DD (default: 7 days before --to)',
+    )
+    .option('--to <date>', 'Window end — ISO datetime or YYYY-MM-DD (default: now)')
+    .option('--json', 'Output raw JSON')
+    .action(
+      async (
+        integrationId: string,
+        opts: { from?: string; to?: string; json?: boolean },
+      ) => {
+        let window;
+        try {
+          window = resolveRefreshWindow(opts.from, opts.to, new Date());
+        } catch (err) {
+          exitWithError(err);
+        }
+
+        // The web API resolves the integration's source app itself; the CLI
+        // only supplies the window (full ISO — the route rejects bare dates).
+        const res = await runAction(
+          'Checking source data availability...',
+          () =>
+            getClient().post<EnsureSourceDataResult>(
+              `/integrations/${integrationId}/refresh-source`,
+              {
+                requestedStart: window.requestedStart,
+                requestedEnd: window.requestedEnd,
+              },
+            ),
+        );
+
+        if (opts.json) {
+          printJson(res);
+          return;
+        }
+
+        const summary = summarizeEnsureSourceData(res.data);
+        if (summary.tone === 'error') {
+          exitWithError(new Error(summary.headline));
+        }
+
+        printSuccess(summary.headline);
+        console.log(
+          c.dim(
+            `Window: ${window.requestedStart} → ${window.requestedEnd}`,
+          ),
+        );
+        for (const jobId of summary.jobIds) {
+          console.log(`  Import job: ${jobId}`);
+        }
+        if (summary.jobIds.length > 0) {
+          console.log();
+          console.log(
+            c.dim(`Follow progress: vendo jobs tail ${summary.jobIds[0]}`),
+          );
+        }
+      },
+    );
+
+  addExamples(refreshCmd, [
+    'vendo integrations refresh-source <integrationId>',
+    'vendo int refresh-source <integrationId> --from 2026-06-29 --to 2026-07-02',
+    'vendo integrations refresh-source <integrationId> --json',
+  ]);
 
   // integrations pause
   registerStateActionCommand(cmd, RESOURCE, {
