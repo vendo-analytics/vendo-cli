@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 
-import { getEffectiveConfig } from '../config.js';
+import { getEffectiveConfig, resolveLoginBaseUrl } from '../config.js';
 import { type MeResponse, fetchIdentity } from '../identity.js';
 import { addExamples, c, exitWithError, printSuccess } from '../output.js';
 import { printLoginSuccess, runBrowserLogin } from './login.js';
@@ -9,7 +9,12 @@ export function registerInitCommand(program: Command): void {
   const cmd = program
     .command('init')
     .description('Guide first-time Vendo CLI setup')
-    .action(async () => {
+    .option(
+      '--env <environment>',
+      'Target instance: "staging" or "prod" (default: VENDO_API_URL/profile, else prod)',
+    )
+    .option('--base-url <url>', 'Explicit API base URL (overrides --env)')
+    .action(async (opts: { env?: string; baseUrl?: string }) => {
       console.log(c.bold('Vendo CLI Setup'));
       console.log();
 
@@ -19,7 +24,7 @@ export function registerInitCommand(program: Command): void {
         console.log(c.dim('No API key found. Starting browser login...'));
 
         try {
-          const loginResult = await runBrowserLogin();
+          const loginResult = await runBrowserLogin(resolveLoginBaseUrl(opts));
           printLoginSuccess(loginResult);
         } catch (err) {
           exitWithError(err);
@@ -79,7 +84,7 @@ export function registerInitCommand(program: Command): void {
       printSuccess('Vendo CLI setup complete.');
     });
 
-  addExamples(cmd, ['vendo init']);
+  addExamples(cmd, ['vendo init', 'vendo init --env staging']);
 }
 
 async function probeIdentity(

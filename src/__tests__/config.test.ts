@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Import after mocks are set up
 import {
+  DEFAULT_BASE_URL,
+  STAGING_BASE_URL,
   clearActiveProfile,
   deleteConfig,
   findProfilesByAccountId,
@@ -24,6 +26,7 @@ import {
   maskApiKey,
   migrateLegacyConfig,
   requireAccountId,
+  resolveLoginBaseUrl,
   requireApiKey,
   saveConfig,
   saveProfile,
@@ -272,6 +275,51 @@ describe('config', () => {
           baseUrl: 'https://app2.vendodata.com',
         },
       ]);
+    });
+  });
+
+  describe('resolveLoginBaseUrl (VE-1563)', () => {
+    beforeEach(() => {
+      mockReadFileSync.mockReturnValue(JSON.stringify({}));
+    });
+
+    it('maps --env staging/prod to the instance URLs', () => {
+      expect(resolveLoginBaseUrl({ env: 'staging' })).toBe(STAGING_BASE_URL);
+      expect(resolveLoginBaseUrl({ env: 'stg' })).toBe(STAGING_BASE_URL);
+      expect(resolveLoginBaseUrl({ env: 'prod' })).toBe(DEFAULT_BASE_URL);
+      expect(resolveLoginBaseUrl({ env: 'Production' })).toBe(
+        DEFAULT_BASE_URL,
+      );
+    });
+
+    it('rejects unknown environments', () => {
+      expect(() => resolveLoginBaseUrl({ env: 'qa' })).toThrow(/Unknown --env/);
+    });
+
+    it('prefers an explicit --base-url over --env and normalizes to origin', () => {
+      expect(
+        resolveLoginBaseUrl({
+          baseUrl: 'https://stg.vendodata.com/some/path',
+          env: 'prod',
+        }),
+      ).toBe('https://stg.vendodata.com');
+    });
+
+    it('rejects invalid --base-url values', () => {
+      expect(() => resolveLoginBaseUrl({ baseUrl: 'not a url' })).toThrow(
+        /Invalid --base-url/,
+      );
+      expect(() => resolveLoginBaseUrl({ baseUrl: 'ftp://x.com' })).toThrow(
+        /protocol/,
+      );
+    });
+
+    it('falls back to VENDO_API_URL, then the prod default', () => {
+      process.env.VENDO_API_URL = 'https://env.example.com';
+      expect(resolveLoginBaseUrl({})).toBe('https://env.example.com');
+
+      delete process.env.VENDO_API_URL;
+      expect(resolveLoginBaseUrl({})).toBe(DEFAULT_BASE_URL);
     });
   });
 

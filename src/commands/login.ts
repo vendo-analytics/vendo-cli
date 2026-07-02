@@ -4,7 +4,12 @@ import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 
-import { DEFAULT_BASE_URL, getBaseUrl, saveProfile } from '../config.js';
+import {
+  DEFAULT_BASE_URL,
+  getBaseUrl,
+  resolveLoginBaseUrl,
+  saveProfile,
+} from '../config.js';
 import {
   type MeResponse,
   IdentityFetchError,
@@ -37,7 +42,28 @@ export function registerLoginCommand(program: Command): void {
       '--account <id>',
       'Account ID for headless/CI login (requires --api-key)',
     )
-    .action(async (opts: { apiKey?: string; account?: string }) => {
+    .option(
+      '--env <environment>',
+      'Target instance: "staging" or "prod" (default: VENDO_API_URL/profile, else prod)',
+    )
+    .option('--base-url <url>', 'Explicit API base URL (overrides --env)')
+    .action(
+      async (opts: {
+        apiKey?: string;
+        account?: string;
+        env?: string;
+        baseUrl?: string;
+      }) => {
+      // Resolve the target instance up front so a typo'd --env / --base-url
+      // fails here instead of opening a browser at the wrong instance
+      // (VE-1563: a plain login silently targeted prod).
+      let baseUrl: string;
+      try {
+        baseUrl = resolveLoginBaseUrl(opts);
+      } catch (err) {
+        exitWithError(err);
+      }
+
       // Headless path: both --api-key and --account provided
       if (opts.apiKey || opts.account) {
         if (!opts.apiKey || !opts.account) {
@@ -47,7 +73,6 @@ export function registerLoginCommand(program: Command): void {
           );
         }
 
-        const baseUrl = getBaseUrl();
         const identity = await runAction('Validating credentials...', () =>
           validateCredentials(opts.apiKey!, opts.account!, baseUrl),
         );
@@ -71,16 +96,18 @@ export function registerLoginCommand(program: Command): void {
 
       // Interactive browser path (existing)
       try {
-        const result = await runBrowserLogin();
+        const result = await runBrowserLogin(baseUrl);
         printLoginSuccess(result);
         process.exit(0);
       } catch (err) {
         exitWithError(err);
       }
-    });
+    },
+    );
 
   addExamples(cmd, [
     'vendo login',
+    'vendo login --env staging',
     'vendo login --api-key vendo_sk_... --account <account-id>',
   ]);
 }
@@ -102,17 +129,19 @@ async function validateCredentials(
   }
 }
 
-export async function runBrowserLogin(): Promise<LoginResult> {
+export async function runBrowserLogin(
+  baseUrlOverride?: string,
+): Promise<LoginResult> {
   await checkForUpdates();
 
   const state = randomBytes(16).toString('hex');
-  const baseUrl = getBaseUrl();
+  const baseUrl = baseUrlOverride ?? getBaseUrl();
   const { key, account, accountId } = await startAuthFlow(baseUrl, state);
 
   saveProfile(account, {
     apiKey: key,
     accountId,
-    ...(baseUrl !== 'https://app2.vendodata.com' && { baseUrl }),
+    ...(baseUrl !== DEFAULT_BASE_URL && { baseUrl }),
   });
 
   return {

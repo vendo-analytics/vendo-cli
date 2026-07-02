@@ -30,6 +30,53 @@ export interface VendoConfig {
 const CONFIG_DIR = join(homedir(), '.config', 'vendo');
 const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 export const DEFAULT_BASE_URL = 'https://app2.vendodata.com';
+export const STAGING_BASE_URL = 'https://stg.vendodata.com';
+
+/**
+ * Resolve the base URL for a login flow from explicit flags (VE-1563):
+ * `--base-url` wins, then `--env` (staging | prod), then the normal chain
+ * (VENDO_API_URL → active profile → prod default). Throws on an invalid
+ * URL or unknown environment so `vendo login` fails before opening a
+ * browser at the wrong instance.
+ */
+export function resolveLoginBaseUrl(
+  opts: { env?: string; baseUrl?: string } = {},
+): string {
+  if (opts.baseUrl) {
+    let parsed: URL;
+    try {
+      parsed = new URL(opts.baseUrl);
+    } catch {
+      throw new Error(
+        `Invalid --base-url: "${opts.baseUrl}". Expected a full URL like ${STAGING_BASE_URL}.`,
+      );
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error(
+        `Invalid --base-url protocol: "${opts.baseUrl}". Use http(s).`,
+      );
+    }
+    // Origin only — login paths (/cli-auth) are appended by the flow.
+    return parsed.origin;
+  }
+
+  if (opts.env) {
+    switch (opts.env.toLowerCase()) {
+      case 'staging':
+      case 'stg':
+        return STAGING_BASE_URL;
+      case 'prod':
+      case 'production':
+        return DEFAULT_BASE_URL;
+      default:
+        throw new Error(
+          `Unknown --env "${opts.env}". Use "staging" or "prod".`,
+        );
+    }
+  }
+
+  return getBaseUrl();
+}
 
 // Global override set by --profile flag
 let profileOverride: string | undefined;
