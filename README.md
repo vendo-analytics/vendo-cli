@@ -133,6 +133,32 @@ vendo int resume <int-id>
 
 Every command supports `--json` for machine-readable output (so you can pipe through `jq`), and `--debug` for verbose request diagnostics.
 
+## Connect an MCP client (Claude, Cursor, …)
+
+Vendo runs a [Model Context Protocol](https://modelcontextprotocol.io) server, so AI assistants can read your account, sources, models, metrics, and warehouse. `vendo mcp` prints a ready-to-paste client config:
+
+```bash
+vendo mcp                  # human-readable config + connection details
+vendo mcp --json           # just the mcpServers JSON block
+vendo mcp --show-key       # embed your API key instead of a ${VENDO_API_KEY} placeholder
+```
+
+Paste the block into your client (`claude_desktop_config.json`, `.cursor/mcp.json`, etc.):
+
+```json
+{
+  "mcpServers": {
+    "vendo": {
+      "type": "http",
+      "url": "https://app2.vendodata.com/api/mcp",
+      "headers": { "Authorization": "Bearer ${VENDO_API_KEY}" }
+    }
+  }
+}
+```
+
+The transport is stateless streamable-HTTP; auth is the same `vendo_sk_*` key the CLI uses (or OAuth in claude.ai). Use **app2.vendodata.com** — `app.vendodata.com` does not serve `/api/mcp`.
+
 ## Multi-account
 
 ```bash
