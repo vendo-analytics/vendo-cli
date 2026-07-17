@@ -12,6 +12,7 @@ export interface ApiResponse<T = unknown> {
       offset: number;
       hasMore: boolean;
     };
+    [key: string]: unknown;
   };
 }
 
@@ -46,6 +47,12 @@ export interface RequestOptions {
   params?: Record<string, string | number | boolean | undefined>;
   timeout?: number;
   /**
+   * The endpoint already returns the canonical `{ data, meta }` envelope.
+   * Preserve nested keys verbatim, including opaque payload/config/result
+   * objects that must be safe to round-trip.
+   */
+  preserveResponseShape?: boolean;
+  /**
    * Skip the `/api/v1` prefix, the path-mapping/account-injection adapter,
    * and the snake_case → camelCase normalization. Use for endpoints that
    * already serve a stable JSON shape (e.g. `/api/measurement/*`).
@@ -64,6 +71,7 @@ const ACCOUNT_SCOPED_PREFIXES = [
   '/triggers',
   '/costs',
   '/events',
+  '/specs',
   '/pulse',
   '/bigquery',
 ];
@@ -115,6 +123,7 @@ class VendoClient {
       body,
       params,
       timeout = 30_000,
+      preserveResponseShape = false,
       rawPath = false,
     } = options;
 
@@ -258,6 +267,9 @@ class VendoClient {
       }
 
       const rawBody = await res.json();
+      if (preserveResponseShape) {
+        return rawBody as ApiResponse<T>;
+      }
       if (rawPath) {
         // Endpoint already returns its canonical JSON shape — no envelope or key conversion.
         return { data: rawBody as T };
@@ -404,6 +416,46 @@ class VendoClient {
 
   async delete<T = unknown>(path: string): Promise<ApiResponse<T>> {
     return this.request<T>(path, { method: 'DELETE' });
+  }
+
+  /**
+   * Account-aware methods for endpoints that already serve the canonical
+   * envelope and whose nested JSON keys are part of the public contract.
+   */
+  async getCanonical<T = unknown>(
+    path: string,
+    params?: Record<string, string | number | boolean | undefined>,
+  ): Promise<ApiResponse<T>> {
+    return this.request<T>(path, { params, preserveResponseShape: true });
+  }
+
+  async postCanonical<T = unknown>(
+    path: string,
+    body?: unknown,
+  ): Promise<ApiResponse<T>> {
+    return this.request<T>(path, {
+      method: 'POST',
+      body,
+      preserveResponseShape: true,
+    });
+  }
+
+  async patchCanonical<T = unknown>(
+    path: string,
+    body: unknown,
+  ): Promise<ApiResponse<T>> {
+    return this.request<T>(path, {
+      method: 'PATCH',
+      body,
+      preserveResponseShape: true,
+    });
+  }
+
+  async deleteCanonical<T = unknown>(path: string): Promise<ApiResponse<T>> {
+    return this.request<T>(path, {
+      method: 'DELETE',
+      preserveResponseShape: true,
+    });
   }
 
   /**

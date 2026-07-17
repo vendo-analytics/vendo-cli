@@ -289,6 +289,40 @@ describe('client', () => {
       expect(res.data).toEqual({ id: '1', name: 'Test' });
     });
 
+    it('preserves opaque nested keys for canonical account endpoints', async () => {
+      const body = {
+        data: {
+          id: 'spec-1',
+          validationConfig: {
+            sample_window_days: 7,
+            provider_config: { keep_this_key: true },
+          },
+          reconciliation: {
+            items: [{ raw_subject_key: 'checkout_started' }],
+          },
+        },
+        meta: { next_cursor: 'cursor-1' },
+      };
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        }),
+      );
+
+      const { getClient: freshGetClient } = await import('../client.js');
+      const res = await freshGetClient().getCanonical('/specs/spec-1');
+      const data = res.data as Record<string, unknown>;
+      const validationConfig = data.validationConfig as Record<string, unknown>;
+
+      expect(validationConfig.sample_window_days).toBe(7);
+      expect(validationConfig.sampleWindowDays).toBeUndefined();
+      expect(res.meta).toEqual({ next_cursor: 'cursor-1' });
+
+      const url = vi.mocked(globalThis.fetch).mock.calls[0]![0] as string;
+      expect(url).toContain('/api/v1/accounts/acct-123/specs/spec-1');
+    });
+
     it('wraps list responses with pagination metadata', async () => {
       const body = {
         apps: [
@@ -471,6 +505,21 @@ describe('client', () => {
 
       const url = vi.mocked(globalThis.fetch).mock.calls[0]![0] as string;
       expect(url).toContain('/api/v1/accounts/acct-123/jobs');
+    });
+
+    it('adds account prefix for /specs and sends account context', async () => {
+      const { getClient: freshGetClient } = await import('../client.js');
+      await freshGetClient().get('/specs/spec-123/versions');
+
+      const fetchCall = vi.mocked(globalThis.fetch).mock.calls[0]!;
+      const url = fetchCall[0] as string;
+      const options = fetchCall[1] as RequestInit;
+      const headers = options.headers as Record<string, string>;
+
+      expect(url).toContain(
+        '/api/v1/accounts/acct-123/specs/spec-123/versions',
+      );
+      expect(headers['X-Account-Id']).toBe('acct-123');
     });
   });
 

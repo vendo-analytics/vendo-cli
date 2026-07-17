@@ -17,6 +17,7 @@ import { registerModelsCommand } from './commands/models.js';
 import { registerProfileCommand } from './commands/profile.js';
 import { registerSelfUpdateCommand } from './commands/self-update.js';
 import { registerSourcesCommand } from './commands/sources.js';
+import { registerSpecsCommand } from './commands/specs.js';
 import { registerStatusCommand } from './commands/status.js';
 import { registerWhoamiCommand } from './commands/whoami.js';
 import { setProfileOverride } from './config.js';
@@ -41,6 +42,7 @@ const registerCommands = [
   registerCatalogCommand,
   registerMetricsCommand,
   registerModelsCommand,
+  registerSpecsCommand,
   registerMeasurementCommand,
   registerMcpCommand,
   registerCompletionsCommand,
