@@ -451,9 +451,13 @@ class VendoClient {
     });
   }
 
-  async deleteCanonical<T = unknown>(path: string): Promise<ApiResponse<T>> {
+  async deleteCanonical<T = unknown>(
+    path: string,
+    params?: Record<string, string | number | boolean | undefined>,
+  ): Promise<ApiResponse<T>> {
     return this.request<T>(path, {
       method: 'DELETE',
+      params,
       preserveResponseShape: true,
     });
   }

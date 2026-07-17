@@ -311,8 +311,13 @@ export const trackingSpecsApi = {
   ): Promise<ApiResponse<TrackingSpec>> =>
     getClient().patchCanonical<TrackingSpec>(itemPath(specId), body),
 
-  archive: (specId: string): Promise<ApiResponse<TrackingSpec>> =>
-    getClient().deleteCanonical<TrackingSpec>(itemPath(specId)),
+  archive: (
+    specId: string,
+    expectedRevision: number,
+  ): Promise<ApiResponse<TrackingSpec>> =>
+    getClient().deleteCanonical<TrackingSpec>(itemPath(specId), {
+      expected_revision: expectedRevision,
+    }),
 
   publish: (
     specId: string,

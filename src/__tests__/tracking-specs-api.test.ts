@@ -31,7 +31,7 @@ describe('trackingSpecsApi', () => {
       expectedRevision: 4,
       name: 'Lifecycle v2',
     });
-    await trackingSpecsApi.archive('spec-1');
+    await trackingSpecsApi.archive('spec-1', 4);
 
     expect(client.getCanonical).toHaveBeenNthCalledWith(1, '/specs', {
       status: 'active',
@@ -48,7 +48,9 @@ describe('trackingSpecsApi', () => {
       expectedRevision: 4,
       name: 'Lifecycle v2',
     });
-    expect(client.deleteCanonical).toHaveBeenCalledWith('/specs/spec-1');
+    expect(client.deleteCanonical).toHaveBeenCalledWith('/specs/spec-1', {
+      expected_revision: 4,
+    });
   });
 
   it('maps publish, versions, diff, and validation results exactly', async () => {

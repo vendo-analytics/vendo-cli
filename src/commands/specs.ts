@@ -269,8 +269,11 @@ function registerArchiveCommand(parent: Command): void {
         }
       }
 
+      const current = await runAction('Loading tracking spec...', () =>
+        trackingSpecsApi.get(specId),
+      );
       const response = await runAction('Archiving tracking spec...', () =>
-        trackingSpecsApi.archive(specId),
+        trackingSpecsApi.archive(specId, current.data.revision),
       );
       if (opts.json) {
         printJson(response);
