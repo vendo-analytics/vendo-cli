@@ -61,7 +61,7 @@ describe('trackingSpecsApi', () => {
     });
     await trackingSpecsApi.versions('spec-1');
     await trackingSpecsApi.versions('spec-1', true);
-    await trackingSpecsApi.diff('spec-1', 2, 5);
+    await trackingSpecsApi.diff('spec-1', 'version-2', 'version-5');
     await trackingSpecsApi.validationResults('spec-1', {
       status: 'failed',
     });
@@ -78,15 +78,15 @@ describe('trackingSpecsApi', () => {
       2,
       '/specs/spec-1/versions',
       {
-        includePayload: true,
+        include_payload: true,
       },
     );
     expect(client.getCanonical).toHaveBeenNthCalledWith(
       3,
       '/specs/spec-1/diff',
       {
-        fromVersion: 2,
-        toVersion: 5,
+        from_version_id: 'version-2',
+        to_version_id: 'version-5',
       },
     );
     expect(client.getCanonical).toHaveBeenNthCalledWith(

@@ -263,9 +263,8 @@ export interface TrackingSpecDiffChange {
 }
 
 export interface TrackingSpecDiff {
-  specId: string;
-  fromVersion: number;
-  toVersion: number;
+  fromVersion: TrackingSpecVersionSummary;
+  toVersion: TrackingSpecVersionSummary;
   changes: TrackingSpecDiffChange[];
 }
 
@@ -273,10 +272,12 @@ export interface TrackingSpecValidationResult {
   id: string;
   subjectId: string;
   status: 'passed' | 'warning' | 'failed' | 'error';
-  result: Record<string, unknown> | null;
+  result: unknown;
+  startedAt: string | null;
   finishedAt: string | null;
-  versionId: string | null;
-  bindingId: string | null;
+  trackingSpecVersionId: string;
+  trackingSpecBindingId: string | null;
+  checkId: string | null;
 }
 
 type QueryParams = Record<string, string | number | boolean | undefined>;
@@ -329,19 +330,19 @@ export const trackingSpecsApi = {
     const path = `${itemPath(specId)}/versions`;
     return includePayload
       ? getClient().getCanonical<TrackingSpecVersion[]>(path, {
-          includePayload: true,
+          include_payload: true,
         })
       : getClient().getCanonical<TrackingSpecVersion[]>(path);
   },
 
   diff: (
     specId: string,
-    fromVersion: number,
-    toVersion: number,
+    fromVersionId: string,
+    toVersionId: string,
   ): Promise<ApiResponse<TrackingSpecDiff>> =>
     getClient().getCanonical<TrackingSpecDiff>(`${itemPath(specId)}/diff`, {
-      fromVersion,
-      toVersion,
+      from_version_id: fromVersionId,
+      to_version_id: toVersionId,
     }),
 
   validationResults: (

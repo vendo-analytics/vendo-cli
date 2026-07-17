@@ -402,8 +402,28 @@ function registerDiffCommand(parent: Command): void {
         );
       }
 
-      const response = await runAction('Comparing spec versions...', () =>
-        trackingSpecsApi.diff(specId, fromVersion, toVersion),
+      const response = await runAction(
+        'Comparing spec versions...',
+        async () => {
+          const versions = await trackingSpecsApi.versions(specId);
+          const from = versions.data.find(
+            (version) => version.versionNumber === fromVersion,
+          );
+          const to = versions.data.find(
+            (version) => version.versionNumber === toVersion,
+          );
+          if (!from || !to) {
+            const available = versions.data
+              .map((version) => `v${version.versionNumber}`)
+              .join(', ');
+            throw new Error(
+              `Published version not found. Available versions: ${
+                available || 'none'
+              }`,
+            );
+          }
+          return trackingSpecsApi.diff(specId, from.id, to.id);
+        },
       );
       if (opts.json) {
         printJson(response);
@@ -413,7 +433,7 @@ function registerDiffCommand(parent: Command): void {
       console.log();
       console.log(
         c.bold(
-          `Tracking spec diff: v${response.data.fromVersion} → v${response.data.toVersion}`,
+          `Tracking spec diff: v${response.data.fromVersion.versionNumber} → v${response.data.toVersion.versionNumber}`,
         ),
       );
       console.log();
@@ -482,8 +502,10 @@ function registerValidationResultsCommand(parent: Command): void {
         table.push([
           colorStatus(result.status),
           result.subjectId,
-          result.versionId ? shortId(result.versionId) : c.dim('—'),
-          result.bindingId ? shortId(result.bindingId) : c.dim('—'),
+          shortId(result.trackingSpecVersionId),
+          result.trackingSpecBindingId
+            ? shortId(result.trackingSpecBindingId)
+            : c.dim('—'),
           timeAgo(result.finishedAt),
           validationMessage(result.result),
         ]);
@@ -627,11 +649,14 @@ function summarizeDiffValue(change: TrackingSpecDiffChange): string {
   return c.dim('definition changed');
 }
 
-function validationMessage(result: Record<string, unknown> | null): string {
-  if (!result) return c.dim('—');
-  const message = result.message;
+function validationMessage(result: unknown): string {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return c.dim('—');
+  }
+  const record = result as Record<string, unknown>;
+  const message = record.message;
   if (typeof message === 'string' && message.length > 0) return message;
-  const error = result.error;
+  const error = record.error;
   if (typeof error === 'string' && error.length > 0) return error;
   return c.dim('See --json for details');
 }
