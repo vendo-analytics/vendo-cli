@@ -278,9 +278,12 @@ export function registerAppsCommand(program: Command): void {
           broken.push(app);
         }
         const roles = app.roles ?? [];
+        // One entry PER missing direction — matches MCP apps_diagnose, so a
+        // dual-role app missing both reports both (review P2).
         if (roles.includes('source') && !(sourceCounts.get(app.id) ?? 0)) {
           orphaned.push({ app, missing: 'source' });
-        } else if (
+        }
+        if (
           roles.includes('destination') &&
           !(destCounts.get(app.id) ?? 0)
         ) {
@@ -296,6 +299,13 @@ export function registerAppsCommand(program: Command): void {
         return;
       }
 
+      if ((appsRes.data ?? []).length >= 100) {
+        console.log(
+          c.dim(
+            'Note: diagnosis covers the first 100 apps — larger accounts may have more.',
+          ),
+        );
+      }
       if (broken.length === 0 && orphaned.length === 0) {
         printSuccess('No app connections need attention.');
         return;
