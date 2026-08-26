@@ -26,6 +26,8 @@ interface AppItem {
   appType: string;
   displayName: string;
   permissions: string[];
+  /** Server-derived direction (VE-2534). Older servers omit it. */
+  roles?: ('source' | 'destination')[] | null;
   state: string;
   /** Provider-access verdict persisted by the platform (VE-2532); null = never checked. */
   accessStatus?: 'connected' | 'disconnected' | 'auth_expired' | null;
@@ -34,6 +36,13 @@ interface AppItem {
   errorMessage?: string | null;
   lastSyncAt?: string | null;
   createdAt: string;
+}
+
+function roleLabel(app: AppItem): string {
+  if (app.roles && app.roles.length > 0) return app.roles.join(', ');
+  if (app.roles && app.roles.length === 0) return '—';
+  // Older servers don't send roles — fall back to the legacy local derivation.
+  return capabilityLabel(app.permissions);
 }
 
 function accessStatusLabel(app: AppItem): string {
@@ -86,6 +95,53 @@ function permissionsFromRoles(roles: string[]): string[] {
     perms.push('send_conversions', 'sync_audiences');
   }
   return perms.length > 0 ? perms : [...SOURCE_PERMISSIONS];
+}
+
+
+interface CatalogDefaultPermissions {
+  source?: string[];
+  destination?: string[];
+}
+
+/**
+ * Resolve the permission grant for the requested roles from the server's
+ * catalog (`defaultPermissions`, server-clamped per platform — VE-2534).
+ * This is what makes `--role source` work for warehouse-vocabulary platforms
+ * (webhook, bigquery, …) that the old hardcoded map could not create.
+ * Falls back to the legacy local map against older servers.
+ */
+async function resolvePermissionsForRoles(
+  appType: string,
+  roles: string[],
+): Promise<string[]> {
+  try {
+    const res = await getClient().get<{
+      defaultPermissions?: CatalogDefaultPermissions;
+    }>(`/catalog/${appType}`);
+    const defaults = res.data?.defaultPermissions;
+    if (defaults) {
+      const perms = new Set<string>();
+      if (roles.includes('source') || roles.includes('both')) {
+        for (const p of defaults.source ?? []) perms.add(p);
+      }
+      if (roles.includes('destination') || roles.includes('both')) {
+        for (const p of defaults.destination ?? []) perms.add(p);
+      }
+      if (perms.size === 0) {
+        throw new Error(
+          `App type "${appType}" does not support the requested role(s): ${roles.join(', ')}. ` +
+            `Check \'vendo catalog get ${appType}\' for its supported roles.`,
+        );
+      }
+      return [...perms];
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('does not support')) {
+      throw error;
+    }
+    // Older server without defaultPermissions (or catalog hiccup) — legacy map.
+  }
+  return permissionsFromRoles(roles);
 }
 
 /** Human-readable capability label derived from permissions (for display). */
@@ -158,7 +214,7 @@ export function registerAppsCommand(program: Command): void {
           c.dim(shortId(app.id)),
           app.displayName,
           app.appType,
-          capabilityLabel(app.permissions),
+          roleLabel(app),
           colorStatus(app.state),
           accessStatusLabel(app),
           timeAgo(app.lastSyncAt),
@@ -196,7 +252,7 @@ export function registerAppsCommand(program: Command): void {
       console.log();
       console.log(`  ID:          ${app.id}`);
       console.log(`  Type:        ${app.appType}`);
-      console.log(`  Capability:  ${capabilityLabel(app.permissions)}`);
+      console.log(`  Capability:  ${roleLabel(app)}`);
       console.log(`  Permissions: ${(app.permissions ?? []).join(', ') || '—'}`);
       console.log(`  State:       ${colorStatus(app.state)}`);
       console.log(
@@ -399,13 +455,15 @@ export function registerAppsCommand(program: Command): void {
     .option('--json', 'Output raw JSON')
     .option('--output <field>', 'Print a single field (e.g. id)')
     .action(async (opts) => {
-      // Explicit --permissions wins; otherwise derive from --role capability.
+      // Explicit --permissions wins; otherwise resolve from --role via the
+      // server catalog (legacy local map only for older servers).
       const permissions: string[] = opts.permissions
         ? String(opts.permissions)
             .split(',')
             .map((p: string) => p.trim())
             .filter(Boolean)
-        : permissionsFromRoles(
+        : await resolvePermissionsForRoles(
+            String(opts.type),
             String(opts.role)
               .split(',')
               .map((r: string) => r.trim())
@@ -472,7 +530,7 @@ export function registerAppsCommand(program: Command): void {
         `App ${c.bold(app.displayName)} (${shortId(app.id)}) created.`,
       );
       printLabel('Type', app.appType);
-      printLabel('Capability', capabilityLabel(app.permissions));
+      printLabel('Capability', roleLabel(app));
       printLabel('State', colorStatus(app.state));
     });
 
@@ -507,7 +565,10 @@ export function registerAppsCommand(program: Command): void {
           .map((p: string) => p.trim())
           .filter(Boolean);
       } else if (opts.role) {
-        body.permissions = permissionsFromRoles(
+        // Role→permission defaults are per-platform: look up the app's type.
+        const current = await getClient().get<AppDetail>(`/apps/${appId}`);
+        body.permissions = await resolvePermissionsForRoles(
+          current.data.appType,
           String(opts.role)
             .split(',')
             .map((r: string) => r.trim())
