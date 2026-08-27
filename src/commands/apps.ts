@@ -231,6 +231,106 @@ export function registerAppsCommand(program: Command): void {
     'vendo apps list --output id',
   ]);
 
+
+  // apps diagnose — one-call account triage (VE-2537).
+  const diagnoseCmd = cmd
+    .command('diagnose')
+    .description('Show app connections that need attention')
+    .option('--json', 'Output raw JSON')
+    .action(async (opts: { json?: boolean }) => {
+      const [appsRes, sourcesRes, integrationsRes] = await runAction(
+        'Diagnosing app connections...',
+        () =>
+          Promise.all([
+            getClient().get<AppItem[]>('/apps', { limit: 100 }),
+            getClient().get<{ id: string; appId?: string | null }[]>(
+              '/sources',
+              { limit: 100 },
+            ),
+            getClient().get<
+              { id: string; destinationAppId?: string | null }[]
+            >('/integrations', { limit: 100 }),
+          ]),
+      );
+
+      const sourceCounts = new Map<string, number>();
+      for (const s of sourcesRes.data ?? []) {
+        if (s.appId)
+          sourceCounts.set(s.appId, (sourceCounts.get(s.appId) ?? 0) + 1);
+      }
+      const destCounts = new Map<string, number>();
+      for (const i of integrationsRes.data ?? []) {
+        if (i.destinationAppId)
+          destCounts.set(
+            i.destinationAppId,
+            (destCounts.get(i.destinationAppId) ?? 0) + 1,
+          );
+      }
+
+      const broken: AppItem[] = [];
+      const orphaned: { app: AppItem; missing: string }[] = [];
+      for (const app of appsRes.data ?? []) {
+        if (app.state === 'inactive') continue;
+        if (
+          app.accessStatus === 'disconnected' ||
+          app.accessStatus === 'auth_expired'
+        ) {
+          broken.push(app);
+        }
+        const roles = app.roles ?? [];
+        // One entry PER missing direction — matches MCP apps_diagnose, so a
+        // dual-role app missing both reports both (review P2).
+        if (roles.includes('source') && !(sourceCounts.get(app.id) ?? 0)) {
+          orphaned.push({ app, missing: 'source' });
+        }
+        if (
+          roles.includes('destination') &&
+          !(destCounts.get(app.id) ?? 0)
+        ) {
+          orphaned.push({ app, missing: 'destination' });
+        }
+      }
+
+      if (opts.json) {
+        printJson({
+          broken,
+          orphaned: orphaned.map(({ app, missing }) => ({ ...app, missing })),
+        });
+        return;
+      }
+
+      if ((appsRes.data ?? []).length >= 100) {
+        console.log(
+          c.dim(
+            'Note: diagnosis covers the first 100 apps — larger accounts may have more.',
+          ),
+        );
+      }
+      if (broken.length === 0 && orphaned.length === 0) {
+        printSuccess('No app connections need attention.');
+        return;
+      }
+      if (broken.length > 0) {
+        console.log(c.bold('\nBroken access:'));
+        for (const app of broken) {
+          console.log(
+            `  ${c.red('✗')} ${app.displayName} ${c.dim(`(${shortId(app.id)}, ${app.appType})`)} — ${accessStatusLabel(app)}${app.accessStatusReason ? c.dim(`: ${app.accessStatusReason}`) : ''}`,
+          );
+        }
+      }
+      if (orphaned.length > 0) {
+        console.log(c.bold('\nConnected but unused:'));
+        for (const { app, missing } of orphaned) {
+          console.log(
+            `  ${c.yellow('!')} ${app.displayName} ${c.dim(`(${shortId(app.id)}, ${app.appType})`)} — no ${missing} configured`,
+          );
+        }
+      }
+      console.log();
+    });
+
+  addExamples(diagnoseCmd, ['vendo apps diagnose', 'vendo apps diagnose --json']);
+
   // apps get
   const getCmd = cmd
     .command('get <appId>')
