@@ -27,9 +27,20 @@ interface AppItem {
   displayName: string;
   permissions: string[];
   state: string;
+  /** Provider-access verdict persisted by the platform (VE-2532); null = never checked. */
+  accessStatus?: 'connected' | 'disconnected' | 'auth_expired' | null;
+  accessStatusCheckedAt?: string | null;
+  accessStatusReason?: string | null;
   errorMessage?: string | null;
   lastSyncAt?: string | null;
   createdAt: string;
+}
+
+function accessStatusLabel(app: AppItem): string {
+  if (app.state === 'inactive') return c.dim('paused');
+  if (!app.accessStatus) return c.dim('not checked');
+  if (app.accessStatus === 'auth_expired') return c.red('reconnect required');
+  return colorStatus(app.accessStatus);
 }
 
 interface AppDetail extends AppItem {
@@ -138,6 +149,7 @@ export function registerAppsCommand(program: Command): void {
         'Type',
         'Role',
         'State',
+        'Status',
         'Last Sync',
       ]);
 
@@ -148,6 +160,7 @@ export function registerAppsCommand(program: Command): void {
           app.appType,
           capabilityLabel(app.permissions),
           colorStatus(app.state),
+          accessStatusLabel(app),
           timeAgo(app.lastSyncAt),
         ]);
       }
@@ -186,6 +199,16 @@ export function registerAppsCommand(program: Command): void {
       console.log(`  Capability:  ${capabilityLabel(app.permissions)}`);
       console.log(`  Permissions: ${(app.permissions ?? []).join(', ') || '—'}`);
       console.log(`  State:       ${colorStatus(app.state)}`);
+      console.log(
+        `  Status:      ${accessStatusLabel(app)}${
+          app.accessStatusCheckedAt
+            ? c.dim(` (checked ${timeAgo(app.accessStatusCheckedAt)})`)
+            : ''
+        }`,
+      );
+      if (app.accessStatusReason) {
+        console.log(`  Reason:      ${c.red(app.accessStatusReason)}`);
+      }
       console.log(`  Last Sync:   ${timeAgo(app.lastSyncAt)}`);
       console.log(`  Created:     ${timeAgo(app.createdAt)}`);
       if (app.errorMessage) {
