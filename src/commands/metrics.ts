@@ -25,7 +25,6 @@ export function registerMetricsCommand(program: Command): void {
     .command('list')
     .description('List all custom metrics')
     .option('--status <status>', 'Filter by status (draft, active, archived)')
-    .option('--category <category>', 'Filter by category')
     .option('--limit <n>', 'Number of results', '20')
     .option('--offset <n>', 'Pagination offset', '0')
     .option('--json', 'Output raw JSON')
@@ -36,7 +35,6 @@ export function registerMetricsCommand(program: Command): void {
       const { data: res } = await runAction('Fetching metrics...', () =>
         webApp.metrics.list({
           status: opts.status,
-          category: opts.category,
           limit: opts.limit,
           offset: opts.offset,
         }),
@@ -89,7 +87,6 @@ export function registerMetricsCommand(program: Command): void {
   addExamples(listCmd, [
     'vendo metrics list',
     'vendo metrics list --status active',
-    'vendo metrics list --category Revenue',
     'vendo metrics list --output id',
   ]);
 
@@ -122,9 +119,6 @@ export function registerMetricsCommand(program: Command): void {
 
       if (metric.description) {
         console.log(`  Description:  ${metric.description}`);
-      }
-      if (metric.category) {
-        console.log(`  Category:     ${metric.category}`);
       }
       if (metric.unit) {
         console.log(`  Unit:         ${metric.unit}`);
@@ -171,7 +165,6 @@ export function registerMetricsCommand(program: Command): void {
       'Metric type: derived (single source) or composed (formula)',
     )
     .option('--description <desc>', 'Description')
-    .option('--category <category>', 'Category for grouping')
     .option(
       '--formula <formula>',
       'Formula for composed metrics (e.g., "A / B")',
@@ -193,7 +186,6 @@ export function registerMetricsCommand(program: Command): void {
       };
 
       if (opts.description) body.description = opts.description;
-      if (opts.category) body.category = opts.category;
       if (opts.formula) body.formula = opts.formula;
       if (opts.unit) body.unit = opts.unit;
 
@@ -232,7 +224,6 @@ export function registerMetricsCommand(program: Command): void {
     .description('Update a metric')
     .option('--name <name>', 'New name')
     .option('--description <desc>', 'New description')
-    .option('--category <category>', 'New category')
     .option('--formula <formula>', 'New formula')
     .option('--format <format>', 'New format')
     .option('--unit <unit>', 'New unit')
@@ -243,7 +234,6 @@ export function registerMetricsCommand(program: Command): void {
 
       if (opts.name) body.name = opts.name;
       if (opts.description) body.description = opts.description;
-      if (opts.category) body.category = opts.category;
       if (opts.formula) body.formula = opts.formula;
       if (opts.format) body.format = opts.format;
       if (opts.unit) body.unit = opts.unit;
