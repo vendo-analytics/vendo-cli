@@ -28,7 +28,6 @@ export interface MetricRow {
   account_id: string;
   name: string;
   description: string | null;
-  category: string | null;
   metric_type: string;
   formula: string | null;
   format: string;
