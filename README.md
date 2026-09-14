@@ -93,13 +93,13 @@ vendo specs get <spec-id>
 vendo apps create --type <type> --credentials-file creds.json
 vendo sources create --app <app-id> --config-file config.json
 vendo int create  --source <id> --dest <id> --config-file config.json
-vendo metrics create --name "<name>" --formula "<sql>"
+vendo metrics create --name "<name>" --definition metric.query.json
 vendo specs create --name "<name>" --file tracking-spec.json
 
 vendo apps update    <app-id>    --credentials-file creds.json
 vendo sources update <source-id> --config-file config.json
 vendo int update     <int-id>    --config-file config.json
-vendo metrics update <metric-id> --formula "<sql>"
+vendo metrics update <metric-id> --definition metric.query.json
 vendo specs update <spec-id> --revision <n> --file tracking-spec.json
 
 vendo apps delete    <app-id>    -y     # -y skips the confirmation prompt
