@@ -17,7 +17,7 @@
  * The interfaces below mirror `apps/web/lib/vendo/measurement/queries.ts` and
  * the metrics API; they use snake_case to match the wire format.
  */
-import { type ApiResponse, getClient } from '../client.js';
+import { type ApiResponse, getClient } from "../client.js";
 
 type RawParams = Record<string, string | number | boolean | undefined>;
 
@@ -29,7 +29,6 @@ export interface MetricRow {
   name: string;
   description: string | null;
   metric_type: string;
-  formula: string | null;
   format: string;
   higher_is_better: boolean;
   unit: string | null;
@@ -39,7 +38,7 @@ export interface MetricRow {
 }
 
 export interface MetricDetail extends MetricRow {
-  building_blocks: unknown[];
+  definition: unknown;
 }
 
 export interface MetricsListResponse {
@@ -86,7 +85,7 @@ export interface RulePreviewRow {
     click_path_model: string;
   };
   matched_rule_id: string | null;
-  via: 'rule' | 'default_fallback';
+  via: "rule" | "default_fallback";
 }
 
 export interface RulePreviewResponse {
@@ -113,15 +112,15 @@ export interface CohortLtvRow {
 }
 
 export interface CohortLtvResponse {
-  granularity: 'daily' | 'weekly' | 'monthly';
+  granularity: "daily" | "weekly" | "monthly";
   segment_key: string;
   cohorts: CohortLtvRow[];
   total_returned: number;
 }
 
 export interface SignalRow {
-  id: 'click_path' | 'mmm' | 'geo_lift' | 'survey';
-  state: 'live' | 'stub';
+  id: "click_path" | "mmm" | "geo_lift" | "survey";
+  state: "live" | "stub";
   availability: {
     available: boolean;
     reason?: string | null;
@@ -136,7 +135,7 @@ export interface SignalListResponse {
 // /api/measurement/ltv/cohort/[period] — getCohortDetail() shape.
 export interface CohortDetailResponse {
   cohort_period: string;
-  cohort_granularity: 'daily' | 'weekly' | 'monthly';
+  cohort_granularity: "daily" | "weekly" | "monthly";
   segment_key: string;
   cohort_size: number;
   retention_matrix: Array<{
@@ -225,15 +224,12 @@ export interface ClickPathStatusResponse {
 export const webApp = {
   metrics: {
     list: (params: RawParams): Promise<ApiResponse<MetricsListResponse>> =>
-      getClient().getRaw<MetricsListResponse>('/api/metrics', params),
+      getClient().getRaw<MetricsListResponse>("/api/metrics", params),
     get: (id: string): Promise<ApiResponse<MetricResponse>> =>
       getClient().getRaw<MetricResponse>(`/api/metrics/${id}`),
     create: (body: unknown): Promise<ApiResponse<MetricResponse>> =>
-      getClient().postRaw<MetricResponse>('/api/metrics', body),
-    update: (
-      id: string,
-      body: unknown,
-    ): Promise<ApiResponse<MetricResponse>> =>
+      getClient().postRaw<MetricResponse>("/api/metrics", body),
+    update: (id: string, body: unknown): Promise<ApiResponse<MetricResponse>> =>
       getClient().patchRaw<MetricResponse>(`/api/metrics/${id}`, body),
     remove: (
       id: string,
@@ -248,16 +244,16 @@ export const webApp = {
       params: RawParams = {},
     ): Promise<ApiResponse<MethodologyListResponse>> =>
       getClient().getRaw<MethodologyListResponse>(
-        '/api/measurement/methodologies',
+        "/api/measurement/methodologies",
         params,
       ),
     previewRules: (body: unknown): Promise<ApiResponse<RulePreviewResponse>> =>
       getClient().postRaw<RulePreviewResponse>(
-        '/api/measurement/methodologies/rules/preview',
+        "/api/measurement/methodologies/rules/preview",
         body,
       ),
     ltv: (params: RawParams): Promise<ApiResponse<CohortLtvResponse>> =>
-      getClient().getRaw<CohortLtvResponse>('/api/measurement/ltv', params),
+      getClient().getRaw<CohortLtvResponse>("/api/measurement/ltv", params),
     cohort: (
       period: string,
       params: RawParams = {},
@@ -266,19 +262,17 @@ export const webApp = {
         `/api/measurement/ltv/cohort/${encodeURIComponent(period)}`,
         params,
       ),
-    customer: (
-      customerId: string,
-    ): Promise<ApiResponse<CustomerLtvResponse>> =>
+    customer: (customerId: string): Promise<ApiResponse<CustomerLtvResponse>> =>
       getClient().getRaw<CustomerLtvResponse>(
         `/api/measurement/ltv/customer/${encodeURIComponent(customerId)}`,
       ),
     signals: (): Promise<ApiResponse<SignalListResponse>> =>
-      getClient().getRaw<SignalListResponse>('/api/measurement/signals'),
+      getClient().getRaw<SignalListResponse>("/api/measurement/signals"),
     clickPath: (
       params: RawParams = {},
     ): Promise<ApiResponse<ClickPathStatusResponse>> =>
       getClient().getRaw<ClickPathStatusResponse>(
-        '/api/measurement/signals/click-path',
+        "/api/measurement/signals/click-path",
         params,
       ),
   },
