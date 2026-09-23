@@ -25,8 +25,3 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
 - `pnpm run build` — `tsup` (dev bundle); `pnpm run build:standalone` — SEA binary
 - Distribution: `install.sh` pulls per-platform binaries from GitHub Releases
   (`vendo-analytics/vendo-cli`); release CI is tag-triggered (`cli-v*`, `.github/workflows/release.yml`).
-
-## Canonical-status note
-Do all CLI work here. The apps `role` → granular `permissions[]` migration landed on `main`
-(PRs #1/#3), as did the API-drift fixes (PR #4: catalog route, POST pause/resume, headless
-OAuth polling).
