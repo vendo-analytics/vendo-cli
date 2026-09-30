@@ -54,6 +54,13 @@ interface SourceDetail extends SourceItem {
   latestJobId?: string | null;
   earliestDataAt?: string | null;
   latestDataAt?: string | null;
+  dataRangeStatus?: 'unverified';
+  importProgress?: {
+    latestCheckpointAt: string | null;
+    enabledStreamCount: number;
+    checkpointStreamCount: number;
+    attentionStreamCount: number;
+  } | null;
   datasetId?: string | null;
   updatedAt: string;
 }
@@ -191,10 +198,25 @@ export function registerSourcesCommand(program: Command): void {
       console.log(
         `  Anchor:      ${src.syncAnchorTime ?? c.dim('—')} ${src.syncAnchorTimezone ?? ''}`,
       );
-      console.log(`  Last Sync:   ${timeAgo(src.lastSyncAt)}`);
-      console.log(
-        `  Data Range:  ${src.earliestDataAt ? new Date(src.earliestDataAt).toLocaleDateString() : '—'} → ${src.latestDataAt ? new Date(src.latestDataAt).toLocaleDateString() : '—'}`,
-      );
+      console.log(`  Last successful sync: ${timeAgo(src.lastSyncAt)}`);
+      if (src.importProgress !== null) {
+        const progress = src.importProgress;
+        const checkpoint = progress?.latestCheckpointAt;
+        console.log(
+          `  Latest import checkpoint: ${checkpoint && Number.isFinite(Date.parse(checkpoint)) ? new Date(checkpoint).toISOString() : 'Not available'}`,
+        );
+        if (progress) {
+          console.log(
+            `  Enabled streams: ${progress.checkpointStreamCount}/${progress.enabledStreamCount} with checkpoints; ${progress.attentionStreamCount} need attention`,
+          );
+        }
+        console.log(
+          '  Checkpoints describe import progress, not record dates or complete history.',
+        );
+      } else {
+        console.log('  Data access: Read in place; no import checkpoint');
+      }
+      console.log('  Record date range: Not measured');
       console.log(`  Dataset:     ${src.datasetId ?? c.dim('—')}`);
       console.log(`  Created:     ${timeAgo(src.createdAt)}`);
 
