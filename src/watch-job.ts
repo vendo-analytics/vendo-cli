@@ -39,12 +39,20 @@ interface WatchActiveJobsOptions {
   integrationId?: string;
 }
 
+// The API's finished states: `canceled` and `warning` are current,
+// `cancelled` is legacy (VE-3695).
 const TERMINAL_STATUSES = new Set([
   'completed',
+  'warning',
   'failed',
+  'canceled',
   'cancelled',
   'errored',
 ]);
+
+export function isTerminalJobStatus(status: string): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
 const DEFAULT_POLL_INTERVAL_MS = 3000;
 const MAX_WAIT_MS = 30 * 60 * 1000;
 
@@ -217,7 +225,7 @@ export async function tailJob(
       renderSnapshot(snapshot, lastRendered);
       lastRendered = snapshot;
 
-      if (TERMINAL_STATUSES.has(job.status)) {
+      if (isTerminalJobStatus(job.status)) {
         printTailResult(job);
         return;
       }
@@ -320,7 +328,9 @@ function renderActiveJobsSnapshot(
     lines.push(table.toString());
 
     const running = jobs.filter((job) => job.status === 'running').length;
-    const pending = jobs.filter((job) => job.status === 'pending').length;
+    const pending = jobs.filter(
+      (job) => job.status === 'pending' || job.status === 'queued',
+    ).length;
     lines.push(c.dim(`${running} running, ${pending} pending`));
   }
 

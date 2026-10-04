@@ -14,6 +14,9 @@ export interface ProgressJob {
   totalChunks?: number | null;
 }
 
+/** Jobs still waiting or running. The API calls waiting jobs `queued` (VE-3695). */
+export const ACTIVE_JOB_STATUSES = 'running,pending,queued';
+
 export interface ActiveJobsQuery {
   limit?: number;
   sourceId?: string;
@@ -31,7 +34,7 @@ export async function getActiveJobs(
 ): Promise<JobOutputDetail[]> {
   const { limit = 100, sourceId, integrationId } = query;
   const res = await getClient().get<JobOutputDetail[]>('/jobs', {
-    status: 'running,pending',
+    status: ACTIVE_JOB_STATUSES,
     limit,
     sort: 'created_at:desc',
     source_id: sourceId,
@@ -47,7 +50,7 @@ export async function getActiveJobForResource(
 ): Promise<ProgressJob | undefined> {
   const paramKey = resourceType === 'source' ? 'source_id' : 'integration_id';
   const res = await getClient().get<ProgressJob[]>('/jobs', {
-    status: 'running,pending',
+    status: ACTIVE_JOB_STATUSES,
     limit: 1,
     sort: 'created_at:desc',
     [paramKey]: resourceId,
@@ -90,7 +93,8 @@ export function formatJobProgress(job?: ProgressJob | null): string {
     return parts.join(' · ');
   }
 
-  if (job.status === 'pending') return c.dim('queued');
+  if (job.status === 'pending' || job.status === 'queued')
+    return c.dim('queued');
   if (job.status === 'running') return c.dim('starting');
   return c.dim('—');
 }

@@ -43,7 +43,12 @@ impl<'a> Job<'a> {
     }
 }
 
-pub const TERMINAL_STATUSES: [&str; 4] = ["completed", "failed", "cancelled", "errored"];
+/// The API's finished states: `canceled` and `warning` are current,
+/// `cancelled` is legacy (VE-3695).
+pub const TERMINAL_STATUSES: [&str; 6] = ["completed", "warning", "failed", "canceled", "cancelled", "errored"];
+
+/// Jobs still waiting or running. The API calls waiting jobs `queued`.
+pub const ACTIVE_JOB_STATUSES: &str = "running,pending,queued";
 
 pub fn is_terminal(status: &str) -> bool {
     TERMINAL_STATUSES.contains(&status)
@@ -80,7 +85,7 @@ pub fn format_job_progress(job: Option<Job>) -> String {
         return parts.join(" · ");
     }
     match job.status().as_str() {
-        "pending" => dim("queued"),
+        "pending" | "queued" => dim("queued"),
         "running" => dim("starting"),
         _ => dim("—"),
     }
@@ -227,6 +232,7 @@ mod tests {
     #[test]
     fn progress_states_without_counts() {
         assert!(progress(json!({ "id": "j4", "status": "pending" })).contains("queued"));
+        assert!(progress(json!({ "id": "j5", "status": "queued" })).contains("queued"));
         assert!(progress(json!({ "id": "j", "status": "running" })).contains("starting"));
         assert!(progress(json!({ "id": "j", "status": "failed" })).contains('—'));
     }

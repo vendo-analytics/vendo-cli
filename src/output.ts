@@ -27,10 +27,12 @@ export function colorStatus(status: string): string {
       return c.green(status);
     case 'running':
     case 'pending':
+    case 'queued':
       return c.blue(status);
     case 'paused':
     case 'inactive':
     case 'cancelled':
+    case 'canceled':
       return c.gray(status);
     case 'errored':
     case 'failed':
