@@ -88,6 +88,24 @@ export function diffJson(a, b, path = '') {
   return [{ path: path || '(root)', kind: 'changed', a, b }];
 }
 
+/**
+ * The TypeScript client's `toCamelCaseDeep`. An intended `keyCasing` rule
+ * applies it to the Rust output before comparing, so the only difference
+ * allowed is snake_case vs camelCase keys (values must still match).
+ */
+export function camelCaseKeysDeep(value) {
+  if (Array.isArray(value)) return value.map(camelCaseKeysDeep);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, val]) => [
+        key.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase()),
+        camelCaseKeysDeep(val),
+      ]),
+    );
+  }
+  return value;
+}
+
 /** `data[*].category` matches `data[3].category`. */
 export function pathMatches(pattern, path) {
   const escaped = pattern
@@ -113,9 +131,16 @@ export function toCells(text) {
     .map((line) => line.split(/\s{2,}/));
 }
 
-export function diffCells(a, b) {
-  const rowsA = toCells(a);
-  const rowsB = toCells(b);
+/**
+ * Rows whose text matches an intended `rowPattern` for this command/variant
+ * (e.g. doctor's "CLI binary" line, which names the running executable) are
+ * dropped from both sides before comparing.
+ */
+export function diffCells(a, b, rowRules = []) {
+  const patterns = rowRules.map((rule) => new RegExp(rule.rowPattern));
+  const keep = (row) => !patterns.some((pattern) => pattern.test(row.join('  ')));
+  const rowsA = toCells(a).filter(keep);
+  const rowsB = toCells(b).filter(keep);
   const diffs = [];
   for (let i = 0; i < Math.max(rowsA.length, rowsB.length); i++) {
     const left = JSON.stringify(rowsA[i] ?? null);

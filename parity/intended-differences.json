@@ -1,10 +1,50 @@
 {
-  "_about": "The only differences between the TypeScript and Rust CLIs that are allowed (VE-3664). `accepted` documents the rules built into parity/lib.mjs, so the harness never reports them. `paths` lists JSON paths per command that may differ, each with a reason. Anything else is a defect. Goal (Yalcin, 2026-10-04): it works exactly like today's CLI, just faster.",
+  "_about": "The only differences between the TypeScript and Rust CLIs that are allowed (VE-3664). `accepted` documents the rules built into parity/lib.mjs, so the harness never reports them. `paths` lists JSON paths per command that may differ, and `rows` lists table/text rows (by regex on the row text), and `keyCasing` names command outputs whose nested keys print as the API sends them (snake_case) where the TS client camelCased them; the harness camelCases the Rust output for those and still requires every value to match. Each has a reason. Anything else is a defect. Goal (Yalcin, 2026-10-04): it works exactly like today's CLI, just faster.",
   "accepted": [
-    { "what": "--help wording and layout", "reason": "clap's standard help format replaces commander's (Yalcin, 2026-10-04). The harness still requires the same flags and subcommands." },
-    { "what": "Table borders and column gap", "reason": "Accepted by Yalcin, 2026-10-04. Tables are compared cell by cell." },
-    { "what": "Exit code 2 for usage errors", "reason": "clap convention, accepted by Yalcin, 2026-10-04. The harness never sends invalid arguments, so it doesn't exercise this." },
-    { "what": "Update notice on stderr", "reason": "It used to go to stdout and break `--json | jq` when an update was available. stderr is not compared." }
+    {
+      "what": "--help wording and layout",
+      "reason": "clap's standard help format replaces commander's (Yalcin, 2026-10-04). The harness still requires the same flags and subcommands."
+    },
+    {
+      "what": "Table borders and column gap",
+      "reason": "Accepted by Yalcin, 2026-10-04. Tables are compared cell by cell."
+    },
+    {
+      "what": "Exit code 2 for usage errors",
+      "reason": "clap convention, accepted by Yalcin, 2026-10-04. The harness never sends invalid arguments, so it doesn't exercise this."
+    },
+    {
+      "what": "Update notice on stderr",
+      "reason": "It used to go to stdout and break `--json | jq` when an update was available. stderr is not compared."
+    }
   ],
-  "paths": []
+  "paths": [
+    {
+      "command": "doctor",
+      "variant": "json",
+      "path": "checks[0].detail",
+      "reason": "The CLI binary check names the running executable, which is a different file for each CLI."
+    },
+    {
+      "command": "doctor",
+      "variant": "json",
+      "path": "checks[1].detail",
+      "reason": "The PATH check names the running executable's directory."
+    }
+  ],
+  "rows": [
+    {
+      "command": "doctor",
+      "variant": "plain",
+      "rowPattern": "^\\[\\w+\\] (CLI binary|PATH):",
+      "reason": "These two checks name the running executable and its directory, which differ between the CLIs."
+    }
+  ],
+  "keyCasing": [
+    {
+      "command": "status",
+      "variant": "json",
+      "reason": "Nested keys print verbatim (Yalcin, 2026-10-05): integrations config/schedule and job metrics come from the API in snake_case; the TS client camelCased them."
+    }
+  ]
 }

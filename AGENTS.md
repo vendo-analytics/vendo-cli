@@ -13,6 +13,19 @@ only active Vendo CLI** — the former in-monorepo `vendo-web-v2/apps/cli` was r
 - Build: `tsup` (ESM → `dist/cli.js`) + Node SEA single-executable for standalone binaries.
 - Tests: `vitest`. Lint: `eslint` 9. Version: see `package.json`.
 
+## Rust port (`rust/`, Linear project "Vendo CLI in Rust")
+The CLI is being ported to Rust one command group at a time (VE-3664 to VE-3669); the TypeScript
+CLI in `src/` stays the shipped binary and takes bug fixes only until the switch-over (VE-3669).
+- Goal: works exactly like the TypeScript CLI, just faster. `pnpm parity --rust rust/target/debug/vendo`
+  compares the two on staging; allowed differences live in `parity/intended-differences.json`.
+- `--json` prints the API response verbatim (no key rewriting), so nested `config`/`schedule`/
+  `metrics` keys print snake_case where the TS client camelCased them (decided 2026-10-05).
+- Stack: clap 4, reqwest (rustls), tokio, serde_json (`preserve_order`), comfy-table, indicatif.
+  Toolchain: `rustup` stable (`~/.cargo/bin`); `pnpm rust:test`, `pnpm rust:build`,
+  `cargo clippy --all-targets` and `cargo fmt` (120 columns, `rust/rustfmt.toml`) from `rust/`.
+- Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
+  self-update (VE-3665). Keep `rust/Cargo.toml`'s version equal to `package.json`'s.
+
 ## Layout (`src/`)
 `cli.ts`, `client.ts`, `config.ts`, `identity.ts`, plus `commands/` (21 modules on 2026-09-23 — `ls src/commands` to recount: apps, sources,
 integrations, jobs, metrics, models, catalog, measurement, specs, pipeline-resource, mcp, login,

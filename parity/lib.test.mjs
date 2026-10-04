@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 
 import {
   assertSafeBaseUrl,
+  camelCaseKeysDeep,
   diffCells,
   diffErrors,
   diffFlags,
@@ -93,12 +94,29 @@ describe('diffJson', () => {
   });
 });
 
+describe('camelCaseKeysDeep', () => {
+  it('matches the TS client so only key casing may differ', () => {
+    const raw = { data: [{ config: { custom_source: { field_mappings: [{ sync_null: true }] }, n2_value: 1 } }] };
+    const ts = { data: [{ config: { customSource: { fieldMappings: [{ syncNull: true }] }, n2Value: 1 } }] };
+    assert.deepEqual(diffJson(ts, camelCaseKeysDeep(raw)), []);
+    const changedValue = { data: [{ config: { custom_source: { field_mappings: [{ sync_null: false }] }, n2_value: 1 } }] };
+    assert.equal(diffJson(ts, camelCaseKeysDeep(changedValue)).length, 1);
+  });
+});
+
 describe('diffCells', () => {
   const ts = ' ID             Name    State\n 39812d09...    Amp     active\n8 apps\n';
 
   it('accepts the narrower column gap', () => {
     const rust = ' ID           Name  State\n 39812d09...  Amp   active  \n8 apps\n';
     assert.deepEqual(diffCells(ts, rust), []);
+  });
+
+  it('drops rows matching an intended row pattern on both sides', () => {
+    const tsDoctor = '[warn] CLI binary: /usr/bin/node (standard install path is /h/.local/bin/vendo)\n[ok] Base URL: https://stg\n';
+    const rustDoctor = '[warn] CLI binary: /repo/rust/target/debug/vendo (standard install path is /h/.local/bin/vendo)\n[ok] Base URL: https://stg\n';
+    assert.equal(diffCells(tsDoctor, rustDoctor).length, 1);
+    assert.deepEqual(diffCells(tsDoctor, rustDoctor, [{ rowPattern: '^\\[\\w+\\] CLI binary:' }]), []);
   });
 
   it('reports a changed cell', () => {

@@ -1,0 +1,37 @@
+[package]
+name = "vendo"
+# Keep in sync with ../package.json until the switch-over (VE-3669).
+version = "0.3.1"
+edition = "2024"
+description = "Vendo CLI — manage your data pipeline from the terminal"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "vendo"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+clap_complete = "4.6.11"
+comfy-table = { version = "8.0.1", features = ["custom_styling"] }
+indicatif = "0.18.6"
+jiff = "0.2.37"
+open = "5.4.4"
+owo-colors = { version = "4.4.0", features = ["supports-colors"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
+tokio = { version = "1.53.2", features = ["rt", "macros", "net", "io-util", "time"] }
+uuid = { version = "1.27.0", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+wiremock = "0.6.5"
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
+strip = true
