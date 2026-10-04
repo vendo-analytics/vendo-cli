@@ -107,7 +107,7 @@ function registerMethodologiesGroup(parent: Command): void {
         return;
       }
 
-      const rows = res.data.methodologies;
+      const rows = res.data.data.methodologies;
 
       if (outputMode === 'field') {
         printField(rows.map(methodologyAsField), opts.output);
@@ -153,7 +153,9 @@ function registerMethodologiesGroup(parent: Command): void {
         webApp.measurement.methodologies(),
       );
 
-      const row = res.data.methodologies.find((m) => m.id === methodologyId);
+      const row = res.data.data.methodologies.find(
+        (m) => m.id === methodologyId,
+      );
       if (!row) {
         console.error(
           c.red('Error:'),
@@ -304,7 +306,7 @@ function registerLtvGroup(parent: Command): void {
         return;
       }
 
-      const rows = res.data.cohorts;
+      const rows = res.data.data.cohorts;
 
       if (outputMode === 'field') {
         printField(rows.map(ltvCohortAsField), opts.output);
@@ -334,7 +336,7 @@ function registerLtvGroup(parent: Command): void {
         ]);
       }
       console.log(table.toString());
-      printCount(res.data.total_returned, 'cohort');
+      printCount(res.data.data.total_returned, 'cohort');
     });
 
   addExamples(listCmd, [
@@ -539,7 +541,7 @@ function registerSignalsGroup(parent: Command): void {
         'Available',
         'Reason / Notes',
       ]);
-      for (const row of res.data.signals) {
+      for (const row of res.data.data.signals) {
         const available = row.availability?.available;
         table.push([
           row.id,
@@ -553,7 +555,7 @@ function registerSignalsGroup(parent: Command): void {
         ]);
       }
       console.log(table.toString());
-      printCount(res.data.signals.length, 'signal');
+      printCount(res.data.data.signals.length, 'signal');
     });
 
   addExamples(listCmd, [

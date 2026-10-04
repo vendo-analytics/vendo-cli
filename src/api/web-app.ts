@@ -4,8 +4,10 @@
  *
  * These run on the same host as the pipelines API but use a different
  * convention: they are NOT under `/api/v1`, are not account-scoped by the
- * client, and return their canonical snake_case JSON verbatim (no envelope or
- * camelCase normalization). The client reaches them via its `*Raw` methods;
+ * client, and return their canonical snake_case JSON verbatim (no camelCase
+ * normalization). Routes that answer through the web app's
+ * `apiResponse.success` wrap their body in `{ data: … }` ({@link DataEnvelope});
+ * the others return it bare. The client reaches them via its `*Raw` methods;
  * this module is the single place that knows their paths and response shapes,
  * so command files no longer hard-code `/api/...` strings or hand-mirror the
  * web contract types inline.
@@ -53,6 +55,11 @@ export interface MetricResponse {
 }
 
 // ── Measurement (`/api/measurement/*`) ──────────────────────────────────────
+
+/** Body of a route that answers with `apiResponse.success(...)`. */
+export interface DataEnvelope<T> {
+  data: T;
+}
 
 export interface MethodologyRow {
   id: string;
@@ -242,8 +249,8 @@ export const webApp = {
   measurement: {
     methodologies: (
       params: RawParams = {},
-    ): Promise<ApiResponse<MethodologyListResponse>> =>
-      getClient().getRaw<MethodologyListResponse>(
+    ): Promise<ApiResponse<DataEnvelope<MethodologyListResponse>>> =>
+      getClient().getRaw<DataEnvelope<MethodologyListResponse>>(
         "/api/measurement/methodologies",
         params,
       ),
@@ -252,8 +259,13 @@ export const webApp = {
         "/api/measurement/methodologies/rules/preview",
         body,
       ),
-    ltv: (params: RawParams): Promise<ApiResponse<CohortLtvResponse>> =>
-      getClient().getRaw<CohortLtvResponse>("/api/measurement/ltv", params),
+    ltv: (
+      params: RawParams,
+    ): Promise<ApiResponse<DataEnvelope<CohortLtvResponse>>> =>
+      getClient().getRaw<DataEnvelope<CohortLtvResponse>>(
+        "/api/measurement/ltv",
+        params,
+      ),
     cohort: (
       period: string,
       params: RawParams = {},
@@ -266,8 +278,10 @@ export const webApp = {
       getClient().getRaw<CustomerLtvResponse>(
         `/api/measurement/ltv/customer/${encodeURIComponent(customerId)}`,
       ),
-    signals: (): Promise<ApiResponse<SignalListResponse>> =>
-      getClient().getRaw<SignalListResponse>("/api/measurement/signals"),
+    signals: (): Promise<ApiResponse<DataEnvelope<SignalListResponse>>> =>
+      getClient().getRaw<DataEnvelope<SignalListResponse>>(
+        "/api/measurement/signals",
+      ),
     clickPath: (
       params: RawParams = {},
     ): Promise<ApiResponse<ClickPathStatusResponse>> =>
