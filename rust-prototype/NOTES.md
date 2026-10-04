@@ -7,7 +7,7 @@ stay compatible with the TypeScript CLI and its release/install contract?
 `--profile`/`--debug`, the `VENDO_*` env vars and the daily update check. It shares
 `~/.config/vendo/config.json` with the TypeScript CLI.
 
-**Run:** `pnpm proto:rust -- whoami` (or `cargo build --release` here and run
+**Run:** `pnpm proto:rust whoami` (or `cargo build --release` here and run
 `target/release/vendo`).
 
 **Answer (2026-10-04):** Yes, it's feasible.
