@@ -37,7 +37,8 @@
     "format:fix": "prettier --write \"src/**/*.ts\"",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "proto:rust": "cargo run --quiet --release --manifest-path rust-prototype/Cargo.toml --"
   },
   "dependencies": {
     "chalk": "^5.4.1",
