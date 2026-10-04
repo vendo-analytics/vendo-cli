@@ -1,0 +1,171 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import {
+  assertSafeBaseUrl,
+  diffCells,
+  diffErrors,
+  diffFlags,
+  diffJson,
+  failureLine,
+  filterIntended,
+  getPath,
+  isNotPorted,
+  validateClassification,
+} from './lib.mjs';
+
+describe('validateClassification', () => {
+  it('fails on unclassified and stale commands before anything runs', () => {
+    const problems = validateClassification(['apps list', 'apps get', 'jobs list'], {
+      'apps list': { class: 'read' },
+      'apps get': { class: 'read' },
+      'specs list': { class: 'read' },
+    });
+    assert.deepEqual(problems, [
+      'unclassified command: "jobs list"',
+      'classified command no longer exists: "specs list"',
+    ]);
+  });
+
+  it('rejects an unknown class', () => {
+    const problems = validateClassification(['apps list'], { 'apps list': { class: 'safe' } });
+    assert.deepEqual(problems, ['"apps list" has unknown class "safe"']);
+  });
+
+  it('accepts a complete classification', () => {
+    assert.deepEqual(
+      validateClassification(['whoami'], { whoami: { class: 'read' } }),
+      [],
+    );
+  });
+});
+
+describe('assertSafeBaseUrl', () => {
+  it('rejects prod, including the implicit prod default', () => {
+    assert.throws(() => assertSafeBaseUrl('https://app2.vendodata.com'), /Refusing/);
+    assert.throws(() => assertSafeBaseUrl(undefined), /Refusing/);
+    assert.throws(() => assertSafeBaseUrl('not a url'), /Refusing/);
+  });
+
+  it('accepts staging and localhost', () => {
+    assert.equal(assertSafeBaseUrl('https://stg.vendodata.com'), 'https://stg.vendodata.com');
+    assert.equal(assertSafeBaseUrl('http://localhost:3000'), 'http://localhost:3000');
+    assert.equal(assertSafeBaseUrl('http://127.0.0.1:3031'), 'http://127.0.0.1:3031');
+  });
+});
+
+describe('diffJson', () => {
+  const ts = { data: [{ id: 'a1', appType: 'stripe', state: 'active' }], meta: { total: 1 } };
+
+  it('ignores key order', () => {
+    const reordered = { meta: { total: 1 }, data: [{ state: 'active', appType: 'stripe', id: 'a1' }] };
+    assert.deepEqual(diffJson(ts, reordered), []);
+  });
+
+  it('reports a renamed key as missing plus extra', () => {
+    const renamed = { data: [{ id: 'a1', app_type: 'stripe', state: 'active' }], meta: { total: 1 } };
+    assert.deepEqual(
+      diffJson(ts, renamed).map((d) => `${d.kind} ${d.path}`),
+      ['missing data[0].appType', 'extra data[0].app_type'],
+    );
+  });
+
+  it('reports changed values and array length', () => {
+    const changed = { data: [{ id: 'a1', appType: 'stripe', state: 'paused' }, { id: 'a2' }], meta: { total: 1 } };
+    assert.deepEqual(
+      diffJson(ts, changed).map((d) => `${d.kind} ${d.path}`),
+      ['changed data[0].state', 'extra data[1]'],
+    );
+  });
+
+  it('drops only differences listed as intended for that command', () => {
+    const diffs = [
+      { path: 'data[0].category', kind: 'missing' },
+      { path: 'data[3].category', kind: 'missing' },
+      { path: 'data[0].appType', kind: 'missing' },
+    ];
+    const intended = [{ command: 'catalog list', variant: 'json', path: 'data[*].category' }];
+    assert.deepEqual(
+      filterIntended(diffs, intended, 'catalog list', 'json').map((d) => d.path),
+      ['data[0].appType'],
+    );
+    assert.equal(filterIntended(diffs, intended, 'apps list', 'json').length, 3);
+  });
+});
+
+describe('diffCells', () => {
+  const ts = ' ID             Name    State\n 39812d09...    Amp     active\n8 apps\n';
+
+  it('accepts the narrower column gap', () => {
+    const rust = ' ID           Name  State\n 39812d09...  Amp   active  \n8 apps\n';
+    assert.deepEqual(diffCells(ts, rust), []);
+  });
+
+  it('reports a changed cell', () => {
+    const rust = ' ID           Name  State\n 39812d09...  Amp   paused\n8 apps\n';
+    assert.deepEqual(diffCells(ts, rust).map((d) => d.path), ['row 2']);
+  });
+});
+
+describe('diffErrors', () => {
+  it('ignores request IDs', () => {
+    const a = { code: 1, stderr: 'Error: Resource not found.\nRequest ID: cli-fd0e818b-b44c-4655-9ec3-5fc42a7adacc\n' };
+    const b = { code: 1, stderr: 'Error: Resource not found.\nRequest ID: cli-11111111-2222-4333-8444-555555555555\n' };
+    assert.deepEqual(diffErrors(a, b), []);
+  });
+
+  it('reports a different message or exit code', () => {
+    const a = { code: 1, stderr: 'Error: Resource not found. Check the ID and try again.\n' };
+    const b = { code: 1, stderr: 'Error: HTTP 404\n' };
+    assert.deepEqual(diffErrors(a, b).map((d) => d.path), ['error']);
+    assert.deepEqual(diffErrors(a, { ...a, code: 2 }).map((d) => d.path), ['exit code']);
+  });
+});
+
+describe('failureLine', () => {
+  it('prefers the Error: line, then a crash line, then the last line', () => {
+    assert.equal(failureLine('Error: Request timed out\n'), 'Error: Request timed out');
+    const crash = 'file:///dist/cli.js:4247\n    for (const row of rows) {\n\nTypeError: rows is not iterable\n    at Command\n\nNode.js v22\n';
+    assert.equal(failureLine(crash), 'TypeError: rows is not iterable');
+    assert.equal(failureLine('something odd\nlast words\n'), 'last words');
+  });
+});
+
+describe('help and porting status', () => {
+  const clapHelp = [
+    'List all app connections',
+    '',
+    'Usage: vendo apps list [OPTIONS]',
+    '',
+    'Options:',
+    '      --state <STATE>    Filter by state (active, inactive)',
+    '      --type <type>      Filter by app type',
+    '      --json             Output raw JSON',
+    '      --profile <name>   Use a specific account profile',
+    '  -h, --help             Print help',
+    '',
+    'Examples:',
+    '  $ vendo apps list --output id',
+  ].join('\n');
+
+  it('compares flags from the Options section only, ignoring root flags', () => {
+    assert.deepEqual(diffFlags(['--state', '--type', '--json'], clapHelp), []);
+    assert.deepEqual(
+      diffFlags(['--state', '--type', '--json', '--limit'], clapHelp).map((d) => `${d.kind} ${d.path}`),
+      ['missing --limit'],
+    );
+  });
+
+  it('treats clap\'s unrecognized subcommand as not ported, not as a difference', () => {
+    assert.equal(isNotPorted({ code: 2, stderr: "error: unrecognized subcommand 'sources'\n" }), true);
+    assert.equal(isNotPorted({ code: 2, stderr: "error: unexpected argument '--limit' found\n" }), false);
+  });
+});
+
+describe('getPath', () => {
+  it('reads nested list paths', () => {
+    const body = { data: { methodologies: [{ id: 'm1' }] } };
+    assert.equal(getPath(body, 'data.methodologies[0].id'), 'm1');
+    assert.equal(getPath(body, 'data.cohorts[0].cohort_period'), undefined);
+  });
+});

@@ -1,0 +1,10 @@
+{
+  "_about": "The only differences between the TypeScript and Rust CLIs that are allowed (VE-3664). `accepted` documents the rules built into parity/lib.mjs, so the harness never reports them. `paths` lists JSON paths per command that may differ, each with a reason. Anything else is a defect. Goal (Yalcin, 2026-10-04): it works exactly like today's CLI, just faster.",
+  "accepted": [
+    { "what": "--help wording and layout", "reason": "clap's standard help format replaces commander's (Yalcin, 2026-10-04). The harness still requires the same flags and subcommands." },
+    { "what": "Table borders and column gap", "reason": "Accepted by Yalcin, 2026-10-04. Tables are compared cell by cell." },
+    { "what": "Exit code 2 for usage errors", "reason": "clap convention, accepted by Yalcin, 2026-10-04. The harness never sends invalid arguments, so it doesn't exercise this." },
+    { "what": "Update notice on stderr", "reason": "It used to go to stdout and break `--json | jq` when an update was available. stderr is not compared." }
+  ],
+  "paths": []
+}
