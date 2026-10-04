@@ -1,5 +1,9 @@
 //! Terminal output helpers (port of `src/output.ts`). Colors apply only when
 //! stdout is a terminal; owo-colors also honours NO_COLOR / FORCE_COLOR.
+//!
+//! The table, `--output` and dry-run helpers serve the resource commands that
+//! VE-3666/VE-3667 port next; they are tested here with the rest of the module.
+#![allow(dead_code)]
 
 use std::{
     future::Future,

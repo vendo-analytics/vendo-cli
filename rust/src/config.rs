@@ -60,7 +60,6 @@ pub struct EffectiveConfig {
     pub config_path: PathBuf,
     pub selected_profile: Option<String>,
     pub selected_profile_exists: bool,
-    pub profiles: Vec<(String, bool)>,
     pub api_key: Option<String>,
     pub api_key_source: Source,
     pub base_url: String,
@@ -193,11 +192,6 @@ impl ConfigStore {
             config_path: self.path.clone(),
             selected_profile_exists: profile.is_some(),
             selected_profile: selected,
-            profiles: self
-                .profile_summaries_of(&config)
-                .into_iter()
-                .map(|p| (p.name, p.active))
-                .collect(),
             api_key,
             api_key_source,
             base_url: base_url.unwrap_or_else(|| DEFAULT_BASE_URL.to_string()),
@@ -611,7 +605,6 @@ mod tests {
         assert_eq!(e.selected_profile.as_deref(), Some("team"));
         assert!(e.selected_profile_exists);
         assert_eq!((e.api_key_source, e.base_url_source, e.account_id_source), (Source::Profile, Source::Profile, Source::Profile));
-        assert_eq!(e.profiles, vec![("team".to_string(), true)]);
     }
 
     #[test]

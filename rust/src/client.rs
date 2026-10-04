@@ -87,14 +87,18 @@ impl Client {
         self.request(Method::GET, path, RequestOptions { query: defined(query), ..Default::default() }).await
     }
 
+    // POST/PATCH/DELETE serve the resource commands ported in VE-3666/VE-3667.
+    #[allow(dead_code)]
     pub async fn post(&self, path: &str, body: Option<Value>) -> Result<Value, ApiError> {
         self.request(Method::POST, path, RequestOptions { body, ..Default::default() }).await
     }
 
+    #[allow(dead_code)]
     pub async fn patch(&self, path: &str, body: Value) -> Result<Value, ApiError> {
         self.request(Method::PATCH, path, RequestOptions { body: Some(body), ..Default::default() }).await
     }
 
+    #[allow(dead_code)]
     pub async fn delete(&self, path: &str, query: &[(&str, Option<String>)]) -> Result<Value, ApiError> {
         self.request(Method::DELETE, path, RequestOptions { query: defined(query), ..Default::default() }).await
     }
