@@ -37,6 +37,8 @@
     "format:fix": "prettier --write \"src/**/*.ts\"",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:parity": "node --test 'parity/*.test.mjs'",
+    "parity": "node parity/run.mjs",
     "clean": "rm -rf dist"
   },
   "dependencies": {

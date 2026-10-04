@@ -23,5 +23,9 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
 - `pnpm run test` — `vitest run`
 - `pnpm run lint` / `pnpm run lint:fix`
 - `pnpm run build` — `tsup` (dev bundle); `pnpm run build:standalone` — SEA binary
+- `pnpm parity --profile <staging profile> [--rust <binary>] [--only <prefix>]` — runs every read-only command
+  against staging with the TypeScript CLI (and the Rust CLI when given) and reports differences and
+  commands that fail today. Needs `pnpm build`. Refuses non-staging URLs. When you add or rename a
+  command, classify it in `parity/commands.json` or the run fails. Tests: `pnpm test:parity` (VE-3664).
 - Distribution: `install.sh` pulls per-platform binaries from GitHub Releases
   (`vendo-analytics/vendo-cli`); release CI is tag-triggered (`cli-v*`, `.github/workflows/release.yml`).
