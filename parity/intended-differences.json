@@ -45,6 +45,16 @@
       "command": "status",
       "variant": "json",
       "reason": "Nested keys print verbatim (Yalcin, 2026-10-05): integrations config/schedule and job metrics come from the API in snake_case; the TS client camelCased them."
+    },
+    {
+      "command": "jobs list",
+      "variant": "json",
+      "reason": "Nested keys print verbatim (Yalcin, 2026-10-05): job metrics come from the API in snake_case; the TS client camelCased them."
+    },
+    {
+      "command": "jobs get",
+      "variant": "json",
+      "reason": "Nested keys print verbatim (Yalcin, 2026-10-05): job metrics come from the API in snake_case; the TS client camelCased them."
     }
   ]
 }

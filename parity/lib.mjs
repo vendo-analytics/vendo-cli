@@ -143,11 +143,37 @@ export function diffCells(a, b, rowRules = []) {
   const rowsB = toCells(b).filter(keep);
   const diffs = [];
   for (let i = 0; i < Math.max(rowsA.length, rowsB.length); i++) {
-    const left = JSON.stringify(rowsA[i] ?? null);
-    const right = JSON.stringify(rowsB[i] ?? null);
-    if (left !== right) diffs.push({ path: `row ${i + 1}`, kind: 'changed', a: rowsA[i], b: rowsB[i] });
+    const left = rowsA[i];
+    const right = rowsB[i];
+    const same =
+      left && right && left.length === right.length && left.every((cell, c) => sameCell(cell, right[c]));
+    if (!same) diffs.push({ path: `row ${i + 1}`, kind: 'changed', a: left, b: right });
   }
   return diffs;
+}
+
+/**
+ * Cells match exactly, or are clock readings one tick apart: the two CLIs
+ * run a second or so apart, so "24m ago"/"25m ago" or a running job's
+ * "6s"/"7s" are the same answer. Formatting itself is unit-tested.
+ */
+export function sameCell(a, b) {
+  if (a === b) return true;
+  const ago = (s) => {
+    if (s === 'just now') return { n: 0, unit: 'm' };
+    const m = s.match(/^(\d+)([mhd]) ago$/);
+    return m ? { n: Number(m[1]), unit: m[2] } : null;
+  };
+  const [x, y] = [ago(a), ago(b)];
+  if (x && y) return (x.unit === y.unit || x.n === 0 || y.n === 0) && Math.abs(x.n - y.n) <= 1;
+  const duration = (s) => {
+    const m = s.match(/^(?:(\d+)h)? ?(?:(\d+)m)? ?(?:(\d+)s)?$/);
+    if (!m || s === '' || !(m[1] || m[2] || m[3])) return null;
+    const step = m[3] !== undefined ? 1 : m[2] !== undefined ? 60 : 3600;
+    return { seconds: Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0), step };
+  };
+  const [d1, d2] = [duration(a), duration(b)];
+  return Boolean(d1 && d2) && Math.abs(d1.seconds - d2.seconds) <= Math.max(d1.step, d2.step);
 }
 
 /** The user-facing error line, with request IDs removed. */

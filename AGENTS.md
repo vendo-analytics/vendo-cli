@@ -24,7 +24,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   Toolchain: `rustup` stable (`~/.cargo/bin`); `pnpm rust:test`, `pnpm rust:build`,
   `cargo clippy --all-targets` and `cargo fmt` (120 columns, `rust/rustfmt.toml`) from `rust/`.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
-  self-update (VE-3665). Keep `rust/Cargo.toml`'s version equal to `package.json`'s.
+  self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666). Keep `rust/Cargo.toml`'s version equal to `package.json`'s.
 
 ## Layout (`src/`)
 `cli.ts`, `client.ts`, `config.ts`, `identity.ts`, plus `commands/` (21 modules on 2026-09-23 — `ls src/commands` to recount: apps, sources,

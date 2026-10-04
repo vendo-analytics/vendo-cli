@@ -9,6 +9,7 @@ import {
   diffFlags,
   diffJson,
   failureLine,
+  sameCell,
   filterIntended,
   getPath,
   isNotPorted,
@@ -122,6 +123,24 @@ describe('diffCells', () => {
   it('reports a changed cell', () => {
     const rust = ' ID           Name  State\n 39812d09...  Amp   paused\n8 apps\n';
     assert.deepEqual(diffCells(ts, rust).map((d) => d.path), ['row 2']);
+  });
+});
+
+describe('sameCell', () => {
+  it('treats clock readings one tick apart as the same', () => {
+    assert.equal(sameCell('24m ago', '25m ago'), true);
+    assert.equal(sameCell('just now', '1m ago'), true);
+    assert.equal(sameCell('23h ago', '1d ago'), false);
+    assert.equal(sameCell('6s', '7s'), true);
+    assert.equal(sameCell('5m 59s', '6m'), true);
+    assert.equal(sameCell('3h 15m', '3h 16m'), true);
+  });
+
+  it('still catches real differences', () => {
+    assert.equal(sameCell('24m ago', '27m ago'), false);
+    assert.equal(sameCell('6s', '20s'), false);
+    assert.equal(sameCell('completed', 'failed'), false);
+    assert.equal(sameCell('2,400 rows', '2,401 rows'), false);
   });
 });
 
