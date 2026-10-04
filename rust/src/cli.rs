@@ -19,7 +19,9 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Authenticate with your Vendo account
-    #[command(after_help = "Examples:\n  $ vendo login\n  $ vendo login --env staging\n  $ vendo login --api-key vendo_sk_... --account <account-id>")]
+    #[command(
+        after_help = "Examples:\n  $ vendo login\n  $ vendo login --env staging\n  $ vendo login --api-key vendo_sk_... --account <account-id>"
+    )]
     Login {
         /// API key for headless/CI login (requires --account)
         #[arg(long, value_name = "key")]
@@ -86,7 +88,9 @@ pub enum Command {
         show_key: bool,
     },
     /// Generate shell completion script (bash, zsh, fish)
-    #[command(after_help = "Examples:\n  $ vendo completions bash\n  $ vendo completions zsh\n  $ vendo completions fish")]
+    #[command(
+        after_help = "Examples:\n  $ vendo completions bash\n  $ vendo completions zsh\n  $ vendo completions fish"
+    )]
     Completions { shell: Shell },
     /// Run local configuration and connectivity checks
     #[command(after_help = "Examples:\n  $ vendo doctor\n  $ vendo doctor --json")]
@@ -107,7 +111,9 @@ pub enum Command {
 #[derive(Subcommand)]
 pub enum ConfigCommand {
     /// Set configuration values
-    #[command(after_help = "Examples:\n  $ vendo config set --api-key <key>\n  $ vendo config set --account <id>\n  $ vendo config set --api-key <key> --account <id>")]
+    #[command(
+        after_help = "Examples:\n  $ vendo config set --api-key <key>\n  $ vendo config set --account <id>\n  $ vendo config set --api-key <key> --account <id>"
+    )]
     Set {
         /// API key for authentication
         #[arg(long, value_name = "key")]
@@ -151,7 +157,9 @@ pub enum ProfileCommand {
     #[command(after_help = "Examples:\n  $ vendo profile current")]
     Current,
     /// Switch to a different profile
-    #[command(after_help = "Examples:\n  $ vendo profile switch\n  $ vendo profile switch myprofile\n  $ vendo profile switch --account <accountId>")]
+    #[command(
+        after_help = "Examples:\n  $ vendo profile switch\n  $ vendo profile switch myprofile\n  $ vendo profile switch --account <accountId>"
+    )]
     Switch {
         profile: Option<String>,
         /// Switch by account ID instead of profile name

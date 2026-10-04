@@ -5,6 +5,10 @@
 //! snake→camel rewriting and no field aliasing (decided 2026-10-04/05), so
 //! `--json` prints exactly what the API sent.
 
+// `ApiError` carries request IDs and error details for the one error a
+// command reports; its size doesn't matter on that path.
+#![allow(clippy::result_large_err)]
+
 use std::time::{Duration, Instant};
 
 use reqwest::{Method, StatusCode};
@@ -13,8 +17,18 @@ use uuid::Uuid;
 
 /// Paths that get an `/accounts/{accountId}` prefix.
 const ACCOUNT_SCOPED_PREFIXES: &[&str] = &[
-    "/apps", "/connections", "/sources", "/jobs", "/models", "/pipeline", "/triggers", "/costs",
-    "/events", "/specs", "/pulse", "/bigquery",
+    "/apps",
+    "/connections",
+    "/sources",
+    "/jobs",
+    "/models",
+    "/pipeline",
+    "/triggers",
+    "/costs",
+    "/events",
+    "/specs",
+    "/pulse",
+    "/bigquery",
 ];
 /// Share an account-scoped prefix but are global routes (scoped by the key).
 const GLOBAL_PATH_EXCEPTIONS: &[&str] = &["/apps/oauth-session"];
@@ -114,12 +128,15 @@ impl Client {
         }
 
         let request_id = format!("cli-{}", Uuid::new_v4());
-        self.debug_line("request", &[
-            ("method", Field::Str(method.as_str())),
-            ("url", Field::Str(url.as_str())),
-            ("requestId", Field::Str(&request_id)),
-            ("accountId", account_id.as_deref().map(Field::Str).unwrap_or(Field::None)),
-        ]);
+        self.debug_line(
+            "request",
+            &[
+                ("method", Field::Str(method.as_str())),
+                ("url", Field::Str(url.as_str())),
+                ("requestId", Field::Str(&request_id)),
+                ("accountId", account_id.as_deref().map(Field::Str).unwrap_or(Field::None)),
+            ],
+        );
 
         let mut req = self
             .http
@@ -140,38 +157,37 @@ impl Client {
         let res = match req.send().await {
             Ok(res) => res,
             Err(err) => {
-                let (message, status) = if err.is_timeout() {
-                    ("Request timed out".to_string(), 408)
-                } else {
-                    (error_chain(&err), 0)
-                };
-                self.debug_line("request_failed", &[
-                    ("method", Field::Str(method.as_str())),
-                    ("url", Field::Str(url.as_str())),
-                    ("requestId", Field::Str(&request_id)),
-                    ("durationMs", Field::Num(started.elapsed().as_millis() as i64)),
-                    ("error", Field::Str(&message)),
-                ]);
+                let (message, status) =
+                    if err.is_timeout() { ("Request timed out".to_string(), 408) } else { (error_chain(&err), 0) };
+                self.debug_line(
+                    "request_failed",
+                    &[
+                        ("method", Field::Str(method.as_str())),
+                        ("url", Field::Str(url.as_str())),
+                        ("requestId", Field::Str(&request_id)),
+                        ("durationMs", Field::Num(started.elapsed().as_millis() as i64)),
+                        ("error", Field::Str(&message)),
+                    ],
+                );
                 return Err(client_error(message, status, Some(request_id)));
             }
         };
 
         let status = res.status();
         let status_text = status.canonical_reason().unwrap_or("").to_string();
-        let server_request_id = res
-            .headers()
-            .get("x-request-id")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
+        let server_request_id = res.headers().get("x-request-id").and_then(|v| v.to_str().ok()).map(str::to_string);
         let duration_ms = started.elapsed().as_millis() as i64;
-        self.debug_line("response", &[
-            ("method", Field::Str(method.as_str())),
-            ("url", Field::Str(url.as_str())),
-            ("requestId", Field::Str(&request_id)),
-            ("serverRequestId", server_request_id.as_deref().map(Field::Str).unwrap_or(Field::None)),
-            ("status", Field::Num(status.as_u16() as i64)),
-            ("durationMs", Field::Num(duration_ms)),
-        ]);
+        self.debug_line(
+            "response",
+            &[
+                ("method", Field::Str(method.as_str())),
+                ("url", Field::Str(url.as_str())),
+                ("requestId", Field::Str(&request_id)),
+                ("serverRequestId", server_request_id.as_deref().map(Field::Str).unwrap_or(Field::None)),
+                ("status", Field::Num(status.as_u16() as i64)),
+                ("durationMs", Field::Num(duration_ms)),
+            ],
+        );
         if let Some(warning) = rate_limit_warning(res.headers()) {
             eprintln!("{warning}");
         }
@@ -184,15 +200,18 @@ impl Client {
         if !status.is_success() {
             let parsed: Option<Value> = serde_json::from_slice(&body).ok();
             let Some(parsed) = parsed else {
-                self.debug_line("response_error", &[
-                    ("method", Field::Str(method.as_str())),
-                    ("url", Field::Str(url.as_str())),
-                    ("requestId", Field::Str(&request_id)),
-                    ("serverRequestId", server_request_id.as_deref().map(Field::Str).unwrap_or(Field::None)),
-                    ("status", Field::Num(status.as_u16() as i64)),
-                    ("statusText", Field::Str(&status_text)),
-                    ("durationMs", Field::Num(duration_ms)),
-                ]);
+                self.debug_line(
+                    "response_error",
+                    &[
+                        ("method", Field::Str(method.as_str())),
+                        ("url", Field::Str(url.as_str())),
+                        ("requestId", Field::Str(&request_id)),
+                        ("serverRequestId", server_request_id.as_deref().map(Field::Str).unwrap_or(Field::None)),
+                        ("status", Field::Num(status.as_u16() as i64)),
+                        ("statusText", Field::Str(&status_text)),
+                        ("durationMs", Field::Num(duration_ms)),
+                    ],
+                );
                 return Err(ApiError {
                     message: friendly_http_error(status.as_u16(), Some(&status_text)),
                     status: status.as_u16(),
@@ -207,18 +226,21 @@ impl Client {
             let error_message = error.and_then(|e| e.get("message")).and_then(Value::as_str);
             let code = error.and_then(|e| e.get("code")).and_then(Value::as_str).map(str::to_string);
             let details = error.and_then(|e| e.get("details")).cloned();
-            self.debug_line("response_error", &[
-                ("method", Field::Str(method.as_str())),
-                ("url", Field::Str(url.as_str())),
-                ("requestId", Field::Str(&request_id)),
-                ("serverRequestId", server_request_id.as_deref().map(Field::Str).unwrap_or(Field::None)),
-                ("status", Field::Num(status.as_u16() as i64)),
-                ("statusText", Field::Str(&status_text)),
-                ("errorMessage", error_message.map(Field::Str).unwrap_or(Field::None)),
-                ("durationMs", Field::Num(duration_ms)),
-                ("code", code.as_deref().map(Field::Str).unwrap_or(Field::None)),
-                ("details", details.as_ref().map(Field::Json).unwrap_or(Field::None)),
-            ]);
+            self.debug_line(
+                "response_error",
+                &[
+                    ("method", Field::Str(method.as_str())),
+                    ("url", Field::Str(url.as_str())),
+                    ("requestId", Field::Str(&request_id)),
+                    ("serverRequestId", server_request_id.as_deref().map(Field::Str).unwrap_or(Field::None)),
+                    ("status", Field::Num(status.as_u16() as i64)),
+                    ("statusText", Field::Str(&status_text)),
+                    ("errorMessage", error_message.map(Field::Str).unwrap_or(Field::None)),
+                    ("durationMs", Field::Num(duration_ms)),
+                    ("code", code.as_deref().map(Field::Str).unwrap_or(Field::None)),
+                    ("details", details.as_ref().map(Field::Json).unwrap_or(Field::None)),
+                ],
+            );
             return Err(ApiError {
                 message: error_message
                     .filter(|m| !m.is_empty())
@@ -233,9 +255,8 @@ impl Client {
             });
         }
 
-        serde_json::from_slice(&body).map_err(|err| {
-            client_error(format!("Unexpected response from {url}: {err}"), 0, Some(request_id))
-        })
+        serde_json::from_slice(&body)
+            .map_err(|err| client_error(format!("Unexpected response from {url}: {err}"), 0, Some(request_id)))
     }
 
     fn route(&self, path: &str) -> Result<(String, Option<String>), ApiError> {
@@ -245,8 +266,8 @@ impl Client {
         };
         let global = GLOBAL_PATH_EXCEPTIONS.iter().any(|p| path.starts_with(p));
         let scoped = !global && ACCOUNT_SCOPED_PREFIXES.iter().any(|p| path.starts_with(p));
-        let header_scoped = !global
-            && ACCOUNT_HEADER_PATHS.iter().any(|p| path == *p || path.starts_with(&format!("{p}/")));
+        let header_scoped =
+            !global && ACCOUNT_HEADER_PATHS.iter().any(|p| path == *p || path.starts_with(&format!("{p}/")));
         let account = if scoped || header_scoped {
             Some(self.account_id.clone().ok_or_else(|| {
                 client_error(
@@ -279,10 +300,7 @@ pub fn payload(body: &Value) -> &Value {
 }
 
 fn defined(query: &[(&str, Option<String>)]) -> Vec<(String, String)> {
-    query
-        .iter()
-        .filter_map(|(k, v)| v.as_ref().map(|v| (k.to_string(), v.clone())))
-        .collect()
+    query.iter().filter_map(|(k, v)| v.as_ref().map(|v| (k.to_string(), v.clone()))).collect()
 }
 
 fn client_error(message: String, status: u16, request_id: Option<String>) -> ApiError {
@@ -340,11 +358,7 @@ pub fn format_debug_line(message: &str, fields: &[(&str, Field)]) -> String {
             Some(format!("{key}={value}"))
         })
         .collect();
-    if rendered.is_empty() {
-        format!("[debug] {message}")
-    } else {
-        format!("[debug] {message} {}", rendered.join(" "))
-    }
+    if rendered.is_empty() { format!("[debug] {message}") } else { format!("[debug] {message} {}", rendered.join(" ")) }
 }
 
 fn error_chain(err: &dyn std::error::Error) -> String {
@@ -399,7 +413,12 @@ mod tests {
     #[tokio::test]
     async fn structured_error_message_and_code_win() {
         let server = MockServer::start().await;
-        let err = fail(&server, 422, Some(json!({ "error": { "code": "VALIDATION_ERROR", "message": "Invalid field: name is required" } }))).await;
+        let err = fail(
+            &server,
+            422,
+            Some(json!({ "error": { "code": "VALIDATION_ERROR", "message": "Invalid field: name is required" } })),
+        )
+        .await;
         assert_eq!(err.message, "Invalid field: name is required");
         assert_eq!(err.code.as_deref(), Some("VALIDATION_ERROR"));
     }
@@ -409,7 +428,10 @@ mod tests {
         let server = MockServer::start().await;
         assert_eq!(fail(&server, 500, Some(json!({ "error": {} }))).await.message, "HTTP 500");
         let server = MockServer::start().await;
-        Mock::given(path("/api/v1/me")).respond_with(ResponseTemplate::new(502).set_body_string("<html>")).mount(&server).await;
+        Mock::given(path("/api/v1/me"))
+            .respond_with(ResponseTemplate::new(502).set_body_string("<html>"))
+            .mount(&server)
+            .await;
         assert_eq!(client(&server).get("/me", &[]).await.unwrap_err().message, "HTTP 502: Bad Gateway");
     }
 
@@ -417,12 +439,18 @@ mod tests {
     async fn responses_pass_through_verbatim() {
         let server = MockServer::start().await;
         let body = json!({ "data": [{ "id": "c1", "config": { "custom_source": true, "identity_mapping": {} } }], "meta": { "pagination": { "total": 1 } } });
-        Mock::given(path("/api/v1/accounts/acct-123/connections")).respond_with(ResponseTemplate::new(200).set_body_json(&body)).mount(&server).await;
+        Mock::given(path("/api/v1/accounts/acct-123/connections"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&body))
+            .mount(&server)
+            .await;
         assert_eq!(client(&server).get("/integrations", &[]).await.unwrap(), body);
 
         let bare = json!({ "accountId": "acct-123", "account_name": "Bare" });
         let server = MockServer::start().await;
-        Mock::given(path("/api/v1/me")).respond_with(ResponseTemplate::new(200).set_body_json(&bare)).mount(&server).await;
+        Mock::given(path("/api/v1/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&bare))
+            .mount(&server)
+            .await;
         let res = client(&server).get("/me", &[]).await.unwrap();
         assert_eq!(res, bare);
         assert_eq!(payload(&res), &bare);
@@ -431,7 +459,10 @@ mod tests {
     #[tokio::test]
     async fn no_content_returns_an_empty_data_envelope() {
         let server = MockServer::start().await;
-        Mock::given(path("/api/v1/accounts/acct-123/apps/a1")).respond_with(ResponseTemplate::new(204)).mount(&server).await;
+        Mock::given(path("/api/v1/accounts/acct-123/apps/a1"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
         assert_eq!(client(&server).delete("/apps/a1", &[]).await.unwrap(), json!({ "data": {} }));
     }
 
@@ -439,17 +470,41 @@ mod tests {
     async fn routes_account_scoped_global_and_header_paths() {
         let server = MockServer::start().await;
         let ok = || ResponseTemplate::new(200).set_body_json(json!({ "data": {} }));
-        Mock::given(method("GET")).and(path("/api/v1/accounts/acct-123/connections/i1")).respond_with(ok()).expect(1).mount(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/accounts/acct-123/connections/i1"))
+            .respond_with(ok())
+            .expect(1)
+            .mount(&server)
+            .await;
         Mock::given(path("/api/v1/catalog")).respond_with(ok()).expect(1).mount(&server).await;
         Mock::given(path("/api/v1/catalog/stripe")).respond_with(ok()).expect(1).mount(&server).await;
         Mock::given(path("/api/v1/apps/oauth-session/s1")).respond_with(ok()).expect(1).mount(&server).await;
         Mock::given(path("/api/v1/accounts/acct-123/apps")).respond_with(ok()).expect(1).mount(&server).await;
         Mock::given(path("/api/v1/accounts/acct-123/jobs")).respond_with(ok()).expect(1).mount(&server).await;
-        Mock::given(path("/api/v1/accounts/acct-123/specs")).and(header("X-Account-Id", "acct-123")).respond_with(ok()).expect(1).mount(&server).await;
-        Mock::given(path("/api/v1/me")).and(header("X-Account-Id", "acct-123")).respond_with(ok()).expect(1).mount(&server).await;
+        Mock::given(path("/api/v1/accounts/acct-123/specs"))
+            .and(header("X-Account-Id", "acct-123"))
+            .respond_with(ok())
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(path("/api/v1/me"))
+            .and(header("X-Account-Id", "acct-123"))
+            .respond_with(ok())
+            .expect(1)
+            .mount(&server)
+            .await;
 
         let c = client(&server);
-        for p in ["/integrations/i1", "/catalog", "/catalog/stripe", "/apps/oauth-session/s1", "/apps", "/jobs", "/specs", "/me"] {
+        for p in [
+            "/integrations/i1",
+            "/catalog",
+            "/catalog/stripe",
+            "/apps/oauth-session/s1",
+            "/apps",
+            "/jobs",
+            "/specs",
+            "/me",
+        ] {
             c.get(p, &[]).await.unwrap_or_else(|e| panic!("{p}: {e}"));
         }
     }
@@ -457,7 +512,10 @@ mod tests {
     #[tokio::test]
     async fn global_routes_do_not_need_an_account() {
         let server = MockServer::start().await;
-        Mock::given(path("/api/v1/catalog")).respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [] }))).mount(&server).await;
+        Mock::given(path("/api/v1/catalog"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [] })))
+            .mount(&server)
+            .await;
         let c = Client::new("k".into(), server.uri(), None, false);
         assert!(c.get("/catalog", &[]).await.is_ok());
         let err = c.get("/apps", &[]).await.unwrap_err();
@@ -487,10 +545,19 @@ mod tests {
     #[tokio::test]
     async fn query_skips_undefined_values_and_post_keeps_post() {
         let server = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/api/v1/accounts/acct-123/apps")).and(query_param("limit", "20"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [] }))).expect(1).mount(&server).await;
-        Mock::given(method("POST")).and(path("/api/v1/accounts/acct-123/apps/a1/pause"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {} }))).expect(1).mount(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/accounts/acct-123/apps"))
+            .and(query_param("limit", "20"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [] })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/accounts/acct-123/apps/a1/pause"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {} })))
+            .expect(1)
+            .mount(&server)
+            .await;
         let c = client(&server);
         c.get("/apps", &[("limit", Some("20".into())), ("state", None)]).await.unwrap();
         let requests = server.received_requests().await.unwrap();
@@ -530,16 +597,19 @@ mod tests {
     #[test]
     fn debug_lines_match_the_ts_format() {
         let details = json!({ "field": "account_id" });
-        let line = format_debug_line("response_error", &[
-            ("method", Field::Str("GET")),
-            ("serverRequestId", Field::Str("req_server_422")),
-            ("status", Field::Num(422)),
-            ("statusText", Field::Str("Unprocessable Entity")),
-            ("errorMessage", Field::Str("Invalid payload")),
-            ("code", Field::Str("VALIDATION_ERROR")),
-            ("details", Field::Json(&details)),
-            ("accountId", Field::None),
-        ]);
+        let line = format_debug_line(
+            "response_error",
+            &[
+                ("method", Field::Str("GET")),
+                ("serverRequestId", Field::Str("req_server_422")),
+                ("status", Field::Num(422)),
+                ("statusText", Field::Str("Unprocessable Entity")),
+                ("errorMessage", Field::Str("Invalid payload")),
+                ("code", Field::Str("VALIDATION_ERROR")),
+                ("details", Field::Json(&details)),
+                ("accountId", Field::None),
+            ],
+        );
         assert_eq!(
             line,
             r#"[debug] response_error method=GET serverRequestId=req_server_422 status=422 statusText="Unprocessable Entity" errorMessage="Invalid payload" code=VALIDATION_ERROR details={"field":"account_id"}"#
@@ -550,9 +620,16 @@ mod tests {
     #[tokio::test]
     async fn raw_paths_skip_the_api_prefix_and_account_routing() {
         let server = MockServer::start().await;
-        Mock::given(path("/api/measurement/signals")).respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "signals": [] } }))).expect(1).mount(&server).await;
+        Mock::given(path("/api/measurement/signals"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "signals": [] } })))
+            .expect(1)
+            .mount(&server)
+            .await;
         let c = Client::new("k".into(), server.uri(), None, false);
-        let res = c.request(Method::GET, "/api/measurement/signals", RequestOptions { raw_path: true, ..Default::default() }).await.unwrap();
+        let res = c
+            .request(Method::GET, "/api/measurement/signals", RequestOptions { raw_path: true, ..Default::default() })
+            .await
+            .unwrap();
         assert_eq!(res, json!({ "data": { "signals": [] } }));
     }
 }

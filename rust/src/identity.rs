@@ -1,5 +1,6 @@
 //! `/api/v1/me` lookups with explicit, not-yet-saved credentials (port of
 //! `src/identity.ts`), used by login, init and doctor.
+#![allow(clippy::result_large_err)] // carries ApiError; see client.rs
 
 use serde::{Deserialize, Serialize};
 
@@ -84,7 +85,9 @@ mod tests {
     async fn returns_the_identity_on_success() {
         let server = MockServer::start().await;
         Mock::given(path("/api/v1/me"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "accountId": "acct-1", "accountName": "Acme", "accountSlug": "acme" } })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                json!({ "data": { "accountId": "acct-1", "accountName": "Acme", "accountSlug": "acme" } }),
+            ))
             .mount(&server)
             .await;
         let identity = fetch_identity("k", "acct-1", &server.uri(), false).await.unwrap();
@@ -98,7 +101,9 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(path("/api/v1/me")).respond_with(ResponseTemplate::new(401)).mount(&server).await;
         match fetch_identity("bad", "acct-1", &server.uri(), false).await.unwrap_err() {
-            IdentityError::Http { status, status_text } => assert_eq!((status, status_text.as_str()), (401, "Unauthorized")),
+            IdentityError::Http { status, status_text } => {
+                assert_eq!((status, status_text.as_str()), (401, "Unauthorized"))
+            }
             other => panic!("{other:?}"),
         }
     }

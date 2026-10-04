@@ -152,8 +152,7 @@ impl ConfigStore {
 
     fn write(&self, config: &Map<String, Value>) -> Result<()> {
         if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir)
-                .with_context(|| format!("creating {}", dir.display()))?;
+            fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
         let body = serde_json::to_string_pretty(config)? + "\n";
         fs::write(&self.path, body).with_context(|| format!("writing {}", self.path.display()))
@@ -184,8 +183,7 @@ impl ConfigStore {
         let (api_key, api_key_source) = resolve(self.env.api_key.as_deref(), field("apiKey"), None);
         let (base_url, base_url_source) =
             resolve(self.env.api_url.as_deref(), field("baseUrl"), Some(DEFAULT_BASE_URL));
-        let (account_id, account_id_source) =
-            resolve(self.env.account_id.as_deref(), field("accountId"), None);
+        let (account_id, account_id_source) = resolve(self.env.account_id.as_deref(), field("accountId"), None);
 
         EffectiveConfig {
             config_exists: self.path.exists(),
@@ -215,20 +213,13 @@ impl ConfigStore {
                 name: name.clone(),
                 active: Some(name) == active.as_ref(),
                 account_id: profile.get("accountId").and_then(Value::as_str).map(str::to_string),
-                base_url: profile
-                    .get("baseUrl")
-                    .and_then(Value::as_str)
-                    .unwrap_or(DEFAULT_BASE_URL)
-                    .to_string(),
+                base_url: profile.get("baseUrl").and_then(Value::as_str).unwrap_or(DEFAULT_BASE_URL).to_string(),
             })
             .collect()
     }
 
     pub fn find_profiles_by_account_id(&self, account_id: &str) -> Vec<ProfileSummary> {
-        self.profile_summaries()
-            .into_iter()
-            .filter(|p| p.account_id.as_deref() == Some(account_id))
-            .collect()
+        self.profile_summaries().into_iter().filter(|p| p.account_id.as_deref() == Some(account_id)).collect()
     }
 
     /// Save a named profile (replacing it) and make it active. Used by login.
@@ -252,11 +243,9 @@ impl ConfigStore {
             Some(Value::Object(existing)) => existing.clone(),
             _ => Map::new(),
         };
-        for (key, value) in [
-            ("apiKey", updates.api_key),
-            ("baseUrl", updates.base_url),
-            ("accountId", updates.account_id),
-        ] {
+        for (key, value) in
+            [("apiKey", updates.api_key), ("baseUrl", updates.base_url), ("accountId", updates.account_id)]
+        {
             if let Some(value) = value {
                 profile.insert(key.to_string(), Value::String(value));
             }
@@ -298,9 +287,7 @@ impl ConfigStore {
     pub fn resolve_login_base_url(&self, env: Option<&str>, base_url: Option<&str>) -> Result<String> {
         if let Some(raw) = base_url {
             let parsed = reqwest::Url::parse(raw).map_err(|_| {
-                anyhow::anyhow!(
-                    "Invalid --base-url: \"{raw}\". Expected a full URL like {STAGING_BASE_URL}."
-                )
+                anyhow::anyhow!("Invalid --base-url: \"{raw}\". Expected a full URL like {STAGING_BASE_URL}.")
             })?;
             if !matches!(parsed.scheme(), "http" | "https") {
                 bail!("Invalid --base-url protocol: \"{raw}\". Use http(s).");
@@ -436,10 +423,7 @@ mod tests {
 
     #[test]
     fn default_path_is_under_dot_config() {
-        assert_eq!(
-            default_config_path(Path::new("/mock-home")),
-            PathBuf::from("/mock-home/.config/vendo/config.json")
-        );
+        assert_eq!(default_config_path(Path::new("/mock-home")), PathBuf::from("/mock-home/.config/vendo/config.json"));
     }
 
     #[test]
@@ -490,7 +474,12 @@ mod tests {
         assert_eq!(
             store(&f).profile_summaries(),
             vec![
-                ProfileSummary { name: "a".into(), active: false, account_id: Some("acct-a".into()), base_url: DEFAULT_BASE_URL.into() },
+                ProfileSummary {
+                    name: "a".into(),
+                    active: false,
+                    account_id: Some("acct-a".into()),
+                    base_url: DEFAULT_BASE_URL.into()
+                },
                 ProfileSummary { name: "b".into(), active: true, account_id: None, base_url: STAGING_BASE_URL.into() },
             ]
         );
@@ -523,7 +512,9 @@ mod tests {
             s.resolve_login_base_url(Some("prod"), Some("https://stg.vendodata.com/some/path")).unwrap(),
             "https://stg.vendodata.com"
         );
-        assert!(s.resolve_login_base_url(None, Some("not a url")).unwrap_err().to_string().contains("Invalid --base-url"));
+        assert!(
+            s.resolve_login_base_url(None, Some("not a url")).unwrap_err().to_string().contains("Invalid --base-url")
+        );
         assert!(s.resolve_login_base_url(None, Some("ftp://x.com")).unwrap_err().to_string().contains("protocol"));
     }
 
@@ -547,16 +538,24 @@ mod tests {
 
     #[test]
     fn env_vars_win_over_the_profile() {
-        let f = fixture(Some(json!({ "profiles": { "p": { "apiKey": "file_key", "accountId": "file-id", "baseUrl": "https://file.com" } }, "activeProfile": "p" })));
+        let f = fixture(Some(
+            json!({ "profiles": { "p": { "apiKey": "file_key", "accountId": "file-id", "baseUrl": "https://file.com" } }, "activeProfile": "p" }),
+        ));
         let env = EnvVars {
             api_key: Some("env_key".into()),
             api_url: Some("https://env.com".into()),
             account_id: Some("env-id".into()),
         };
         let e = ConfigStore::new(f.path.clone(), None, env).effective();
-        assert_eq!((e.api_key.as_deref(), e.base_url.as_str(), e.account_id.as_deref()), (Some("env_key"), "https://env.com", Some("env-id")));
+        assert_eq!(
+            (e.api_key.as_deref(), e.base_url.as_str(), e.account_id.as_deref()),
+            (Some("env_key"), "https://env.com", Some("env-id"))
+        );
         let e = store(&f).effective();
-        assert_eq!((e.api_key.as_deref(), e.base_url.as_str(), e.account_id.as_deref()), (Some("file_key"), "https://file.com", Some("file-id")));
+        assert_eq!(
+            (e.api_key.as_deref(), e.base_url.as_str(), e.account_id.as_deref()),
+            (Some("file_key"), "https://file.com", Some("file-id"))
+        );
     }
 
     #[test]
@@ -575,7 +574,9 @@ mod tests {
 
     #[test]
     fn legacy_config_with_missing_active_profile_still_resolves() {
-        let f = fixture(Some(json!({ "apiKey": "legacy_key", "accountId": "legacy-id", "activeProfile": "nonexistent", "profiles": {} })));
+        let f = fixture(Some(
+            json!({ "apiKey": "legacy_key", "accountId": "legacy-id", "activeProfile": "nonexistent", "profiles": {} }),
+        ));
         let e = store(&f).effective();
         assert_eq!(e.api_key.as_deref(), Some("legacy_key"));
         assert_eq!(e.account_id.as_deref(), Some("legacy-id"));
@@ -599,12 +600,17 @@ mod tests {
         let missing = fixture(None);
         assert!(!store(&missing).effective().config_exists);
 
-        let f = fixture(Some(json!({ "profiles": { "team": { "apiKey": "k", "accountId": "acct-1", "baseUrl": "https://profile.com" } }, "activeProfile": "team" })));
+        let f = fixture(Some(
+            json!({ "profiles": { "team": { "apiKey": "k", "accountId": "acct-1", "baseUrl": "https://profile.com" } }, "activeProfile": "team" }),
+        ));
         let e = store(&f).effective();
         assert!(e.config_exists);
         assert_eq!(e.selected_profile.as_deref(), Some("team"));
         assert!(e.selected_profile_exists);
-        assert_eq!((e.api_key_source, e.base_url_source, e.account_id_source), (Source::Profile, Source::Profile, Source::Profile));
+        assert_eq!(
+            (e.api_key_source, e.base_url_source, e.account_id_source),
+            (Source::Profile, Source::Profile, Source::Profile)
+        );
     }
 
     #[test]
@@ -668,7 +674,10 @@ mod tests {
     fn migration_creates_default_when_active_profile_is_missing() {
         let config = json!({ "apiKey": "k", "activeProfile": "ghost", "profiles": {} });
         let (out, _) = migrate_legacy_config(config.as_object().unwrap().clone());
-        assert_eq!(Value::Object(out), json!({ "profiles": { "default": { "apiKey": "k" } }, "activeProfile": "default" }));
+        assert_eq!(
+            Value::Object(out),
+            json!({ "profiles": { "default": { "apiKey": "k" } }, "activeProfile": "default" })
+        );
     }
 
     #[test]
@@ -691,7 +700,10 @@ mod tests {
     fn migration_is_persisted_on_read() {
         let f = fixture(Some(json!({ "apiKey": "k", "accountId": "a" })));
         store(&f).effective();
-        assert_eq!(on_disk(&f), json!({ "profiles": { "default": { "apiKey": "k", "accountId": "a" } }, "activeProfile": "default" }));
+        assert_eq!(
+            on_disk(&f),
+            json!({ "profiles": { "default": { "apiKey": "k", "accountId": "a" } }, "activeProfile": "default" })
+        );
     }
 
     #[cfg(unix)]
@@ -711,16 +723,25 @@ mod tests {
     #[test]
     fn save_resolved_values_targets_the_selected_or_default_profile() {
         let f = fixture(None);
-        let name = store(&f).save_resolved_values(ConfigValueUpdates { api_key: Some("k".into()), ..Default::default() }).unwrap();
+        let name = store(&f)
+            .save_resolved_values(ConfigValueUpdates { api_key: Some("k".into()), ..Default::default() })
+            .unwrap();
         assert_eq!(name, "default");
-        let name = store(&f).save_resolved_values(ConfigValueUpdates { account_id: Some("a".into()), ..Default::default() }).unwrap();
+        let name = store(&f)
+            .save_resolved_values(ConfigValueUpdates { account_id: Some("a".into()), ..Default::default() })
+            .unwrap();
         assert_eq!(name, "default");
-        assert_eq!(on_disk(&f), json!({ "profiles": { "default": { "apiKey": "k", "accountId": "a" } }, "activeProfile": "default" }));
+        assert_eq!(
+            on_disk(&f),
+            json!({ "profiles": { "default": { "apiKey": "k", "accountId": "a" } }, "activeProfile": "default" })
+        );
     }
 
     #[test]
     fn clear_active_profile_removes_it_and_unsets_active() {
-        let f = fixture(Some(json!({ "profiles": { "a": { "apiKey": "1" }, "b": { "apiKey": "2" } }, "activeProfile": "a" })));
+        let f = fixture(Some(
+            json!({ "profiles": { "a": { "apiKey": "1" }, "b": { "apiKey": "2" } }, "activeProfile": "a" }),
+        ));
         assert_eq!(store(&f).clear_active_profile().unwrap().as_deref(), Some("a"));
         assert_eq!(on_disk(&f), json!({ "profiles": { "b": { "apiKey": "2" } } }));
         assert_eq!(store(&f).clear_active_profile().unwrap(), None);

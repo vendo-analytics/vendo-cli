@@ -62,10 +62,8 @@ pub async fn check_with(
     current: &str,
     fetch: impl Future<Output = Option<String>>,
 ) -> Option<String> {
-    let cache: Cache = fs::read_to_string(cache_path)
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default();
+    let cache: Cache =
+        fs::read_to_string(cache_path).ok().and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or_default();
     match decide(&cache, now_ms, current) {
         Decision::Cached(notice) => notice,
         Decision::Fetch => {
@@ -136,7 +134,10 @@ mod tests {
     #[tokio::test]
     async fn stale_or_missing_cache_fetches_and_saves() {
         let (_d, path) = cache_file(Some(r#"{"lastCheck":0,"latestVersion":"0.3.1"}"#));
-        assert_eq!(check_with(&path, 2 * DAY, "0.3.1", async { Some("1.0.0".to_string()) }).await.as_deref(), Some("1.0.0"));
+        assert_eq!(
+            check_with(&path, 2 * DAY, "0.3.1", async { Some("1.0.0".to_string()) }).await.as_deref(),
+            Some("1.0.0")
+        );
         let saved: Cache = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(saved, Cache { last_check: 2 * DAY, latest_version: Some("1.0.0".into()) });
 
@@ -149,7 +150,16 @@ mod tests {
         let (_d, path) = cache_file(None);
         assert_eq!(check_with(&path, DAY, "0.3.1", async { None }).await, None);
         let missing_dir = Path::new("/nonexistent-vendo-dir/.update-check");
-        assert_eq!(check_with(missing_dir, DAY, "0.3.1", async { Some("2.0.0".to_string()) }).await.as_deref(), Some("2.0.0"));
+        assert_eq!(
+            check_with(missing_dir, DAY, "0.3.1", async { Some("2.0.0".to_string()) }).await.as_deref(),
+            Some("2.0.0")
+        );
+    }
+
+    #[test]
+    fn version_matches_package_json() {
+        let pkg: serde_json::Value = serde_json::from_str(include_str!("../../package.json")).unwrap();
+        assert_eq!(pkg["version"], CURRENT_VERSION, "keep rust/Cargo.toml's version equal to package.json's");
     }
 
     #[test]

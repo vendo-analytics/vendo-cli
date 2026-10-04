@@ -15,6 +15,7 @@ import { parseArgs } from 'node:util';
 
 import {
   MISSING_ID,
+  camelCaseKeysDeep,
   assertSafeBaseUrl,
   diffCells,
   diffErrors,
@@ -63,7 +64,10 @@ const discovery = spawnSync(process.execPath, [join(root, 'parity', 'discover.mj
 if (discovery.status !== 0) fail(`command discovery failed:\n${discovery.stderr}`);
 const discovered = JSON.parse(discovery.stdout);
 const { commands } = JSON.parse(readFileSync(join(root, 'parity', 'commands.json'), 'utf8'));
-const intendedPaths = JSON.parse(readFileSync(join(root, 'parity', 'intended-differences.json'), 'utf8')).paths;
+const intended = JSON.parse(readFileSync(join(root, 'parity', 'intended-differences.json'), 'utf8'));
+const intendedPaths = intended.paths;
+const intendedRows = intended.rows ?? [];
+const intendedKeyCasing = intended.keyCasing ?? [];
 const problems = validateClassification(discovered.map((leaf) => leaf.path), commands);
 if (problems.length > 0) fail(`parity/commands.json is out of date:\n  ${problems.join('\n  ')}`);
 
@@ -159,7 +163,12 @@ function compare(variant, ts, rust, command) {
     const same = ts.code === rust.code && Boolean(ts.stdout.trim()) === Boolean(rust.stdout.trim());
     return same ? [] : [{ path: 'exit code / output', kind: 'changed', a: ts.code, b: rust.code }];
   }
-  if (ts.code !== 0 || rust.code !== 0) return diffErrors(ts, rust);
+  if (ts.code !== 0 || rust.code !== 0) {
+    const diffs = diffErrors(ts, rust);
+    // Same failing exit code with output (doctor exits 1 on a failed check):
+    // the output still has to match.
+    if (diffs.length > 0 || !(ts.stdout.trim() || rust.stdout.trim())) return diffs;
+  }
   if (variant.compare === 'json') {
     let a;
     let b;
@@ -173,9 +182,11 @@ function compare(variant, ts, rust, command) {
     } catch {
       return [{ path: '(stdout)', kind: 'changed', b: 'Rust printed non-JSON' }];
     }
-    return filterIntended(diffJson(a, b), intendedPaths, command, variant.name);
+    const casing = intendedKeyCasing.some((rule) => rule.command === command && (!rule.variant || rule.variant === variant.name));
+    return filterIntended(diffJson(a, casing ? camelCaseKeysDeep(b) : b), intendedPaths, command, variant.name);
   }
-  return diffCells(ts.stdout, rust.stdout);
+  const rowRules = intendedRows.filter((rule) => rule.command === command && (!rule.variant || rule.variant === variant.name));
+  return diffCells(ts.stdout, rust.stdout, rowRules);
 }
 
 // ── Run ─────────────────────────────────────────────────────────────────────

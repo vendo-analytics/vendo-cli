@@ -10,7 +10,7 @@ use crate::{
     config::ConfigValueUpdates,
     context::Ctx,
     identity::{Identity, fetch_identity},
-    output::{bold, dim, green, print_error, print_json, print_success, run_action, yellow, confirm},
+    output::{bold, confirm, dim, green, print_error, print_json, print_success, run_action, yellow},
     profile_display::{
         SwitchOptions, format_profile_list_line, print_current_profile_summary, print_profile_list,
         switch_profile_selection,
@@ -70,7 +70,9 @@ pub async fn init(ctx: &Ctx, env: Option<String>, base_url: Option<String>) -> R
         println!();
         println!(
             "{}",
-            dim("Set an account explicitly with `vendo config set --account <account-id>` if your login flow did not provide one.")
+            dim(
+                "Set an account explicitly with `vendo config set --account <account-id>` if your login flow did not provide one."
+            )
         );
     }
 
@@ -162,7 +164,9 @@ pub async fn whoami(ctx: &Ctx, json: bool) -> Result<()> {
         println!();
         println!(
             "{}",
-            dim("  Switch with `vendo profile switch`, target one command with `vendo --profile <name> ...`, or use `vendo config use` as a compatibility alias.")
+            dim(
+                "  Switch with `vendo profile switch`, target one command with `vendo --profile <name> ...`, or use `vendo config use` as a compatibility alias."
+            )
         );
     }
     Ok(())
@@ -208,14 +212,18 @@ pub fn config_show(ctx: &Ctx) {
 pub fn config_use(ctx: &Ctx, profile: Option<String>, account: Option<String>) -> Result<()> {
     println!("{}", dim("Tip: prefer `vendo profile switch` for interactive profile changes."));
     println!();
-    switch_profile_selection(ctx, &ctx.store.profile_summaries(), SwitchOptions {
-        profile_name: profile,
-        account_id: account,
-        empty_message: NO_PROFILES_YET,
-        list_command: "vendo profile list",
-        profile_command: "vendo profile switch",
-        verify_hint: "`vendo whoami`",
-    })
+    switch_profile_selection(
+        ctx,
+        &ctx.store.profile_summaries(),
+        SwitchOptions {
+            profile_name: profile,
+            account_id: account,
+            empty_message: NO_PROFILES_YET,
+            list_command: "vendo profile list",
+            profile_command: "vendo profile switch",
+            verify_hint: "`vendo whoami`",
+        },
+    )
 }
 
 pub fn config_list(ctx: &Ctx) {
@@ -247,14 +255,18 @@ pub fn profile_current(ctx: &Ctx) {
 }
 
 pub fn profile_switch(ctx: &Ctx, profile: Option<String>, account: Option<String>) -> Result<()> {
-    switch_profile_selection(ctx, &ctx.store.profile_summaries(), SwitchOptions {
-        profile_name: profile,
-        account_id: account,
-        empty_message: NO_PROFILES_YET,
-        list_command: "vendo profile list",
-        profile_command: "vendo profile switch",
-        verify_hint: "`vendo profile current` or `vendo whoami`",
-    })
+    switch_profile_selection(
+        ctx,
+        &ctx.store.profile_summaries(),
+        SwitchOptions {
+            profile_name: profile,
+            account_id: account,
+            empty_message: NO_PROFILES_YET,
+            list_command: "vendo profile list",
+            profile_command: "vendo profile switch",
+            verify_hint: "`vendo profile current` or `vendo whoami`",
+        },
+    )
 }
 
 // ── mcp ────────────────────────────────────────────────────────────────────
@@ -312,7 +324,9 @@ pub fn mcp(ctx: &Ctx, json: bool, show_key: bool) {
     } else if !mcp.key_embedded {
         println!(
             "{}",
-            dim("  Replace ${VENDO_API_KEY} with your key (or set it in the client env), or re-run with --show-key to embed it.")
+            dim(
+                "  Replace ${VENDO_API_KEY} with your key (or set it in the client env), or re-run with --show-key to embed it."
+            )
         );
     }
     println!(
@@ -336,7 +350,8 @@ mod tests {
 
     #[test]
     fn mcp_key_is_embedded_only_with_show_key() {
-        let auth = |c: &McpClientConfig| c.mcp_servers["vendo"]["headers"]["Authorization"].as_str().unwrap().to_string();
+        let auth =
+            |c: &McpClientConfig| c.mcp_servers["vendo"]["headers"]["Authorization"].as_str().unwrap().to_string();
         let placeholder = build_mcp_client_config("https://x.com", None, false);
         assert_eq!((auth(&placeholder).as_str(), placeholder.key_embedded), ("Bearer ${VENDO_API_KEY}", false));
         let hidden = build_mcp_client_config("https://x.com", Some("vendo_sk_secret"), false);

@@ -49,18 +49,14 @@ pub async fn run(
         };
         let identity = run_action("Validating credentials...", async {
             fetch_identity(&api_key, &account_id, &base_url, ctx.debug).await.map_err(|err| match err {
-                IdentityError::Http { status, .. } => anyhow!(
-                    "Credential validation failed (HTTP {status}). Check your API key and account ID."
-                ),
+                IdentityError::Http { status, .. } => {
+                    anyhow!("Credential validation failed (HTTP {status}). Check your API key and account ID.")
+                }
                 other => anyhow!(other),
             })
         })
         .await?;
-        let name = identity
-            .me
-            .account_slug
-            .or(identity.me.account_name)
-            .unwrap_or_else(|| account_id.clone());
+        let name = identity.me.account_slug.or(identity.me.account_name).unwrap_or_else(|| account_id.clone());
         ctx.store.save_profile(&name, profile(&api_key, Some(&account_id), &base_url))?;
         LoginResult { account: name, account_id: Some(account_id) }
     } else {
@@ -75,8 +71,7 @@ pub async fn run(
 pub async fn run_browser_login(ctx: &Ctx, base_url: &str) -> Result<LoginResult> {
     update_check::check(&ctx.update_cache_path()).await;
     let callback = browser_flow(base_url).await?;
-    ctx.store
-        .save_profile(&callback.account, profile(&callback.key, callback.account_id.as_deref(), base_url))?;
+    ctx.store.save_profile(&callback.account, profile(&callback.key, callback.account_id.as_deref(), base_url))?;
     Ok(LoginResult { account: callback.account, account_id: callback.account_id })
 }
 
@@ -297,6 +292,9 @@ mod tests {
         let p = profile("k", None, DEFAULT_BASE_URL);
         assert_eq!(Value::Object(p), serde_json::json!({ "apiKey": "k" }));
         let p = profile("k", Some("a"), "https://stg.vendodata.com");
-        assert_eq!(Value::Object(p), serde_json::json!({ "apiKey": "k", "accountId": "a", "baseUrl": "https://stg.vendodata.com" }));
+        assert_eq!(
+            Value::Object(p),
+            serde_json::json!({ "apiKey": "k", "accountId": "a", "baseUrl": "https://stg.vendodata.com" })
+        );
     }
 }

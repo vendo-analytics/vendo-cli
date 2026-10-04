@@ -48,26 +48,53 @@ async fn main() -> ExitCode {
 async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
     let ok = ExitCode::SUCCESS;
     match command {
-        Command::Login { api_key, account, env, base_url } => login::run(ctx, api_key, account, env, base_url).await.map(|_| ok),
+        Command::Login { api_key, account, env, base_url } => {
+            login::run(ctx, api_key, account, env, base_url).await.map(|_| ok)
+        }
         Command::Init { env, base_url } => account::init(ctx, env, base_url).await.map(|_| ok),
         Command::Logout { all } => account::logout(ctx, all).map(|_| ok),
         Command::Config { command } => match command {
-            ConfigCommand::Set { api_key, base_url, account } => account::config_set(ctx, api_key, base_url, account).map(|_| ok),
-            ConfigCommand::Show => Ok(account::config_show(ctx)).map(|_| ok),
+            ConfigCommand::Set { api_key, base_url, account } => {
+                account::config_set(ctx, api_key, base_url, account).map(|_| ok)
+            }
+            ConfigCommand::Show => {
+                account::config_show(ctx);
+                Ok(ok)
+            }
             ConfigCommand::Use { profile, account } => account::config_use(ctx, profile, account).map(|_| ok),
-            ConfigCommand::List => Ok(account::config_list(ctx)).map(|_| ok),
-            ConfigCommand::Reset { yes } => Ok(account::config_reset(ctx, yes)).map(|_| ok),
+            ConfigCommand::List => {
+                account::config_list(ctx);
+                Ok(ok)
+            }
+            ConfigCommand::Reset { yes } => {
+                account::config_reset(ctx, yes);
+                Ok(ok)
+            }
         },
         Command::Profile { command } => match command {
-            ProfileCommand::List => Ok(account::profile_list(ctx)).map(|_| ok),
-            ProfileCommand::Current => Ok(account::profile_current(ctx)).map(|_| ok),
+            ProfileCommand::List => {
+                account::profile_list(ctx);
+                Ok(ok)
+            }
+            ProfileCommand::Current => {
+                account::profile_current(ctx);
+                Ok(ok)
+            }
             ProfileCommand::Switch { profile, account } => account::profile_switch(ctx, profile, account).map(|_| ok),
         },
         Command::Status { json } => health::status(ctx, json).await.map(|_| ok),
         Command::Whoami { json } => account::whoami(ctx, json).await.map(|_| ok),
-        Command::Mcp { json, show_key } => Ok(account::mcp(ctx, json, show_key)).map(|_| ok),
+        Command::Mcp { json, show_key } => {
+            account::mcp(ctx, json, show_key);
+            Ok(ok)
+        }
         Command::Completions { shell } => {
-            clap_complete::generate(clap_complete::Shell::from(shell), &mut Cli::command(), "vendo", &mut std::io::stdout());
+            clap_complete::generate(
+                clap_complete::Shell::from(shell),
+                &mut Cli::command(),
+                "vendo",
+                &mut std::io::stdout(),
+            );
             Ok(ok)
         }
         Command::Doctor { json } => health::doctor(ctx, json).await,

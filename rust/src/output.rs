@@ -49,7 +49,9 @@ pub fn table(headers: &[&str]) -> Table {
     let mut table = Table::new();
     if stdout_is_tty() {
         table.load_style(presets::UTF8_FULL);
-        table.set_header(headers.iter().map(|h| h.if_supports_color(Stream::Stdout, |t| t.cyan().bold().to_string()).to_string()));
+        table.set_header(
+            headers.iter().map(|h| h.if_supports_color(Stream::Stdout, |t| t.cyan().bold().to_string()).to_string()),
+        );
     } else {
         table.load_style(presets::NOTHING);
         table.set_header(headers.to_vec());
@@ -58,8 +60,32 @@ pub fn table(headers: &[&str]) -> Table {
 }
 
 const SPINNER_FRAMES: &[&str] = &[
-    "⡀⠀⠀", "⡄⠀⠀", "⡆⠀⠀", "⡇⠀⠀", "⣇⠀⠀", "⣧⠀⠀", "⣷⠀⠀", "⣿⠀⠀", "⣿⡀⠀", "⣿⡄⠀", "⣿⡆⠀", "⣿⡇⠀", "⣿⣇⠀",
-    "⣿⣧⠀", "⣿⣷⠀", "⣿⣿⠀", "⣿⣿⡀", "⣿⣿⡄", "⣿⣿⡆", "⣿⣿⡇", "⣿⣿⣇", "⣿⣿⣧", "⣿⣿⣷", "⣿⣿⣿", "⣿⣿⣿", "⠀⠀⠀",
+    "⡀⠀⠀",
+    "⡄⠀⠀",
+    "⡆⠀⠀",
+    "⡇⠀⠀",
+    "⣇⠀⠀",
+    "⣧⠀⠀",
+    "⣷⠀⠀",
+    "⣿⠀⠀",
+    "⣿⡀⠀",
+    "⣿⡄⠀",
+    "⣿⡆⠀",
+    "⣿⡇⠀",
+    "⣿⣇⠀",
+    "⣿⣧⠀",
+    "⣿⣷⠀",
+    "⣿⣿⠀",
+    "⣿⣿⡀",
+    "⣿⣿⡄",
+    "⣿⣿⡆",
+    "⣿⣿⡇",
+    "⣿⣿⣇",
+    "⣿⣿⣧",
+    "⣿⣿⣷",
+    "⣿⣿⣿",
+    "⣿⣿⣿",
+    "⠀⠀⠀",
     "",
 ];
 
@@ -72,9 +98,7 @@ where
     let bar = if stdout_is_tty() {
         let bar = ProgressBar::new_spinner();
         bar.set_style(
-            ProgressStyle::with_template("{spinner} {msg}")
-                .expect("static template")
-                .tick_strings(SPINNER_FRAMES),
+            ProgressStyle::with_template("{spinner} {msg}").expect("static template").tick_strings(SPINNER_FRAMES),
         );
         bar.set_message(label.to_string());
         bar.enable_steady_tick(Duration::from_millis(60));
@@ -118,11 +142,7 @@ pub fn time_ago_at(value: Option<&str>, now: jiff::Timestamp) -> String {
 }
 
 pub fn short_id(id: &str) -> String {
-    if id.chars().count() > 12 {
-        format!("{}...", id.chars().take(8).collect::<String>())
-    } else {
-        id.to_string()
-    }
+    if id.chars().count() > 12 { format!("{}...", id.chars().take(8).collect::<String>()) } else { id.to_string() }
 }
 
 /// `Number.prototype.toLocaleString()` in en-US: grouped thousands, at most
@@ -171,11 +191,7 @@ pub fn print_json(value: &Value) {
 
 /// `--output <field>`: one line per row, skipping rows where it's null/absent.
 pub fn field_lines(rows: &[Value], field: &str) -> Vec<String> {
-    rows.iter()
-        .filter_map(|row| row.get(field))
-        .filter(|value| !value.is_null())
-        .map(js_string)
-        .collect()
+    rows.iter().filter_map(|row| row.get(field)).filter(|value| !value.is_null()).map(js_string).collect()
 }
 
 pub fn print_field(rows: &[Value], field: &str) {
@@ -340,7 +356,19 @@ mod tests {
 
     #[test]
     fn color_status_returns_plain_text_when_piped() {
-        for status in ["active", "completed", "running", "pending", "paused", "inactive", "cancelled", "errored", "failed", "warning", "something-else"] {
+        for status in [
+            "active",
+            "completed",
+            "running",
+            "pending",
+            "paused",
+            "inactive",
+            "cancelled",
+            "errored",
+            "failed",
+            "warning",
+            "something-else",
+        ] {
             assert_eq!(color_status(status), status);
         }
     }

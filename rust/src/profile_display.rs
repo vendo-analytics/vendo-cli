@@ -25,7 +25,12 @@ pub fn format_profile_list_line(profile: &ProfileSummary, annotate_active: bool,
 }
 
 /// Prints the list, or `empty_message` when there are none. `true` if any.
-pub fn print_profile_list(profiles: &[ProfileSummary], annotate_active: bool, indent: &str, empty_message: &str) -> bool {
+pub fn print_profile_list(
+    profiles: &[ProfileSummary],
+    annotate_active: bool,
+    indent: &str,
+    empty_message: &str,
+) -> bool {
     if profiles.is_empty() {
         println!("{}", dim(empty_message));
         return false;
@@ -117,7 +122,11 @@ pub fn switch_profile_selection(ctx: &Ctx, profiles: &[ProfileSummary], opts: Sw
     print_success(&format!("Switched to profile {}.", bold(&target.name)));
     println!(
         "{}",
-        dim(&format!("  Account ID: {}  Base URL: {}", target.account_id.as_deref().unwrap_or("not set"), target.base_url))
+        dim(&format!(
+            "  Account ID: {}  Base URL: {}",
+            target.account_id.as_deref().unwrap_or("not set"),
+            target.base_url
+        ))
     );
     println!("{}", dim(&format!("  Verify with {}.", opts.verify_hint)));
     Ok(())
@@ -143,7 +152,10 @@ mod tests {
 
     #[test]
     fn list_lines_mark_the_active_profile() {
-        assert_eq!(format_profile_list_line(&profile("a", true, Some("x"), DEFAULT_BASE_URL), false, "    "), "    * a  x");
+        assert_eq!(
+            format_profile_list_line(&profile("a", true, Some("x"), DEFAULT_BASE_URL), false, "    "),
+            "    * a  x"
+        );
         assert_eq!(format_profile_list_line(&profile("b", false, Some("y"), DEFAULT_BASE_URL), false, ""), "  b  y");
     }
 }

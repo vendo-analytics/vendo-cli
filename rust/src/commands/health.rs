@@ -56,7 +56,8 @@ pub async fn status(ctx: &Ctx, json: bool) -> Result<()> {
     let rows = |v: &Value| v.as_array().cloned().unwrap_or_default();
     let (apps, sources, integrations, failed_jobs) = (rows(apps), rows(sources), rows(integrations), rows(failed_jobs));
     let count = |items: &[Value], pred: &dyn Fn(&Value) -> bool| items.iter().filter(|i| pred(i)).count().to_string();
-    let field_is = |key: &'static str, want: &'static str| move |v: &Value| v.get(key).and_then(Value::as_str) == Some(want);
+    let field_is =
+        |key: &'static str, want: &'static str| move |v: &Value| v.get(key).and_then(Value::as_str) == Some(want);
 
     println!();
     let mut summary = table(&["", "Total", "Active", "Paused", "Errored"]);
@@ -121,11 +122,7 @@ pub async fn status(ctx: &Ctx, json: bool) -> Result<()> {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() > max {
-        format!("{}...", s.chars().take(max - 1).collect::<String>())
-    } else {
-        s.to_string()
-    }
+    if s.chars().count() > max { format!("{}...", s.chars().take(max - 1).collect::<String>()) } else { s.to_string() }
 }
 
 // ── doctor ─────────────────────────────────────────────────────────────────
@@ -160,7 +157,8 @@ pub struct DoctorEnv {
     pub home: PathBuf,
 }
 
-const REINSTALL: &str = "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.";
+const REINSTALL: &str =
+    "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.";
 
 /// The local checks, in the TS order (API auth is appended by the caller).
 pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorCheck> {
@@ -198,7 +196,12 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
     checks.push(if config.config_exists {
         check("Config file", Ok, config_path, None)
     } else {
-        check("Config file", Warn, format!("{config_path} (not found yet)"), Some("Run `vendo init` to create and populate CLI config."))
+        check(
+            "Config file",
+            Warn,
+            format!("{config_path} (not found yet)"),
+            Some("Run `vendo init` to create and populate CLI config."),
+        )
     });
 
     checks.push(match &config.selected_profile {
@@ -218,11 +221,20 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
     });
 
     checks.push(match &config.api_key {
-        Some(key) => check("API key", Ok, format!("{} ({})", mask_api_key(key), format_source(config.api_key_source)), None),
-        None => check("API key", Fail, "Missing".into(), Some("Run `vendo login` or `vendo config set --api-key <key>`.")),
+        Some(key) => {
+            check("API key", Ok, format!("{} ({})", mask_api_key(key), format_source(config.api_key_source)), None)
+        }
+        None => {
+            check("API key", Fail, "Missing".into(), Some("Run `vendo login` or `vendo config set --api-key <key>`."))
+        }
     });
 
-    checks.push(check("Base URL", Ok, format!("{} ({})", config.base_url, format_source(config.base_url_source)), None));
+    checks.push(check(
+        "Base URL",
+        Ok,
+        format!("{} ({})", config.base_url, format_source(config.base_url_source)),
+        None,
+    ));
 
     checks.push(match &config.account_id {
         Some(id) => check("Account ID", Ok, format!("{id} ({})", format_source(config.account_id_source)), None),
@@ -242,13 +254,12 @@ pub fn auth_check(result: Option<&Result<Identity, IdentityError>>) -> DoctorChe
     use CheckStatus::{Fail, Warn};
     match result {
         None => check("API auth", Warn, "Skipped because API key or account ID is missing".into(), None),
-        Some(Ok(identity)) => check("API auth", CheckStatus::Ok, format!("Authenticated as {}", identity.me.display_name()), None),
-        Some(Err(IdentityError::Http { status, status_text })) => check(
-            "API auth",
-            Fail,
-            format!("HTTP {status}: {status_text}"),
-            Some(api_auth_remediation(*status)),
-        ),
+        Some(Ok(identity)) => {
+            check("API auth", CheckStatus::Ok, format!("Authenticated as {}", identity.me.display_name()), None)
+        }
+        Some(Err(IdentityError::Http { status, status_text })) => {
+            check("API auth", Fail, format!("HTTP {status}: {status_text}"), Some(api_auth_remediation(*status)))
+        }
         Some(Err(other)) => check(
             "API auth",
             Fail,
@@ -293,7 +304,9 @@ fn completion_check(shell: Option<&str>, home: &Path) -> DoctorCheck {
             "Shell completions",
             Warn,
             "Current shell could not be detected automatically".into(),
-            Some("Run `vendo completions <shell>` manually after choosing your shell, or reinstall with the hosted installer."),
+            Some(
+                "Run `vendo completions <shell>` manually after choosing your shell, or reinstall with the hosted installer.",
+            ),
         ),
     }
 }
@@ -327,10 +340,8 @@ fn format_source(source: Source) -> &'static str {
 
 pub async fn doctor(ctx: &Ctx, json: bool) -> Result<ExitCode> {
     let config = ctx.effective();
-    let shell = std::env::var("SHELL")
-        .ok()
-        .and_then(|s| s.rsplit('/').next().map(str::to_string))
-        .filter(|s| !s.is_empty());
+    let shell =
+        std::env::var("SHELL").ok().and_then(|s| s.rsplit('/').next().map(str::to_string)).filter(|s| !s.is_empty());
     let env = DoctorEnv {
         binary: std::env::current_exe().unwrap_or_default(),
         standard_binary: ctx.standard_binary_path(),
@@ -348,11 +359,8 @@ pub async fn doctor(ctx: &Ctx, json: bool) -> Result<ExitCode> {
     let summary = |status: CheckStatus| checks.iter().filter(|c| c.status == status).count();
     let (ok, warn, fail) = (summary(CheckStatus::Ok), summary(CheckStatus::Warn), summary(CheckStatus::Fail));
     let mut seen = BTreeSet::new();
-    let suggestions: Vec<String> = checks
-        .iter()
-        .filter_map(|c| c.remediation.clone())
-        .filter(|r| seen.insert(r.clone()))
-        .collect();
+    let suggestions: Vec<String> =
+        checks.iter().filter_map(|c| c.remediation.clone()).filter(|r| seen.insert(r.clone())).collect();
     let exit = if fail > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS };
 
     if json {
@@ -428,7 +436,12 @@ mod tests {
     use super::*;
     use crate::{client::ApiError, config::DEFAULT_BASE_URL, identity::Me};
 
-    fn config(api_key: Option<&str>, account: Option<&str>, profile: Option<(&str, bool)>, exists: bool) -> EffectiveConfig {
+    fn config(
+        api_key: Option<&str>,
+        account: Option<&str>,
+        profile: Option<(&str, bool)>,
+        exists: bool,
+    ) -> EffectiveConfig {
         EffectiveConfig {
             config_exists: exists,
             config_path: PathBuf::from("/h/.config/vendo/config.json"),
@@ -473,7 +486,10 @@ mod tests {
     #[test]
     fn missing_pieces_warn_or_fail_with_fixes() {
         let home = tempfile::tempdir().unwrap();
-        let checks = local_checks(&env(home.path(), "/opt/vendo/bin/vendo", "/usr/bin", Some("bash")), &config(None, None, None, false));
+        let checks = local_checks(
+            &env(home.path(), "/opt/vendo/bin/vendo", "/usr/bin", Some("bash")),
+            &config(None, None, None, false),
+        );
         let by_name = |n: &str| checks.iter().find(|c| c.name == n).unwrap().clone();
         assert_eq!(by_name("CLI binary").status, CheckStatus::Warn);
         assert_eq!(by_name("PATH").status, CheckStatus::Fail);
@@ -492,14 +508,23 @@ mod tests {
     fn auth_check_maps_identity_results() {
         assert_eq!(auth_check(None).status, CheckStatus::Warn);
         let ok = Ok(Identity {
-            me: Me { account_id: "a".into(), account_name: Some("Acme".into()), account_slug: None, api_key_id: None, scopes: None },
+            me: Me {
+                account_id: "a".into(),
+                account_name: Some("Acme".into()),
+                account_slug: None,
+                api_key_id: None,
+                scopes: None,
+            },
             raw: json!({}),
         });
         assert_eq!(auth_check(Some(&ok)).detail, "Authenticated as Acme");
         let http = Err(IdentityError::Http { status: 401, status_text: "Unauthorized".into() });
         let c = auth_check(Some(&http));
         assert_eq!((c.status, c.detail.as_str()), (CheckStatus::Fail, "HTTP 401: Unauthorized"));
-        assert_eq!(c.remediation.as_deref(), Some("Run `vendo login` to refresh credentials, then retry `vendo whoami`."));
+        assert_eq!(
+            c.remediation.as_deref(),
+            Some("Run `vendo login` to refresh credentials, then retry `vendo whoami`.")
+        );
         let net = Err(IdentityError::Transport(ApiError {
             message: "Request timed out".into(),
             status: 408,
