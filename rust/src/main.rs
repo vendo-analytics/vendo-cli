@@ -7,17 +7,19 @@ mod commands;
 mod config;
 mod context;
 mod identity;
+mod jobs;
 mod output;
 mod profile_display;
 mod update_check;
+mod watch;
 
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
 
 use crate::{
-    cli::{Cli, Command, ConfigCommand, ProfileCommand},
-    commands::{account, health, login},
+    cli::{Cli, Command, ConfigCommand, JobsCommand, ProfileCommand},
+    commands::{account, health, jobs as jobs_cmd, login},
     config::{ConfigStore, EnvVars, default_config_path},
     context::Ctx,
 };
@@ -84,6 +86,22 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
         },
         Command::Status { json } => health::status(ctx, json).await.map(|_| ok),
         Command::Whoami { json } => account::whoami(ctx, json).await.map(|_| ok),
+        Command::Jobs { command } => match command {
+            JobsCommand::List { status, job_type, source, integration, limit, offset, json, output } => {
+                let args = jobs_cmd::ListArgs { status, job_type, source, integration, limit, offset, json, output };
+                jobs_cmd::list(ctx, args).await.map(|_| ok)
+            }
+            JobsCommand::Get { job_id, json } => jobs_cmd::get(ctx, &job_id, json).await.map(|_| ok),
+            JobsCommand::Cancel { job_id, json, yes, dry_run, output } => {
+                jobs_cmd::cancel(ctx, &job_id, json, yes, dry_run, output).await.map(|_| ok)
+            }
+            JobsCommand::Watch { interval, source, integration } => {
+                jobs_cmd::watch(ctx, &interval, source, integration).await.map(|_| ok)
+            }
+            JobsCommand::Tail { job_id, source, integration, next, interval } => {
+                jobs_cmd::tail(ctx, jobs_cmd::TailArgs { job_id, source, integration, next, interval }).await
+            }
+        },
         Command::Mcp { json, show_key } => {
             account::mcp(ctx, json, show_key);
             Ok(ok)

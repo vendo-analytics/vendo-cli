@@ -77,6 +77,11 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Monitor sync jobs
+    Jobs {
+        #[command(subcommand)]
+        command: JobsCommand,
+    },
     /// Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo
     #[command(after_help = "Examples:\n  $ vendo mcp\n  $ vendo mcp --json\n  $ vendo mcp --show-key")]
     Mcp {
@@ -165,6 +170,104 @@ pub enum ProfileCommand {
         /// Switch by account ID instead of profile name
         #[arg(long, value_name = "accountId")]
         account: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum JobsCommand {
+    /// List sync jobs
+    #[command(
+        after_help = "Examples:\n  $ vendo jobs list\n  $ vendo jobs list --status running\n  $ vendo jobs list --source <sourceId>\n  $ vendo jobs list --output id"
+    )]
+    List {
+        /// Filter by status (pending, running, completed, failed, cancelled)
+        #[arg(long, value_name = "status")]
+        status: Option<String>,
+        /// Filter by job type (import, export)
+        #[arg(long = "type", value_name = "type")]
+        job_type: Option<String>,
+        /// Filter by source ID
+        #[arg(long, value_name = "sourceId")]
+        source: Option<String>,
+        /// Filter by integration ID
+        #[arg(long, value_name = "integrationId")]
+        integration: Option<String>,
+        /// Number of results
+        #[arg(long, value_name = "n", default_value = "20")]
+        limit: String,
+        /// Pagination offset
+        #[arg(long, value_name = "n", default_value = "0")]
+        offset: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+        /// Print a single field per row (e.g. id)
+        #[arg(long, value_name = "field")]
+        output: Option<String>,
+    },
+    /// Get job details
+    #[command(after_help = "Examples:\n  $ vendo jobs get <jobId>\n  $ vendo jobs get <jobId> --json")]
+    Get {
+        #[arg(value_name = "jobId")]
+        job_id: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Cancel a pending or running job
+    #[command(
+        after_help = "Examples:\n  $ vendo jobs cancel <jobId>\n  $ vendo jobs cancel <jobId> --yes\n  $ vendo jobs cancel <jobId> --dry-run"
+    )]
+    Cancel {
+        #[arg(value_name = "jobId")]
+        job_id: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+        /// Preview the action without executing
+        #[arg(long)]
+        dry_run: bool,
+        /// Print a single field (e.g. id)
+        #[arg(long, value_name = "field")]
+        output: Option<String>,
+    },
+    /// Watch running and pending jobs (live polling)
+    #[command(
+        after_help = "Examples:\n  $ vendo jobs watch\n  $ vendo jobs watch --source <sourceId>\n  $ vendo jobs watch --interval 10"
+    )]
+    Watch {
+        /// Polling interval in seconds
+        #[arg(long, value_name = "seconds", default_value = "5")]
+        interval: String,
+        /// Filter by source ID
+        #[arg(long, value_name = "sourceId")]
+        source: Option<String>,
+        /// Filter by integration ID
+        #[arg(long, value_name = "integrationId")]
+        integration: Option<String>,
+    },
+    /// Tail a single job or the latest job for a source/integration
+    #[command(
+        after_help = "Examples:\n  $ vendo jobs tail <jobId>\n  $ vendo jobs tail --source <sourceId>\n  $ vendo jobs tail --source <sourceId> --next\n  $ vendo jobs tail --integration <integrationId>"
+    )]
+    Tail {
+        #[arg(value_name = "jobId")]
+        job_id: Option<String>,
+        /// Tail the latest job for a source
+        #[arg(long, value_name = "sourceId")]
+        source: Option<String>,
+        /// Tail the latest job for an integration
+        #[arg(long, value_name = "integrationId")]
+        integration: Option<String>,
+        /// Wait for the next new job when tailing a source or integration
+        #[arg(long)]
+        next: bool,
+        /// Polling interval in seconds
+        #[arg(long, value_name = "seconds", default_value = "3")]
+        interval: String,
     },
 }
 

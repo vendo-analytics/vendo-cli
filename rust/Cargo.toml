@@ -22,12 +22,13 @@ open = "5.4.4"
 owo-colors = { version = "4.4.0", features = ["supports-colors"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = { version = "1.0.151", features = ["preserve_order"] }
-tokio = { version = "1.53.2", features = ["rt", "macros", "net", "io-util", "time"] }
+serde_json = { version = "1.0.151", features = ["float_roundtrip", "preserve_order"] }
+tokio = { version = "1.53.2", features = ["rt", "macros", "net", "io-util", "time", "signal"] }
 uuid = { version = "1.27.0", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
+tokio = { version = "1.53.2", features = ["test-util", "macros", "rt"] }
 wiremock = "0.6.5"
 
 [profile.release]

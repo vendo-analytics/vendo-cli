@@ -89,13 +89,10 @@ const SPINNER_FRAMES: &[&str] = &[
     "",
 ];
 
-/// Run `fut` behind a spinner on stderr, shown only when stdout is a terminal
-/// (the TS `runAction`). Errors propagate to `main`, which prints and exits 1.
-pub async fn run_action<T, E, F>(label: &str, fut: F) -> Result<T, E>
-where
-    F: Future<Output = Result<T, E>>,
-{
-    let bar = if stdout_is_tty() {
+/// A started spinner on stderr, hidden unless stdout is a terminal (ora's
+/// `isSilent: !isTTY`). Call `finish_and_clear` to stop it.
+pub fn spinner(label: &str) -> ProgressBar {
+    if stdout_is_tty() {
         let bar = ProgressBar::new_spinner();
         bar.set_style(
             ProgressStyle::with_template("{spinner} {msg}").expect("static template").tick_strings(SPINNER_FRAMES),
@@ -105,7 +102,16 @@ where
         bar
     } else {
         ProgressBar::hidden()
-    };
+    }
+}
+
+/// Run `fut` behind a spinner (the TS `runAction`). Errors propagate to
+/// `main`, which prints them and exits 1.
+pub async fn run_action<T, E, F>(label: &str, fut: F) -> Result<T, E>
+where
+    F: Future<Output = Result<T, E>>,
+{
+    let bar = spinner(label);
     let result = fut.await;
     bar.finish_and_clear();
     result
