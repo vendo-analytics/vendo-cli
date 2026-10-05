@@ -84,6 +84,9 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
 - Cutting a release candidate: bump `version` in `rust/Cargo.toml` to `X.Y.Z-rc.N` and update `rust/Cargo.lock`
   (`cargo update --workspace` from `rust/`) in one commit, merged through a PR like any change. Then tag that
   commit `cli-vX.Y.Z-rc.N` and push the tag. Agents never push tags or create releases: Yalcin approves each one.
+- Before tagging, run `pnpm build && pnpm parity:help --rust rust/target/release/vendo` on that commit. Every help
+  screen must be the same. This is a manual step, not a CI job (decided by Yalcin, 2026-10-05): the TypeScript CLI
+  it compares against is deleted at 1.0.0 (VE-3669).
 - Installing a release candidate: `VENDO_VERSION=cli-vX.Y.Z-rc.N bash install.sh` from a checkout,
   `curl -fsSL https://app2.vendodata.com/install.sh | VENDO_VERSION=cli-vX.Y.Z-rc.N bash` from anywhere, or
   `vendo self-update --version cli-vX.Y.Z-rc.N`.
