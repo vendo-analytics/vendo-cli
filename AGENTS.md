@@ -29,9 +29,10 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   HOME, fake keys, a local stub server and a fresh update-check cache, so nothing leaves the machine (VE-3727).
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
-  integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668). Not yet: dictionary
-  (VE-3713). `rust/src/web_app.rs` is the one place that knows the web-app routes (`/api/metrics`,
-  `/api/measurement/*`), which go out as raw paths with no account prefix.
+  integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).
+  `rust/src/web_app.rs` is the one place that knows the web-app routes (`/api/metrics`, `/api/measurement/*`),
+  which go out as raw paths with no account prefix. `rust/src/dictionary.rs` pins the dictionary field and
+  param names to vendo-web-v2's `route-handlers/dictionary/serialize.ts`, like `dictionary-contract.test.ts`.
 - Versions: `rust/Cargo.toml` carries the Rust CLI's release version, and release-candidate tags must match
   it. `package.json` stays the TypeScript CLI's version until the switch-over (VE-3669).
 
@@ -49,6 +50,9 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
   against staging with the TypeScript CLI (and the Rust CLI when given) and reports differences and
   commands that fail today. Needs `pnpm build`. Refuses non-staging URLs. When you add or rename a
   command, classify it in `parity/commands.json` or the run fails. Tests: `pnpm test:parity` (VE-3664).
+- `pnpm parity:help [--rust <binary>] [--only <prefix>]` — compares `--help` of every command (root, groups and
+  leaves) between the two CLIs: description, arguments, options with defaults, subcommands with aliases, and
+  examples. Offline, no profile; needs `pnpm build` and a Rust binary. clap's layout is accepted (VE-3713).
 - `pnpm parity:writes --profile <staging profile> --rust <binary> [--only pipeline|metrics]` — runs the write
   commands with both CLIs on throwaway resources, compares output, and deletes everything it created, also on
   failure: apps, sources and integration refusals on webhook apps (`pipeline`, VE-3667), and draft metrics

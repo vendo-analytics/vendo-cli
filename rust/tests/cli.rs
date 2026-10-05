@@ -1123,3 +1123,208 @@ fn data_commands_need_an_api_key_like_ts() {
         );
     }
 }
+
+// ── VE-3713: dictionary ──────────────────────────────────────────────────────
+// Fixtures follow src/__tests__/dictionary-contract.test.ts; expected output
+// comes from the TypeScript CLI run against the same stub responses.
+
+const DICTIONARY: &str = "/api/v1/accounts/acct-alpha/dictionary";
+const COLUMN_ID: &str = "source:11111111-2222-4333-8444-555555555555/table:customers/col:email";
+
+fn event_item() -> Value {
+    json!({
+        "subjectId": "0123456789abcdef0123456789abcdef", "subjectType": "event", "displayName": "Checkout Completed",
+        "description": "A customer placed an order.", "dataType": null, "semanticType": null, "tags": [],
+        "origin": "lexicon", "lastSeenAt": null, "status": "active",
+    })
+}
+
+fn column_item() -> Value {
+    let seen = jiff::Timestamp::now() - jiff::SignedDuration::from_hours(72);
+    json!({
+        "subjectId": COLUMN_ID, "subjectType": "column", "displayName": "Customer email",
+        "description": "Lowercased email of the latest customer record", "dataType": "string", "semanticType": "email",
+        "tags": ["pii", "crm"], "origin": "bq_schema", "lastSeenAt": seen.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        "status": "deprecated",
+    })
+}
+
+fn page(items: Vec<Value>, total: u64) -> Value {
+    json!({ "data": items, "meta": { "pagination": { "total": total, "limit": 20, "offset": 0, "hasMore": false } } })
+}
+
+#[tokio::test]
+async fn dictionary_list_and_search_read_one_subject_type() {
+    let server = MockServer::start().await;
+    let odd = json!({
+        "subjectId": "fedcba9876543210fedcba9876543210", "subjectType": "event", "displayName": null, "description": "",
+        "dataType": "", "semanticType": null, "tags": null, "origin": "", "lastSeenAt": null, "status": "warning",
+    });
+    let body = page(vec![event_item(), odd], 6);
+    serve(&server, "GET", DICTIONARY, 200, body.clone()).await;
+    let sandbox = Sandbox::new(&server.uri());
+
+    assert_eq!(
+        cells(ok_output(&sandbox.run(&["dictionary", "list"])).as_bytes()),
+        rows(&[
+            &["Subject ID", "Display", "Description"],
+            &["0123456789abcdef0123456789abcdef", "Checkout Completed", "A customer placed an order."],
+            &["fedcba9876543210fedcba9876543210", "—", "—"],
+            &["6 events"],
+        ])
+    );
+    let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&["dictionary", "list", "--json"]))).unwrap();
+    assert_eq!(printed, body, "--json prints the server body unchanged");
+    // `--output` reads the camelCase field names; null is skipped, "" prints an empty line.
+    assert_eq!(ok_output(&sandbox.run(&["dictionary", "list", "--output", "displayName"])), "Checkout Completed\n");
+    assert_eq!(
+        ok_output(&sandbox.run(&["dictionary", "list", "--output", "description"])),
+        "A customer placed an order.\n\n"
+    );
+    assert_eq!(
+        cells(
+            ok_output(&sandbox.run(&[
+                "dictionary",
+                "list",
+                "--type",
+                "prop",
+                "-q",
+                "email",
+                "--limit",
+                "5",
+                "--offset",
+                "10"
+            ]))
+            .as_bytes()
+        )
+        .last()
+        .cloned(),
+        Some(vec!["6 props".to_string()]),
+        "the count names the --type"
+    );
+    ok_output(&sandbox.run(&["dictionary", "search", "email", "--type", "column", "--limit", "5"]));
+    ok_output(&sandbox.run(&["dictionary", "search", "a b&c=d/é", "--output", "subjectId"]));
+    ok_output(&sandbox.run(&["dictionary", "list", "--type", "column", "--query", ""]));
+
+    let requests = sent(&server).await;
+    assert_eq!(requests[0], format!("GET {DICTIONARY}?type=event&limit=20&offset=0"));
+    assert_eq!(requests[4], format!("GET {DICTIONARY}?type=prop&q=email&limit=5&offset=10"));
+    assert_eq!(requests[5], format!("GET {DICTIONARY}?type=column&q=email&limit=5&offset=0"));
+    assert_eq!(requests[6], format!("GET {DICTIONARY}?type=event&q=a+b%26c%3Dd%2F%C3%A9&limit=20&offset=0"));
+    assert_eq!(requests[7], format!("GET {DICTIONARY}?type=column&q=&limit=20&offset=0"));
+    let received = server.received_requests().await.unwrap();
+    assert!(received.iter().all(|r| r.headers.get("x-account-id").is_some_and(|v| v == "acct-alpha")));
+}
+
+#[tokio::test]
+async fn dictionary_list_counts_the_rows_when_the_server_sends_no_total() {
+    let server = MockServer::start().await;
+    serve(&server, "GET", DICTIONARY, 200, json!({ "data": [event_item(), column_item()] })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let out = cells(ok_output(&sandbox.run(&["dictionary", "list", "--type", "audience"])).as_bytes());
+    assert_eq!(out.last().cloned(), Some(vec!["2 audiences".to_string()]));
+    assert_eq!(out[2], vec![COLUMN_ID, "Customer email", "Lowercased email of the latest customer record"]);
+}
+
+#[tokio::test]
+async fn dictionary_get_prints_every_field_of_the_definition() {
+    let server = MockServer::start().await;
+    let column = column_item();
+    let lookup = format!("{DICTIONARY}/lookup");
+    Mock::given(path(lookup.clone()))
+        .and(wiremock::matchers::query_param("subject_id", COLUMN_ID))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "data": { "subjectId": COLUMN_ID, "found": true, "definition": column } })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(path(lookup.clone()))
+        .and(wiremock::matchers::query_param("subject_id", "0123456789abcdef0123456789abcdef"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
+            "subjectId": "0123456789abcdef0123456789abcdef", "found": true, "definition": event_item(),
+        } })))
+        .mount(&server)
+        .await;
+    Mock::given(path(lookup.clone()))
+        .and(wiremock::matchers::query_param("subject_id", "fedcba9876543210fedcba9876543210"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
+            "subjectId": "fedcba9876543210fedcba9876543210", "found": true, "definition": {
+                "subjectId": "fedcba9876543210fedcba9876543210", "subjectType": null, "displayName": "",
+                "description": null, "dataType": 7, "semanticType": ["x"], "tags": ["a", null, 3], "origin": null,
+                "lastSeenAt": "garbage", "status": null,
+            },
+        } })))
+        .mount(&server)
+        .await;
+    Mock::given(path(lookup.clone()))
+        .and(wiremock::matchers::query_param("subject_id", "event:checkout"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "error": {
+            "code": "COMMAND_REFUSED",
+            "message": "event:checkout matches 2 events: 0123456789abcdef0123456789abcdef, fedcba9876543210fedcba9876543210. Use one of these subject IDs.",
+        } })))
+        .mount(&server)
+        .await;
+    serve(&server, "GET", &lookup, 200, json!({ "data": { "subjectId": "event:nope", "found": false } })).await;
+    let sandbox = Sandbox::new(&server.uri());
+
+    assert_eq!(
+        ok_output(&sandbox.run(&["dictionary", "get", COLUMN_ID])),
+        format!(
+            "\nCustomer email (column)\n\n  Subject:      {COLUMN_ID}\n  Type:         column\n  Display:      Customer email\n  Data type:    string\n  Semantic:     email\n  Origin:       bq_schema\n  Status:       deprecated\n  Last seen:    3d ago\n  Tags:         pii, crm\n\n  Lowercased email of the latest customer record\n"
+        )
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&["dictionary", "get", "0123456789abcdef0123456789abcdef"])),
+        "\nCheckout Completed (event)\n\n  Subject:      0123456789abcdef0123456789abcdef\n  Type:         event\n  Display:      Checkout Completed\n  Data type:    —\n  Semantic:     —\n  Origin:       lexicon\n  Status:       active\n  Last seen:    —\n  Tags:         —\n\n  A customer placed an order.\n"
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&["dictionary", "get", "fedcba9876543210fedcba9876543210"])),
+        "\nfedcba9876543210fedcba9876543210 (null)\n\n  Subject:      fedcba9876543210fedcba9876543210\n  Type:         null\n  Display:      —\n  Data type:    —\n  Semantic:     x\n  Origin:       —\n  Status:       null\n  Last seen:    Invalid Date\n  Tags:         a, , 3\n"
+    );
+    let printed: Value =
+        serde_json::from_str(&ok_output(&sandbox.run(&["dictionary", "get", COLUMN_ID, "--json"]))).unwrap();
+    assert_eq!(printed, json!({ "data": { "subjectId": COLUMN_ID, "found": true, "definition": column } }));
+    // The message names the argument as typed, not the server's echo.
+    assert_eq!(
+        ok_output(&sandbox.run(&["dictionary", "get", " event:nope "])),
+        "\nNo dictionary entry for  event:nope \n"
+    );
+    let out = sandbox.run(&["dictionary", "get", "event:checkout"]);
+    assert_eq!(
+        (out.status.code(), stderr_line(&out)),
+        (
+            Some(1),
+            "Error: event:checkout matches 2 events: 0123456789abcdef0123456789abcdef, fedcba9876543210fedcba9876543210. Use one of these subject IDs.".to_string()
+        )
+    );
+
+    let requests = sent(&server).await;
+    assert_eq!(
+        requests[0],
+        format!(
+            "GET {lookup}?subject_id=source%3A11111111-2222-4333-8444-555555555555%2Ftable%3Acustomers%2Fcol%3Aemail"
+        )
+    );
+    assert_eq!(requests[4], format!("GET {lookup}?subject_id=+event%3Anope+"));
+}
+
+#[tokio::test]
+async fn dictionary_get_reports_an_entry_the_server_does_not_have() {
+    let server = MockServer::start().await;
+    let lookup = format!("{DICTIONARY}/lookup");
+    for (id, data) in [
+        ("event:half", json!({ "subjectId": "event:half", "found": true })),
+        ("event:other", json!({ "subjectId": "event:other", "found": false, "definition": event_item() })),
+    ] {
+        Mock::given(path(lookup.clone()))
+            .and(wiremock::matchers::query_param("subject_id", id))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": data })))
+            .mount(&server)
+            .await;
+    }
+    let sandbox = Sandbox::new(&server.uri());
+    for id in ["event:half", "event:other"] {
+        assert_eq!(ok_output(&sandbox.run(&["dictionary", "get", id])), format!("\nNo dictionary entry for {id}\n"));
+    }
+}
