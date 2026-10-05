@@ -30,8 +30,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   it. `package.json` stays the TypeScript CLI's version until the switch-over (VE-3669).
 
 ## Layout (`src/`)
-`cli.ts`, `client.ts`, `config.ts`, `identity.ts`, plus `commands/` (21 modules on 2026-09-23 — `ls src/commands` to recount: apps, sources,
-integrations, jobs, metrics, models, catalog, measurement, specs, pipeline-resource, mcp, login,
+`cli.ts`, `client.ts`, `config.ts`, `identity.ts`, plus `commands/` (21 modules on 2026-10-05 — `ls src/commands` to recount: apps, sources,
+integrations, jobs, metrics, models, catalog, dictionary, measurement, pipeline-resource, mcp, login,
 logout, init, doctor, status, whoami, profile, config, completions, self-update). Tests in `src/__tests__/`.
 
 ## Key commands

@@ -67,7 +67,8 @@ vendo sources list                       # data sources
 vendo int list                           # export integrations
 vendo models list                        # data models
 vendo metrics list                       # custom metrics
-vendo specs list                         # tracking specifications
+vendo dictionary list                    # data dictionary (events by default)
+vendo dictionary search checkout         # text search within one subject type
 vendo catalog list                       # connector catalog (apps you can install)
 vendo measurement methodologies list     # marketing measurement methodologies
 vendo measurement ltv list               # LTV cohorts
@@ -84,7 +85,7 @@ vendo int get <integration-id>
 vendo jobs get <job-id>
 vendo models get <model-id>
 vendo metrics get <metric-id>
-vendo specs get <spec-id>
+vendo dictionary get <subject-id>
 ```
 
 ### Create / update / delete
@@ -94,102 +95,42 @@ vendo apps create --type <type> --credentials-file creds.json
 vendo sources create --app <app-id> --config-file config.json
 vendo int create  --source <id> --dest <id> --config-file config.json
 vendo metrics create --name "<name>" --definition metric.query.json
-vendo specs create --name "<name>" --file tracking-spec.json
 
 vendo apps update    <app-id>    --credentials-file creds.json
 vendo sources update <source-id> --config-file config.json
 vendo int update     <int-id>    --config-file config.json
 vendo metrics update <metric-id> --definition metric.query.json
-vendo specs update <spec-id> --revision <n> --file tracking-spec.json
 
 vendo apps delete    <app-id>    -y     # -y skips the confirmation prompt
 vendo sources delete <source-id> -y
 vendo int delete     <int-id>    -y
 vendo metrics delete <metric-id> -y
-vendo specs archive <spec-id> -y
 ```
 
-### Tracking specifications
+### Data dictionary
 
-Tracking specs let you design events, user properties, and group properties
-before data arrives. Drafts use optimistic revisions; publishing creates an
-immutable version that powers dictionary reconciliation and report-only
-validation.
+Browse catalog definitions — events, properties, groups, columns, metrics,
+models, and audiences. `vendo dictionary list` shows events by default
+(subject ID, display name, description).
 
 ```bash
-vendo specs create --name "Customer lifecycle" --file tracking-spec.json
-vendo specs get <spec-id>
-vendo specs update <spec-id> --revision 1 --file tracking-spec.json
-vendo specs publish <spec-id> --revision 2 --changelog "Add checkout events"
-vendo specs versions <spec-id>
-vendo specs diff <spec-id> --from-version 1 --to-version 2
-vendo specs validation-results <spec-id> --status failed
+vendo dictionary list
+vendo dictionary list --type event --query checkout
+vendo dictionary search checkout
+vendo dictionary get <subject-id>
+vendo dictionary get event:checkout_completed
 ```
 
-`--file` accepts either a bare payload or the API wrapper. A bare payload keeps
-the reusable specification separate from its Vendo container metadata:
+`--type` accepts `event`, `prop`, `group`, `column`, `metric`, `model`, or
+`audience`. `search` and `--query` / `-q` are a case-insensitive text match
+within one subject type; they are not the ranked semantic search behind the
+MCP `dictionary_search` tool. Use `--json` for the raw `{ data, meta }` envelope.
 
-```json
-{
-  "events": [
-    {
-      "name": "Integration Completed",
-      "description": "A customer completed an integration setup.",
-      "properties": [
-        {
-          "name": "integration_name",
-          "type": "string",
-          "required": true,
-          "allowedValues": ["shopify", "stripe"]
-        }
-      ]
-    }
-  ],
-  "userProperties": [
-    {
-      "name": "subscription_status",
-      "dataType": "string",
-      "required": true,
-      "allowedValues": ["trial", "active", "cancelled"]
-    }
-  ],
-  "groupProperties": [
-    {
-      "groupType": "company",
-      "name": "integration_count",
-      "dataType": "number",
-      "required": true
-    }
-  ]
-}
-```
-
-The wrapper form can also provide `name`, `description`, `strategyId`,
-`payload`, and source/environment `bindings`. Command-line metadata overrides
-the same field from the file. `stableKey` is optional on input; Vendo assigns
-one when absent. Supported property types are `string`, `number`, `boolean`,
-`datetime`, `array`, and `object`.
-
-A binding targets exactly one runtime surface. Semantic mappings include their
-environment; a tracking write key already owns its environment:
-
-```json
-{
-  "name": "Customer lifecycle",
-  "payload": { "events": [], "userProperties": [], "groupProperties": [] },
-  "bindings": [
-    {
-      "kind": "semantic_mapping",
-      "sourceSemanticMappingId": "5e847d06-f04d-48df-b946-c0bb2c90a661",
-      "environment": "production"
-    },
-    {
-      "kind": "tracking_write_key",
-      "trackingWriteKeyId": "9c124d07-c155-477f-8844-36f0a4610f44"
-    }
-  ]
-}
-```
+`get` takes the subject ID that `list` and `search` print: a registry ID for
+events, properties, groups, metrics, and audiences, or a path such as
+`source:…/table:…/col:…` for columns and `model:…` for models. It also accepts an
+alias such as `event:checkout_completed` (URL-encode spaces: `event:Order%20Placed`)
+when the name belongs to one source.
 
 ### Run + watch jobs
 

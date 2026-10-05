@@ -71,7 +71,7 @@ const ACCOUNT_SCOPED_PREFIXES = [
   '/triggers',
   '/costs',
   '/events',
-  '/specs',
+  '/dictionary',
   '/pulse',
   '/bigquery',
 ];
