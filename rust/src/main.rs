@@ -16,12 +16,10 @@ mod watch;
 
 use std::process::ExitCode;
 
-use clap::{CommandFactory, Parser};
-
 use crate::{
     cli::{
-        AppsCommand, CatalogCommand, Cli, Command, ConfigCommand, IntegrationsCommand, JobsCommand, ProfileCommand,
-        SourcesCommand,
+        AppsCommand, CatalogCommand, Command, ConfigCommand, IntegrationsCommand, Invocation, JobsCommand,
+        ProfileCommand, SourcesCommand,
     },
     commands::{
         account, apps, catalog, health, integrations, jobs as jobs_cmd, login,
@@ -34,7 +32,14 @@ use crate::{
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let args = match cli::preprocess(std::env::args_os().collect()) {
+        Invocation::Version => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+        Invocation::Run(args) => args,
+    };
+    let cli = cli::parse(args);
     let debug = cli.debug
         || std::env::var("VENDO_DEBUG")
             .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
@@ -269,7 +274,7 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
         Command::Completions { shell } => {
             clap_complete::generate(
                 clap_complete::Shell::from(shell),
-                &mut Cli::command(),
+                &mut cli::command(),
                 "vendo",
                 &mut std::io::stdout(),
             );
