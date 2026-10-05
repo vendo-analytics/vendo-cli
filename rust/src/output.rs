@@ -464,14 +464,57 @@ pub fn arg_error(message: &str, examples: &[&str]) -> ! {
     std::process::exit(1);
 }
 
-fn prompt(question: &str) -> Option<String> {
+/// What a prompt read.
+#[derive(Debug, PartialEq)]
+pub enum Answer {
+    Line(String),
+    /// Ctrl-C, Ctrl-D or the end of the input.
+    Closed,
+}
+
+/// One answer: up to and including a newline. A line holding the terminal's
+/// interrupt character (Ctrl-C, see [`InterruptAsInput`]) or the end of the
+/// input closes the prompt instead.
+fn read_answer(input: &mut impl BufRead, interrupt: Option<u8>) -> Answer {
+    let mut line = Vec::new();
+    loop {
+        let buf = match input.fill_buf() {
+            Ok(buf) => buf,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Answer::Closed,
+        };
+        if buf.is_empty() {
+            return Answer::Closed;
+        }
+        match buf.iter().position(|b| *b == b'\n' || Some(*b) == interrupt) {
+            Some(end) => {
+                let closed = Some(buf[end]) == interrupt;
+                line.extend_from_slice(&buf[..=end]);
+                input.consume(end + 1);
+                return if closed { Answer::Closed } else { Answer::Line(String::from_utf8_lossy(&line).into_owned()) };
+            }
+            None => {
+                let n = buf.len();
+                line.extend_from_slice(buf);
+                input.consume(n);
+            }
+        }
+    }
+}
+
+fn prompt(question: &str) -> Answer {
     print!("{question}");
     let _ = std::io::stdout().flush();
-    let mut line = String::new();
-    match std::io::stdin().lock().read_line(&mut line) {
-        Ok(0) | Err(_) => None,
-        Ok(_) => Some(line),
-    }
+    let terminal = InterruptAsInput::enable();
+    let answer = read_answer(&mut std::io::stdin().lock(), terminal.key);
+    drop(terminal);
+    answer
+}
+
+/// Ctrl-C or Ctrl-D at a prompt: Node's readline closed and the question
+/// never resolved, so the TS CLI exited 0 with nothing printed or changed.
+fn quit_quietly() -> ! {
+    std::process::exit(0)
 }
 
 /// `(y/N)` prompt. Like the TS CLI, a non-interactive stdout confirms.
@@ -479,9 +522,74 @@ pub fn confirm(message: &str) -> bool {
     if !stdout_is_tty() {
         return true;
     }
-    prompt(&format!("{message} {} ", dim("(y/N)")))
-        .map(|answer| answer.trim().eq_ignore_ascii_case("y"))
-        .unwrap_or(false)
+    match prompt(&format!("{message} {} ", dim("(y/N)"))) {
+        Answer::Line(answer) => answer.trim().eq_ignore_ascii_case("y"),
+        Answer::Closed => quit_quietly(),
+    }
+}
+
+/// While a prompt reads the terminal, its interrupt key (Ctrl-C) arrives as
+/// input and ends the line instead of raising SIGINT, as Node's readline
+/// read the terminal raw. The settings are restored on drop.
+struct InterruptAsInput {
+    #[cfg(unix)]
+    saved: Option<libc::termios>,
+    key: Option<u8>,
+}
+
+impl InterruptAsInput {
+    #[cfg(unix)]
+    fn enable() -> Self {
+        let off = InterruptAsInput { saved: None, key: None };
+        let fd = libc::STDIN_FILENO;
+        // SAFETY: plain termios calls on stdin; `settings` is fully written by
+        // tcgetattr before it is read or passed back to tcsetattr.
+        unsafe {
+            if libc::isatty(fd) != 1 {
+                return off;
+            }
+            let mut settings: libc::termios = std::mem::zeroed();
+            if libc::tcgetattr(fd, &mut settings) != 0 {
+                return off;
+            }
+            let saved = settings;
+            let key = settings.c_cc[libc::VINTR];
+            if key == libc::_POSIX_VDISABLE {
+                return off;
+            }
+            // ECHOCTL off too: readline echoed nothing for Ctrl-C or Ctrl-D.
+            settings.c_lflag &= !(libc::ISIG | libc::ECHOCTL);
+            settings.c_cc[libc::VEOL] = key;
+            if libc::tcsetattr(fd, libc::TCSANOW, &settings) != 0 {
+                return off;
+            }
+            InterruptAsInput { saved: Some(saved), key: Some(key) }
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn enable() -> Self {
+        InterruptAsInput { key: None }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for InterruptAsInput {
+    fn drop(&mut self) {
+        if let Some(saved) = &self.saved {
+            // SAFETY: puts back the settings `enable` read from the same descriptor.
+            unsafe {
+                libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, saved);
+            }
+        }
+    }
+}
+
+/// A picker answer as a 0-based index: `Number(answer)` must be an integer
+/// from 1 to `count`, so `2.0` and `0x2` pick the second option, as in TS.
+fn selection_index(answer: &str, count: usize) -> Option<usize> {
+    let n = js_number(answer);
+    (n.fract() == 0.0 && n >= 1.0 && n <= count as f64).then(|| n as usize - 1)
 }
 
 pub struct SelectOption {
@@ -491,14 +599,19 @@ pub struct SelectOption {
 }
 
 /// Search-then-pick prompt (the TS `searchSelectOption`). `None` when not a
-/// terminal, there are no options, or the user cancels.
+/// terminal, there are no options, or the user types `q`; Ctrl-C and Ctrl-D
+/// end the command quietly.
 pub fn search_select_option(message: &str, options: &[SelectOption]) -> Option<String> {
     if !stdout_is_tty() || options.is_empty() {
         return None;
     }
+    let ask = |question: String| match prompt(&question) {
+        Answer::Line(line) => line,
+        Answer::Closed => quit_quietly(),
+    };
     println!("{message}");
     loop {
-        let query = prompt(&format!("Search {} ", dim("(ENTER for all, q to cancel)")))?.trim().to_lowercase();
+        let query = ask(format!("Search {} ", dim("(ENTER for all, q to cancel)"))).trim().to_lowercase();
         if query == "q" {
             return None;
         }
@@ -517,14 +630,12 @@ pub fn search_select_option(message: &str, options: &[SelectOption]) -> Option<S
         if filtered.len() > displayed.len() {
             println!("{}", dim(&format!("  … {} more matches", filtered.len() - displayed.len())));
         }
-        let selection = prompt(&format!("Choose an option {} ", dim("(ENTER to search again)")))?.trim().to_string();
+        let selection = ask(format!("Choose an option {} ", dim("(ENTER to search again)"))).trim().to_string();
         if selection.is_empty() {
             continue;
         }
-        if let Ok(index) = selection.parse::<usize>()
-            && (1..=displayed.len()).contains(&index)
-        {
-            return Some(displayed[index - 1].value.clone());
+        if let Some(index) = selection_index(&selection, displayed.len()) {
+            return Some(displayed[index].value.clone());
         }
         if let Some(matched) = filtered.iter().find(|o| o.value == selection || o.label == selection) {
             return Some(matched.value.clone());
@@ -793,5 +904,37 @@ mod tests {
             js_stringify(&body),
             "{\"a\":12345678901234567000,\"b\":1,\"c\":0,\"d\":[1e+21,0.1,-5,9007199254740992],\"e\":\"x\u{2028}\"}"
         );
+    }
+
+    #[test]
+    fn an_answer_ends_at_a_newline_and_closes_on_interrupt_or_end_of_input() {
+        let read = |bytes: &[u8]| read_answer(&mut std::io::Cursor::new(bytes.to_vec()), Some(3));
+        assert_eq!(read(b"y\n"), Answer::Line("y\n".into()));
+        assert_eq!(read(b"2.0\nrest"), Answer::Line("2.0\n".into()));
+        for closed in [&b""[..], b"\x03", b"ab\x03", b"a\x03b\n", b"no newline"] {
+            assert_eq!(read(closed), Answer::Closed, "{closed:?}");
+        }
+        // Without an interrupt key (stdin is not a terminal) 0x03 is just input.
+        let mut piped = std::io::Cursor::new(b"\x03\n".to_vec());
+        assert_eq!(read_answer(&mut piped, None), Answer::Line("\x03\n".into()));
+    }
+
+    #[test]
+    fn picker_numbers_are_read_with_javascript_number() {
+        for (answer, expected) in [
+            ("2", Some(1)),
+            ("2.0", Some(1)),
+            ("0x2", Some(1)),
+            ("+2", Some(1)),
+            ("2e0", Some(1)),
+            ("1", Some(0)),
+            ("3", None),
+            ("0", None),
+            ("1.5", None),
+            ("abc", None),
+            ("Infinity", None),
+        ] {
+            assert_eq!(selection_index(answer, 2), expected, "{answer:?}");
+        }
     }
 }

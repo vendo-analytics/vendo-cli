@@ -2019,6 +2019,7 @@ dependencies = [
  "comfy-table",
  "indicatif",
  "jiff",
+ "libc",
  "open",
  "owo-colors",
  "reqwest",

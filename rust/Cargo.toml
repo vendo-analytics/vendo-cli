@@ -28,6 +28,9 @@ serde_json = { version = "1.0.151", features = ["float_roundtrip", "preserve_ord
 tokio = { version = "1.53.2", features = ["rt", "macros", "net", "io-util", "time", "signal"] }
 uuid = { version = "1.27.0", features = ["v4"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"
+
 [dev-dependencies]
 tempfile = "3.27.0"
 tokio = { version = "1.53.2", features = ["test-util", "macros", "rt"] }
