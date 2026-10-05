@@ -42,12 +42,15 @@ impl Resource {
 /// Read and parse a JSON file passed with `--config-file` and friends. Errors
 /// use Node's wording for the common cases, as the TS CLI printed them.
 pub fn read_json_file(path: &str) -> Result<Value> {
-    let raw =
-        std::fs::read_to_string(path).map_err(|err| anyhow!("Failed to read {path}: {}", node_fs_error(&err, path)))?;
-    serde_json::from_str(&raw).map_err(|err| {
-        let reason = if err.is_eof() { "Unexpected end of JSON input".to_string() } else { err.to_string() };
-        anyhow!("Failed to read {path}: {reason}")
-    })
+    read_json(path).map_err(|reason| anyhow!("Failed to read {path}: {reason}"))
+}
+
+/// `JSON.parse(readFileSync(path, 'utf-8'))`; the error is the reason Node
+/// gave, which each caller puts in its own message.
+pub fn read_json(path: &str) -> std::result::Result<Value, String> {
+    let raw = std::fs::read_to_string(path).map_err(|err| node_fs_error(&err, path))?;
+    serde_json::from_str(&raw)
+        .map_err(|err| if err.is_eof() { "Unexpected end of JSON input".to_string() } else { err.to_string() })
 }
 
 /// Node's `readFileSync` message for the errors people actually hit.

@@ -298,3 +298,828 @@ fn doctor_names_the_running_binary_by_its_real_path() {
     assert!(detail.starts_with(&format!("{} (standard install path is ", real.display())), "{detail}");
     assert_eq!(report["checks"][1]["detail"], format!("{} is not available in PATH", real.parent().unwrap().display()));
 }
+
+// ── VE-3668: metrics, models and measurement ────────────────────────────────
+// Expected output comes from the TypeScript CLI run against the same stub
+// responses (dates are null where TS would print a locale date).
+
+/// Serve `body` with `status` for `verb route` on `server`.
+async fn serve(server: &MockServer, verb: &str, route: &str, status: u16, body: Value) {
+    Mock::given(wiremock::matchers::method(verb))
+        .and(path(route))
+        .respond_with(ResponseTemplate::new(status).set_body_json(body))
+        .mount(server)
+        .await;
+}
+
+/// `METHOD path?query body` for every request the stub received, in order.
+async fn sent(server: &MockServer) -> Vec<String> {
+    let requests = server.received_requests().await.unwrap();
+    requests
+        .iter()
+        .map(|r| {
+            let query = r.url.query().map(|q| format!("?{q}")).unwrap_or_default();
+            format!("{} {}{query} {}", r.method, r.url.path(), text(&r.body)).trim_end().to_string()
+        })
+        .collect()
+}
+
+/// Table and text rows as cells, the way the parity harness compares them:
+/// border and column-gap differences are accepted, cell contents are not.
+fn cells(stdout: &[u8]) -> Vec<Vec<String>> {
+    text(stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.split("  ").map(str::trim).filter(|c| !c.is_empty()).map(str::to_string).collect())
+        .collect()
+}
+
+fn rows(expected: &[&[&str]]) -> Vec<Vec<String>> {
+    expected.iter().map(|row| row.iter().map(|c| c.to_string()).collect()).collect()
+}
+
+fn ok_output(out: &Output) -> String {
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", text(&out.stderr));
+    text(&out.stdout)
+}
+
+const M1: &str = "6f1c2a9e-1111-4c3b-9a7e-000000000001";
+
+fn metric(over: Value) -> Value {
+    let mut row = json!({
+        "id": M1, "access_scope": "workspace", "account_id": "acct-alpha", "name": "ROAS",
+        "description": "Return on ad spend", "format": "multiplier", "higher_is_better": true, "unit": "x",
+        "status": "active", "verified_at": null, "verified_by": null, "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": null, "definition": { "version": 2, "reportType": "segmentation" },
+    });
+    row.as_object_mut().unwrap().extend(over.as_object().unwrap().clone());
+    row
+}
+
+#[tokio::test]
+async fn metrics_list_prints_the_table_fields_and_the_ts_envelope() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "metrics": [
+            metric(json!({})),
+            metric(json!({ "id": "short-id", "name": "Draft one", "status": "draft", "format": "number", "higher_is_better": false })),
+            metric(json!({ "id": "abcdefabcdefabcdef", "name": "Archived", "status": "archived", "format": "currency", "metric_type": "legacy" })),
+        ],
+        "total": 3, "limit": 20, "offset": 0,
+    });
+    serve(&server, "GET", "/api/metrics", 200, body.clone()).await;
+    let sandbox = Sandbox::new(&server.uri());
+
+    let out = sandbox.run(&["metrics", "list"]);
+    assert_eq!(
+        cells(ok_output(&out).as_bytes()),
+        rows(&[
+            &["ID", "Name", "Type", "Format", "Status", "Updated"],
+            &["6f1c2a9e...", "ROAS", "multiplier", "active", "—"],
+            &["short-id", "Draft one", "number", "draft", "—"],
+            &["abcdefab...", "Archived", "legacy", "currency", "archived", "—"],
+            &["3 metrics"],
+        ])
+    );
+    // The TS command wrapped the route's `{ metrics, total }` in its own envelope.
+    let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "list", "--json"]))).unwrap();
+    assert_eq!(printed, json!({ "data": body["metrics"], "meta": { "pagination": { "total": 3 } } }));
+    assert_eq!(
+        ok_output(&sandbox.run(&["metrics", "list", "--output", "id"])),
+        format!("{M1}\nshort-id\nabcdefabcdefabcdef\n")
+    );
+    assert_eq!(ok_output(&sandbox.run(&["metrics", "list", "--output", "higher_is_better"])), "true\nfalse\ntrue\n");
+    assert_eq!(ok_output(&sandbox.run(&["metrics", "list", "--output", "metric_type"])), "legacy\n");
+    ok_output(&sandbox.run(&["metrics", "list", "--status", "active", "--limit", "5", "--offset", "2"]));
+    ok_output(&sandbox.run(&["metrics", "list", "--status", ""]));
+    let requests = sent(&server).await;
+    assert_eq!(requests[0], "GET /api/metrics?limit=20&offset=0");
+    assert_eq!(requests[5], "GET /api/metrics?status=active&limit=5&offset=2");
+    assert_eq!(requests[6], "GET /api/metrics?status=&limit=20&offset=0", "an empty --status is still sent, as in TS");
+    let received = server.received_requests().await.unwrap();
+    assert!(received.iter().all(|r| r.headers.get("x-account-id").is_none()), "web-app routes carry no account header");
+}
+
+#[tokio::test]
+async fn metrics_get_prints_the_detail_view_like_ts() {
+    let server = MockServer::start().await;
+    serve(
+        &server,
+        "GET",
+        &format!("/api/metrics/{M1}"),
+        200,
+        json!({ "metric": metric(json!({})), "registryWarning": "x" }),
+    )
+    .await;
+    let draft = metric(json!({
+        "id": "short-id", "definition": null, "description": "", "unit": null, "higher_is_better": false,
+        "status": "draft", "metric_type": "ratio",
+    }));
+    serve(&server, "GET", "/api/metrics/short-id", 200, json!({ "metric": draft })).await;
+    let odd =
+        metric(json!({ "id": "odd", "name": null, "definition": { "reportType": 7 }, "format": null, "status": null }));
+    serve(&server, "GET", "/api/metrics/odd", 200, json!({ "metric": odd })).await;
+    serve(&server, "GET", "/api/metrics/nometric", 200, json!({ "other": true })).await;
+    serve(&server, "GET", "/api/metrics/missing", 404, json!({ "error": "Metric not found" })).await;
+    let sandbox = Sandbox::new(&server.uri());
+
+    assert_eq!(
+        ok_output(&sandbox.run(&["metrics", "get", M1])),
+        format!(
+            "\nROAS (undefined)\n\n  ID:           {M1}\n  Type:         undefined\n  Format:       multiplier\n  Status:       active\n  Updated:      —\n  Description:  Return on ad spend\n  Unit:         x\n  Higher=Better: yes\n  Calculation:  segmentation\n"
+        )
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&["metrics", "get", "short-id"])),
+        "\nROAS (ratio)\n\n  ID:           short-id\n  Type:         ratio\n  Format:       multiplier\n  Status:       draft\n  Updated:      —\n  Higher=Better: no\n  Calculation:  unknown\n"
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&["metrics", "get", "odd"])),
+        "\nnull (undefined)\n\n  ID:           odd\n  Type:         undefined\n  Format:       null\n  Status:       null\n  Updated:      —\n  Description:  Return on ad spend\n  Unit:         x\n  Higher=Better: yes\n  Calculation:  unknown\n"
+    );
+    let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "get", M1, "--json"]))).unwrap();
+    assert_eq!(printed, json!({ "data": metric(json!({})) }));
+    assert_eq!(ok_output(&sandbox.run(&["metrics", "get", "nometric", "--json"])), "{}\n");
+    let out = sandbox.run(&["metrics", "get", "missing"]);
+    assert_eq!(
+        (out.status.code(), stderr_line(&out)),
+        (Some(1), "Error: Resource not found. Check the ID and try again.".to_string())
+    );
+}
+
+#[tokio::test]
+async fn metrics_create_sends_the_query_spec_unchanged() {
+    let server = MockServer::start().await;
+    let draft = metric(json!({ "name": "CLI parity", "status": "draft" }));
+    Mock::given(wiremock::matchers::method("POST"))
+        .and(path("/api/metrics"))
+        .and(wiremock::matchers::body_string_contains("\"format\":\"currency\""))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(json!({ "metric": metric(json!({ "name": "CLI parity" })) })),
+        )
+        .mount(&server)
+        .await;
+    serve(&server, "POST", "/api/metrics", 201, json!({ "metric": draft, "registryWarning": "pending" })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let def = sandbox.home.path().join("def.query.json");
+    // Big and tiny numbers go out the way JavaScript wrote them.
+    std::fs::write(
+        &def,
+        r#"{"version":2,"reportType":"segmentation","metricOutput":{"kind":"measure","measureId":"m_a"},"big":12345678901234567890,"small":0.000001}"#,
+    )
+    .unwrap();
+    let def = def.to_str().unwrap();
+    let spec = r#"{"version":2,"reportType":"segmentation","metricOutput":{"kind":"measure","measureId":"m_a"},"big":12345678901234567000,"small":0.000001}"#;
+
+    assert_eq!(
+        ok_output(&sandbox.run(&["metrics", "create", "--name", "CLI parity", "--definition", def])),
+        format!(
+            "\n✓ Metric \"CLI parity\" created\n  ID:     {M1}\n  Status: draft\n\n  The calculation could not compile. Update its definition before activating it.\n"
+        )
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&[
+            "metrics",
+            "create",
+            "--name",
+            "CLI parity",
+            "--definition",
+            def,
+            "--description",
+            "d",
+            "--format",
+            "currency",
+            "--unit",
+            "$",
+        ])),
+        format!("\n✓ Metric \"CLI parity\" created\n  ID:     {M1}\n  Status: active\n")
+    );
+    let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&[
+        "metrics",
+        "create",
+        "--name",
+        "X",
+        "--definition",
+        def,
+        "--json",
+    ])))
+    .unwrap();
+    assert_eq!(printed, json!({ "data": metric(json!({ "name": "CLI parity", "status": "draft" })) }));
+    ok_output(&sandbox.run(&[
+        "metrics",
+        "create",
+        "--name",
+        "",
+        "--definition",
+        def,
+        "--description",
+        "",
+        "--unit",
+        "",
+    ]));
+    let requests = sent(&server).await;
+    assert_eq!(
+        requests[0],
+        format!(r#"POST /api/metrics {{"name":"CLI parity","definition":{spec},"format":"number"}}"#)
+    );
+    assert_eq!(
+        requests[1],
+        format!(
+            r#"POST /api/metrics {{"name":"CLI parity","definition":{spec},"format":"currency","description":"d","unit":"$"}}"#
+        )
+    );
+    assert_eq!(requests[3], format!(r#"POST /api/metrics {{"name":"","definition":{spec},"format":"number"}}"#));
+}
+
+#[tokio::test]
+async fn a_metric_definition_that_cannot_be_read_names_the_file() {
+    let keyless = Sandbox::without_api_keys(CLOSED);
+    let empty = keyless.home.path().join("empty.json");
+    std::fs::write(&empty, "").unwrap();
+    let dir = keyless.home.path().to_str().unwrap().to_string();
+    for (file, reason) in [
+        (
+            "/missing/metric.query.json".to_string(),
+            "ENOENT: no such file or directory, open '/missing/metric.query.json'".to_string(),
+        ),
+        (empty.to_str().unwrap().to_string(), "Unexpected end of JSON input".to_string()),
+        (dir.clone(), "EISDIR: illegal operation on a directory, read".to_string()),
+    ] {
+        for args in [
+            vec!["metrics", "create", "--name", "X", "--definition", file.as_str()],
+            vec!["metrics", "update", "m1", "--definition", file.as_str()],
+        ] {
+            let out = keyless.run(&args);
+            assert_eq!(
+                (out.status.code(), stderr_line(&out)),
+                (Some(1), format!("Error: Failed to read Metric definition {file}: {reason}")),
+                "{args:?}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn metrics_update_activate_and_delete_like_ts() {
+    let server = MockServer::start().await;
+    let path_m1 = format!("/api/metrics/{M1}");
+    serve(&server, "PATCH", &path_m1, 200, json!({ "metric": metric(json!({ "name": "New" })) })).await;
+    serve(&server, "PATCH", "/api/metrics/refused", 400, json!({ "error": "Add a valid calculation first" })).await;
+    serve(&server, "DELETE", &path_m1, 200, json!({ "deleted": true, "id": M1, "registryWarning": "pending" })).await;
+    Mock::given(wiremock::matchers::method("DELETE"))
+        .and(path("/api/metrics/gone"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    let sandbox = Sandbox::new(&server.uri());
+    let def = sandbox.home.path().join("def.json");
+    std::fs::write(&def, r#"{"version":2}"#).unwrap();
+
+    // Nothing to send is refused before any key or request is needed.
+    let keyless = Sandbox::without_api_keys(CLOSED);
+    for args in [&["metrics", "update", M1][..], &["metrics", "update", M1, "--name", "", "--status", ""]] {
+        let out = keyless.run(args);
+        assert_eq!((out.status.code(), stderr_line(&out)), (Some(1), "Error: No updates provided".to_string()));
+    }
+    assert_eq!(
+        ok_output(&sandbox.run(&[
+            "metrics",
+            "update",
+            M1,
+            "--name",
+            "New",
+            "--status",
+            "active",
+            "--unit",
+            "u",
+            "--format",
+            "f",
+            "--description",
+            "d",
+            "--definition",
+            def.to_str().unwrap(),
+        ])),
+        "\n✓ Metric \"New\" updated\n"
+    );
+    let printed: Value =
+        serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "update", M1, "--name", "New", "--json"]))).unwrap();
+    assert_eq!(printed, json!({ "data": metric(json!({ "name": "New" })) }));
+    assert_eq!(ok_output(&sandbox.run(&["metrics", "activate", M1])), "\n✓ Metric \"New\" is now active\n");
+    let out = sandbox.run(&["metrics", "activate", "refused"]);
+    assert_eq!((out.status.code(), stderr_line(&out)), (Some(1), "Error: HTTP 400".to_string()));
+    // Not a terminal: the confirmation is skipped, as in TS.
+    for args in [&["metrics", "delete", M1][..], &["metrics", "delete", M1, "--yes"], &["metrics", "delete", M1, "-y"]]
+    {
+        assert_eq!(ok_output(&sandbox.run(args)), "\n✓ Metric deleted\n", "{args:?}");
+    }
+    let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "delete", M1, "--json"]))).unwrap();
+    assert_eq!(printed, json!({ "data": { "deleted": true, "id": M1, "registryWarning": "pending" } }));
+    let printed: Value =
+        serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "delete", "gone", "--json"]))).unwrap();
+    assert_eq!(printed, json!({ "data": {} }), "a 204 is an empty body, as in TS");
+
+    let requests = sent(&server).await;
+    assert_eq!(
+        requests[0],
+        format!(
+            r#"PATCH {path_m1} {{"name":"New","description":"d","definition":{{"version":2}},"format":"f","unit":"u","status":"active"}}"#
+        )
+    );
+    assert_eq!(requests[1], format!(r#"PATCH {path_m1} {{"name":"New"}}"#));
+    assert_eq!(requests[2], format!(r#"PATCH {path_m1} {{"status":"active"}}"#));
+    assert_eq!(requests[4], format!("DELETE {path_m1}"));
+}
+
+fn model(over: Value) -> Value {
+    let mut row = json!({
+        "id": "11111111-2222-4333-8444-555555555555", "state": "active", "accountId": "acct-alpha",
+        "name": "orders_clean", "description": null, "modelType": "sql", "viewName": "orders_clean",
+        "outputConfig": { "dataset_id": "prod", "write_mode": "replace" },
+        "schedule": { "frequency_unit": "hours", "frequency_value": 6 },
+        "columns": [{ "name": "order_id", "type": "STRING", "is_nullable": false }],
+        "primaryKeyColumns": null, "incrementalColumn": null, "isValid": true, "validationError": null,
+        "lastValidatedAt": null, "createdAt": null, "updatedAt": null, "managedBy": "customer",
+    });
+    row.as_object_mut().unwrap().extend(over.as_object().unwrap().clone());
+    row
+}
+
+#[tokio::test]
+async fn models_list_and_get_like_ts() {
+    let server = MockServer::start().await;
+    let list = json!({
+        "data": [model(json!({})), model(json!({ "id": "m2", "name": "broken", "isValid": false, "dataType": "events" }))],
+        "meta": { "pagination": { "total": 7, "limit": 20, "offset": 0, "hasMore": false } },
+    });
+    serve(&server, "GET", "/api/v1/accounts/acct-alpha/models", 200, list.clone()).await;
+    let detail = model(json!({
+        "description": "Clean orders", "sqlQuery": "SELECT order_id\nFROM `p.d.orders`\n  WHERE 1 = 1",
+        "primaryKeyColumns": ["order_id", "line_id"], "incrementalColumn": "updated_at",
+        "validationError": "Table not found",
+    }));
+    serve(&server, "GET", "/api/v1/accounts/acct-alpha/models/mod-1", 200, json!({ "data": detail.clone() })).await;
+    serve(
+        &server,
+        "GET",
+        "/api/v1/accounts/acct-alpha/models/mod-2",
+        200,
+        json!({ "data": model(json!({ "isValid": false, "primaryKeyColumns": [], "sqlQuery": "" })) }),
+    )
+    .await;
+    let sandbox = Sandbox::new(&server.uri());
+
+    assert_eq!(
+        cells(ok_output(&sandbox.run(&["models", "list"])).as_bytes()),
+        rows(&[
+            &["ID", "Name", "Type", "Valid", "Last Validated"],
+            &["11111111...", "orders_clean", "yes", "—"],
+            &["m2", "broken", "events", "no", "—"],
+            &["7 models"],
+        ])
+    );
+    // Verbatim: nested config keys stay snake_case (the TS client camelCased them).
+    let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&["models", "list", "--json"]))).unwrap();
+    assert_eq!(printed, list);
+    assert_eq!(
+        ok_output(&sandbox.run(&["models", "list", "--output", "id"])),
+        "11111111-2222-4333-8444-555555555555\nm2\n"
+    );
+    ok_output(&sandbox.run(&["models", "list", "--valid", "--type", "sql"]));
+    ok_output(&sandbox.run(&["models", "list", "--valid", "--invalid", "--limit", "3"]));
+    assert_eq!(
+        ok_output(&sandbox.run(&["models", "get", "mod-1"])),
+        "\norders_clean (undefined)\n\n  ID:            11111111-2222-4333-8444-555555555555\n  Data Type:     undefined\n  Valid:         yes\n  Validated:     —\n  Created:       —\n  Description:   Clean orders\n  Primary Keys:  order_id, line_id\n  Incremental:   updated_at\n\n  Validation Error: Table not found\n\n  SQL Query:\n    SELECT order_id\n    FROM `p.d.orders`\n      WHERE 1 = 1\n"
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&["models", "get", "mod-2"])),
+        "\norders_clean (undefined)\n\n  ID:            11111111-2222-4333-8444-555555555555\n  Data Type:     undefined\n  Valid:         no\n  Validated:     —\n  Created:       —\n"
+    );
+    let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&["models", "get", "mod-1", "--json"]))).unwrap();
+    assert_eq!(printed, json!({ "data": detail }));
+
+    let requests = sent(&server).await;
+    assert_eq!(requests[0], "GET /api/v1/accounts/acct-alpha/models?limit=20&offset=0");
+    assert_eq!(requests[3], "GET /api/v1/accounts/acct-alpha/models?data_type=sql&limit=20&offset=0&is_valid=true");
+    assert_eq!(requests[4], "GET /api/v1/accounts/acct-alpha/models?limit=3&offset=0&is_valid=false");
+    let received = server.received_requests().await.unwrap();
+    assert!(received.iter().all(|r| r.headers.get("x-account-id").is_some_and(|v| v == "acct-alpha")));
+}
+
+fn methodologies() -> Value {
+    json!({ "data": { "methodologies": [
+        { "id": "m-system-1", "account_id": null, "name": "Last click", "description": null, "click_path_model": "last_click",
+          "ensemble_weights": { "click_path": 1 }, "signal_params": null, "is_system": true, "version": 1,
+          "created_at": null, "updated_at": null },
+        { "id": "m-account-2-with-a-long-id", "account_id": "acct-1", "name": "Blended", "description": "Click path and survey",
+          "click_path_model": "linear",
+          "ensemble_weights": { "click_path": 0.7, "survey_response_share": 0.3333333, "2": 5, "mmm": null },
+          "signal_params": null, "is_system": false, "version": 3, "created_at": null, "updated_at": null },
+        { "id": "m-3", "account_id": "acct-1", "name": "No weights", "description": "", "click_path_model": "first_click",
+          "ensemble_weights": {}, "signal_params": null, "is_system": false, "version": null, "created_at": null,
+          "updated_at": null },
+    ] } })
+}
+
+#[tokio::test]
+async fn measurement_methodologies_read_the_enveloped_list() {
+    let server = MockServer::start().await;
+    serve(&server, "GET", "/api/measurement/methodologies", 200, methodologies()).await;
+    let sandbox = Sandbox::new(&server.uri());
+
+    assert_eq!(
+        cells(ok_output(&sandbox.run(&["measurement", "methodologies", "list"])).as_bytes()),
+        rows(&[
+            &["ID", "Name", "Click Path", "Scope", "Version", "Updated"],
+            &["m-system-1", "Last click", "last_click", "system", "1", "—"],
+            &["m-accoun...", "Blended", "linear", "account", "3", "—"],
+            &["m-3", "No weights", "first_click", "account", "null", "—"],
+            &["3 methodologys"],
+        ])
+    );
+    let field = |name: &str| ok_output(&sandbox.run(&["measurement", "methodologies", "list", "--output", name]));
+    assert_eq!(field("id"), "m-system-1\nm-account-2-with-a-long-id\nm-3\n");
+    assert_eq!(field("clickPathModel"), "last_click\nlinear\nfirst_click\n");
+    assert_eq!(field("click_path_model"), "last_click\nlinear\nfirst_click\n");
+    assert_eq!(field("isSystem"), "true\nfalse\nfalse\n");
+    assert_eq!(field("version"), "1\n3\n");
+    let printed: Value =
+        serde_json::from_str(&ok_output(&sandbox.run(&["measurement", "methodologies", "list", "--json"]))).unwrap();
+    assert_eq!(printed, methodologies(), "--json prints the server body unchanged");
+    ok_output(&sandbox.run(&["measurement", "methodologies", "list", "--no-system"]));
+
+    assert_eq!(
+        ok_output(&sandbox.run(&["measurement", "methodologies", "get", "m-account-2-with-a-long-id"])),
+        "\nBlended (linear)\n\n  ID:             m-account-2-with-a-long-id\n  Scope:          account\n  Version:        3\n  Updated:        —\n  Description:   Click path and survey\n\n  Ensemble weights:\n    2             5\n    click_path    0.7\n    survey_response_share  0.333\n    mmm           0\n"
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&["measurement", "methodologies", "get", "m-3"])),
+        "\nNo weights (first_click)\n\n  ID:             m-3\n  Scope:          account\n  Version:        null\n  Updated:        —\n"
+    );
+    let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&[
+        "measurement",
+        "methodologies",
+        "get",
+        "m-system-1",
+        "--json",
+    ])))
+    .unwrap();
+    assert_eq!(printed, methodologies()["data"]["methodologies"][0]);
+    let out = sandbox.run(&["measurement", "methodologies", "get", "nope"]);
+    assert_eq!((out.status.code(), stderr_line(&out)), (Some(1), "Error: Methodology nope not found".to_string()));
+
+    let requests = sent(&server).await;
+    assert_eq!(requests[7], "GET /api/measurement/methodologies?include_system=false");
+    assert!(requests[8..].iter().all(|r| r == "GET /api/measurement/methodologies"), "get lists with system rows");
+}
+
+#[tokio::test]
+async fn measurement_rules_preview_like_ts() {
+    let server = MockServer::start().await;
+    let previews = json!({
+        "previews": [
+            { "context": { "campaign_objective": "sales", "channel_grouping": null, "custom_label": "" }, "sample_count": 12,
+              "resolved_methodology": { "id": "m1", "name": "Last click", "click_path_model": "last_click" },
+              "matched_rule_id": null, "via": "default_fallback" },
+            { "context": { "campaign_objective": null, "channel_grouping": "Paid Social", "custom_label": "promo" },
+              "sample_count": 1234, "resolved_methodology": { "id": "m2", "name": "Blended", "click_path_model": "linear" },
+              "matched_rule_id": "r1", "via": "rule" },
+        ],
+        "total_distinct_contexts": 2,
+    });
+    serve(&server, "POST", "/api/measurement/methodologies/rules/preview", 200, previews.clone()).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let preview = |extra: &[&str]| {
+        let mut args = vec!["measurement", "rules", "preview", "--from", "2026-09-01", "--to", "2026-09-30"];
+        args.extend_from_slice(extra);
+        sandbox.run(&args)
+    };
+
+    assert_eq!(
+        cells(ok_output(&preview(&[])).as_bytes()),
+        rows(&[
+            &["Objective", "Channel", "Custom Label", "Methodology", "Via", "Sample"],
+            &["sales", "—", "Last click", "default", "12"],
+            &["—", "Paid Social", "promo", "Blended", "rule", "1234"],
+            &["2 distinct contexts"],
+        ])
+    );
+    let printed: Value = serde_json::from_str(&ok_output(&preview(&["--limit", "0x10", "--json"]))).unwrap();
+    assert_eq!(printed, previews);
+    ok_output(&preview(&["--limit", "1.5"]));
+    let requests = sent(&server).await;
+    let route = "POST /api/measurement/methodologies/rules/preview";
+    assert_eq!(requests[0], format!(r#"{route} {{"from_date":"2026-09-01","to_date":"2026-09-30","limit":50}}"#));
+    assert_eq!(requests[1], format!(r#"{route} {{"from_date":"2026-09-01","to_date":"2026-09-30","limit":16}}"#));
+    assert_eq!(requests[2], format!(r#"{route} {{"from_date":"2026-09-01","to_date":"2026-09-30","limit":1.5}}"#));
+
+    // Checked before the API key is needed, like the TS action.
+    let keyless = Sandbox::without_api_keys(CLOSED);
+    for limit in ["0", "201", "abc", "", "-0", "Infinity"] {
+        let out = keyless.run(&["measurement", "rules", "preview", "--from", "x", "--to", "y", "--limit", limit]);
+        assert_eq!(out.status.code(), Some(1), "{limit:?}");
+        assert_eq!(
+            text(&out.stderr),
+            "Error: --limit must be 1..200\n\nUsage:\n  $ vendo measurement rules preview --from 2025-01-01 --to 2025-01-31 --limit 50\n",
+            "{limit:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn measurement_rules_preview_reports_the_server_refusal() {
+    let server = MockServer::start().await;
+    let refusal =
+        json!({ "error": { "code": "CONFLICT", "message": "No default methodology is configured for this account" } });
+    serve(&server, "POST", "/api/measurement/methodologies/rules/preview", 409, refusal).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let out = sandbox.run(&["measurement", "rules", "preview", "--from", "2026-09-01", "--to", "2026-09-30"]);
+    assert_eq!(
+        (out.status.code(), stderr_line(&out)),
+        (Some(1), "Error: No default methodology is configured for this account".to_string())
+    );
+}
+
+fn cohort_row(period: &str, size: Value, realised: Value) -> Value {
+    json!({ "cohort_period": period, "cohort_granularity": "monthly", "segment_key": "all", "cohort_size": size,
+            "realised": realised, "predicted": null })
+}
+
+#[tokio::test]
+async fn measurement_ltv_list_formats_money_and_ratios_like_node() {
+    let server = MockServer::start().await;
+    let realised = |l30: Value, l90: Value, l12: Value, cac: Value, ratio: Value| {
+        json!({ "ltv_30d": l30, "ltv_90d": l90, "ltv_12m": l12, "ltv_full": null, "cac": cac, "cac_ltv_ratio": ratio,
+                "payback_period_days": null, "computed_at": null })
+    };
+    let body = json!({ "data": {
+        "granularity": "monthly", "segment_key": "all",
+        "cohorts": [
+            cohort_row("2026-08-01", json!(1200), realised(json!(10), json!(1234.5), json!(null), json!(5), json!(0.5))),
+            cohort_row("2026-07-01", json!(0), realised(json!(1.005), json!(2.675), json!(-1.005), json!(0), json!(0.125))),
+            cohort_row("2026-06-01", json!(1234567.891), realised(json!(-0.001), json!(1e21), json!(0.30000000000000004), json!(-5), json!(2.675))),
+            cohort_row("2026-05-01", json!(null), realised(json!(null), json!(null), json!(null), json!(null), json!(-0.001))),
+        ],
+        "total_returned": 4,
+    } });
+    serve(&server, "GET", "/api/measurement/ltv", 200, body.clone()).await;
+    let sandbox = Sandbox::new(&server.uri());
+
+    assert_eq!(
+        cells(ok_output(&sandbox.run(&["measurement", "ltv", "list"])).as_bytes()),
+        rows(&[
+            &["Cohort", "Segment", "Size", "LTV 30d", "LTV 90d", "LTV 12m", "CAC", "CAC:LTV"],
+            &["2026-08-01", "all", "1,200", "$10.00", "$1,234.50", "—", "$5.00", "0.50"],
+            &["2026-07-01", "all", "0", "$1.01", "$2.68", "-$1.01", "$0.00", "0.13"],
+            &[
+                "2026-06-01",
+                "all",
+                "1,234,567.891",
+                "-$0.00",
+                "$1,000,000,000,000,000,000,000.00",
+                "$0.30",
+                "-$5.00",
+                "2.67"
+            ],
+            &["2026-05-01", "all", "—", "—", "—", "—", "—", "-0.00"],
+            &["4 cohorts"],
+        ])
+    );
+    let printed: Value =
+        serde_json::from_str(&ok_output(&sandbox.run(&["measurement", "ltv", "list", "--json"]))).unwrap();
+    assert_eq!(printed, body);
+    assert_eq!(
+        ok_output(&sandbox.run(&["measurement", "ltv", "list", "--output", "cohort_period"])),
+        "2026-08-01\n2026-07-01\n2026-06-01\n2026-05-01\n"
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&["measurement", "ltv", "list", "--output", "cohortSize"])),
+        "1200\n0\n1234567.891\n"
+    );
+    ok_output(&sandbox.run(&[
+        "measurement",
+        "ltv",
+        "list",
+        "--granularity",
+        "weekly",
+        "--segment",
+        "channel:meta",
+        "--from",
+        "2026-01-01",
+        "--to",
+        "2026-06-30",
+        "--limit",
+        "5",
+        "--no-predicted",
+    ]));
+    let requests = sent(&server).await;
+    assert_eq!(requests[0], "GET /api/measurement/ltv?granularity=monthly&segment_key=all&limit=50");
+    assert_eq!(
+        requests[4],
+        "GET /api/measurement/ltv?granularity=weekly&segment_key=channel%3Ameta&from_period=2026-01-01&to_period=2026-06-30&limit=5&include_predicted=false"
+    );
+}
+
+#[tokio::test]
+async fn measurement_ltv_cohort_and_customer_like_ts() {
+    let server = MockServer::start().await;
+    let cohort = json!({
+        "cohort_period": "2026-08-01", "cohort_granularity": "monthly", "segment_key": "channel:meta", "cohort_size": 12345,
+        "retention_matrix": [
+            { "period_offset_days": 0, "retained_customers": 12345, "retained_revenue": 100.5, "retention_rate": 1 },
+            { "period_offset_days": 30, "retained_customers": 100, "retained_revenue": 50, "retention_rate": 0.008 },
+        ],
+        "cumulative_curve": [
+            { "period_offset_days": 0, "cumulative_gross_revenue": 100.5, "cumulative_revenue_after_cogs": 80 },
+            { "period_offset_days": 30, "cumulative_gross_revenue": 1234.567, "cumulative_revenue_after_cogs": 999.999 },
+        ],
+        "prediction": { "method": "naive_decay", "ltv_30d_predicted": 10, "ltv_90d_predicted": null,
+                        "ltv_12m_predicted": 30.456, "metadata": null, "computed_at": null },
+    });
+    serve(&server, "GET", "/api/measurement/ltv/cohort/2026-08-01", 200, cohort.clone()).await;
+    let mut empty = cohort.clone();
+    empty["cohort_size"] = json!(0);
+    empty["retention_matrix"] = json!([]);
+    empty["cumulative_curve"] = json!([]);
+    empty["prediction"] = json!(null);
+    serve(&server, "GET", "/api/measurement/ltv/cohort/2026-07-01", 200, empty).await;
+    let mut no_offsets = cohort.clone();
+    no_offsets["cumulative_curve"] =
+        json!([{ "cumulative_gross_revenue": null, "cumulative_revenue_after_cogs": null }]);
+    serve(&server, "GET", "/api/measurement/ltv/cohort/2026-06-01", 200, no_offsets).await;
+    let customer = json!({
+        "cohort": { "customer_id": "cust 1/2", "acquisition_date": "2026-01-05", "cohort_period_daily": "2026-01-05",
+                    "cohort_period_weekly": "2026-01-05", "cohort_period_monthly": "2026-01-01",
+                    "acquisition_channel": "Paid Social", "acquisition_campaign": null, "country": "AU", "is_reactivated": true },
+        "revenue": [{ "revenue_period_daily": "2026-01-05", "period_offset_days": 0, "gross_revenue": 10 }],
+        "realised": { "ltv_30d": 10, "ltv_90d": 10.5, "ltv_12m": null, "ltv_full": 1234.5678 },
+    });
+    serve(&server, "GET", "/api/measurement/ltv/customer/cust%201%2F2", 200, customer.clone()).await;
+    serve(&server, "GET", "/api/measurement/ltv/customer/cust_%C3%A9%3F%23", 200, customer.clone()).await;
+    let none = json!({ "cohort": null, "revenue": [],
+                       "realised": { "ltv_30d": null, "ltv_90d": null, "ltv_12m": null, "ltv_full": null } });
+    serve(&server, "GET", "/api/measurement/ltv/customer/parity-missing-customer", 200, none).await;
+    let sandbox = Sandbox::new(&server.uri());
+
+    assert_eq!(
+        ok_output(&sandbox.run(&["measurement", "ltv", "cohort", "2026-08-01"])),
+        "\nCohort 2026-08-01 (monthly, segment=channel:meta)\n\n  Size:           12,345\n  Retention pts:  2\n  Curve points:   2\n  Cum revenue:    $1,234.57 (t+30d)\n  After COGS:     $1,000.00\n\n  Prediction:\n    Method:       naive_decay\n    LTV 30d:      $10.00\n    LTV 90d:      —\n    LTV 12m:      $30.46\n    Computed:     —\n"
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&[
+            "measurement",
+            "ltv",
+            "cohort",
+            "2026-07-01",
+            "--granularity",
+            "weekly",
+            "--segment",
+            "channel:meta & co"
+        ])),
+        "\nCohort 2026-08-01 (monthly, segment=channel:meta)\n\n  Size:           0\n  Retention pts:  0\n  Curve points:   0\n  Prediction:     (none)\n"
+    );
+    assert!(
+        ok_output(&sandbox.run(&["measurement", "ltv", "cohort", "2026-06-01"]))
+            .contains("  Curve points:   1\n  Cum revenue:    $0.00 (t+0d)\n  After COGS:     $0.00\n")
+    );
+    let printed: Value =
+        serde_json::from_str(&ok_output(&sandbox.run(&["measurement", "ltv", "cohort", "2026-08-01", "--json"])))
+            .unwrap();
+    assert_eq!(printed, cohort);
+    assert_eq!(
+        ok_output(&sandbox.run(&["measurement", "ltv", "customer", "cust 1/2"])),
+        "\nCustomer cust 1/2\n\n  Acquired:        2026-01-05\n  Channel:         Paid Social\n  Campaign:        —\n  Country:         AU\n  Reactivated:     yes\n  Monthly cohort:  2026-01-01\n\n  Realised LTV:\n    30d:           $10.00\n    90d:           $10.50\n    12m:           —\n    full:          $1,234.57\n    after-COGS variants in --json\n\n  Revenue points:  1\n"
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&["measurement", "ltv", "customer", "parity-missing-customer"])),
+        "\nCustomer parity-missing-customer\n  (no cohort row — customer not in customer_cohorts)\n\n  Realised LTV:\n    30d:           —\n    90d:           —\n    12m:           —\n    full:          —\n    after-COGS variants in --json\n\n  Revenue points:  0\n"
+    );
+    let printed: Value =
+        serde_json::from_str(&ok_output(&sandbox.run(&["measurement", "ltv", "customer", "cust_é?#", "--json"])))
+            .unwrap();
+    assert_eq!(printed, customer);
+
+    let requests = sent(&server).await;
+    assert_eq!(requests[0], "GET /api/measurement/ltv/cohort/2026-08-01?granularity=monthly&segment_key=all");
+    assert_eq!(
+        requests[1],
+        "GET /api/measurement/ltv/cohort/2026-07-01?granularity=weekly&segment_key=channel%3Ameta+%26+co"
+    );
+
+    let keyless = Sandbox::without_api_keys(CLOSED);
+    for period in ["2026-8-01", "2026-08-01x", "", "２０２６-08-01"] {
+        let out = keyless.run(&["measurement", "ltv", "cohort", period]);
+        assert_eq!(out.status.code(), Some(1), "{period:?}");
+        assert_eq!(
+            text(&out.stderr),
+            "Error: cohort period must be YYYY-MM-DD\n\nUsage:\n  $ vendo measurement ltv cohort 2025-01-01\n"
+        );
+    }
+    let out = keyless.run(&["measurement", "ltv", "customer", ""]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        text(&out.stderr),
+        "Error: customerId is required\n\nUsage:\n  $ vendo measurement ltv customer cust_abc123\n"
+    );
+}
+
+#[tokio::test]
+async fn measurement_signals_like_ts() {
+    let server = MockServer::start().await;
+    let signals = json!({ "data": { "signals": [
+        { "id": "click_path", "state": "live", "availability": { "available": true } },
+        { "id": "mmm", "state": "stub", "availability": { "available": false, "reason": "Not enough spend history" } },
+        { "id": "geo_lift", "state": "stub", "availability": null },
+        { "id": "survey", "state": "live", "availability": { "available": 0, "reason": "" } },
+    ] } });
+    serve(&server, "GET", "/api/measurement/signals", 200, signals.clone()).await;
+    let click_path = json!({ "status": {
+        "enabled": true, "lastComputedAt": null, "sampleEstimates": [{ "tier_label": "a" }, { "tier_label": "b" }],
+        "readiness": { "available": false, "readiness": [
+            { "key": "clicks", "label": "Has click data", "ok": true, "detail": "ignored when ok" },
+            { "key": "conv", "label": "Has conversions", "ok": false, "detail": "No conversions in 30 days" },
+            { "key": "x", "label": "No detail", "ok": false },
+        ] },
+    } });
+    Mock::given(path("/api/measurement/signals/click-path"))
+        .and(wiremock::matchers::query_param("sampleLimit", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "status": {
+            "enabled": false, "lastComputedAt": null, "sampleEstimates": [],
+            "readiness": { "available": false, "reason": "Signal disabled for this account" },
+        } })))
+        .mount(&server)
+        .await;
+    serve(&server, "GET", "/api/measurement/signals/click-path", 200, click_path.clone()).await;
+    let sandbox = Sandbox::new(&server.uri());
+
+    assert_eq!(
+        cells(ok_output(&sandbox.run(&["measurement", "signals", "list"])).as_bytes()),
+        rows(&[
+            &["Signal", "State", "Available", "Reason / Notes"],
+            &["click_path", "live", "yes", "—"],
+            &["mmm", "stub", "no", "Not enough spend history"],
+            &["geo_lift", "stub", "—", "—"],
+            &["survey", "live", "no"],
+            &["4 signals"],
+        ])
+    );
+    let printed: Value =
+        serde_json::from_str(&ok_output(&sandbox.run(&["measurement", "signals", "list", "--json"]))).unwrap();
+    assert_eq!(printed, signals);
+    assert_eq!(
+        ok_output(&sandbox.run(&["measurement", "signals", "click-path"])),
+        "\nClick-path signal\n\n  Enabled:        yes\n  Last computed:  —\n  Sample rows:    2\n\n  Readiness:\n    ✓ Has click data\n    ✗ Has conversions\n      No conversions in 30 days\n    ✗ No detail\n"
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&["measurement", "signals", "click-path", "--sample-limit", "50"])),
+        "\nClick-path signal\n\n  Enabled:        no\n  Last computed:  —\n  Sample rows:    0\n  Note:           Signal disabled for this account\n"
+    );
+    let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&[
+        "measurement",
+        "signals",
+        "click-path",
+        "--json",
+        "--sample-limit",
+        " 0x10 ",
+    ])))
+    .unwrap();
+    assert_eq!(printed, click_path);
+    ok_output(&sandbox.run(&["measurement", "signals", "click-path", "--sample-limit", "2.5"]));
+    let requests = sent(&server).await;
+    assert_eq!(requests[2], "GET /api/measurement/signals/click-path");
+    assert_eq!(requests[4], "GET /api/measurement/signals/click-path?sampleLimit=16");
+    assert_eq!(requests[5], "GET /api/measurement/signals/click-path?sampleLimit=2.5");
+
+    let keyless = Sandbox::without_api_keys(CLOSED);
+    for limit in ["0", "501", "abc", ""] {
+        let out = keyless.run(&["measurement", "signals", "click-path", "--sample-limit", limit]);
+        assert_eq!(out.status.code(), Some(1), "{limit:?}");
+        assert_eq!(
+            text(&out.stderr),
+            "Error: --sample-limit must be 1..500\n\nUsage:\n  $ vendo measurement signals click-path --sample-limit 100\n"
+        );
+    }
+}
+
+#[test]
+fn data_commands_need_an_api_key_like_ts() {
+    let keyless = Sandbox::without_api_keys(CLOSED);
+    for args in [
+        &["metrics", "list"][..],
+        &["metrics", "delete", "m1", "--yes"],
+        &["models", "list"],
+        &["measurement", "signals", "list"],
+        &["measurement", "ltv", "cohort", "2026-01-01"],
+    ] {
+        let out = keyless.run(args);
+        assert_eq!(
+            (out.status.code(), stderr_line(&out)),
+            (
+                Some(1),
+                "Error: No API key configured. Run `vendo login` or `vendo config set --api-key <key>` or set VENDO_API_KEY."
+                    .to_string()
+            ),
+            "{args:?}"
+        );
+    }
+}
