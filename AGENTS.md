@@ -24,7 +24,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   Toolchain: `rustup` stable (`~/.cargo/bin`); `pnpm rust:test`, `pnpm rust:build`,
   `cargo clippy --all-targets` and `cargo fmt` (120 columns, `rust/rustfmt.toml`) from `rust/`.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
-  self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666). Keep `rust/Cargo.toml`'s version equal to `package.json`'s.
+  self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
+  integrations (`int`) and catalog (VE-3667). Keep `rust/Cargo.toml`'s version equal to `package.json`'s.
 
 ## Layout (`src/`)
 `cli.ts`, `client.ts`, `config.ts`, `identity.ts`, plus `commands/` (21 modules on 2026-09-23 — `ls src/commands` to recount: apps, sources,
@@ -40,5 +41,9 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
   against staging with the TypeScript CLI (and the Rust CLI when given) and reports differences and
   commands that fail today. Needs `pnpm build`. Refuses non-staging URLs. When you add or rename a
   command, classify it in `parity/commands.json` or the run fails. Tests: `pnpm test:parity` (VE-3664).
+- `pnpm parity:writes --profile <staging profile> --rust <binary>` — runs the write commands (apps, sources,
+  integration refusals) with both CLIs on throwaway webhook apps and sources, compares output, and deletes
+  everything it created, also on failure. Point it at a disposable staging workspace ("Vendo CLI test"),
+  not one people use (VE-3667).
 - Distribution: `install.sh` pulls per-platform binaries from GitHub Releases
   (`vendo-analytics/vendo-cli`); release CI is tag-triggered (`cli-v*`, `.github/workflows/release.yml`).

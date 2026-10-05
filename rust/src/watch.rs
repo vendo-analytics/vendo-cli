@@ -139,6 +139,43 @@ pub async fn latest_job_for_resource(
     Ok(jobs.into_iter().next())
 }
 
+/// The newest active (running, pending or queued) job of one source or integration.
+pub async fn active_job_for_resource(
+    api: &impl JobApi,
+    kind: ResourceKind,
+    resource_id: &str,
+) -> Result<Option<Value>, ApiError> {
+    let jobs = api
+        .jobs(vec![
+            ("status", Some(ACTIVE_JOB_STATUSES.into())),
+            ("limit", Some("1".into())),
+            ("sort", Some("created_at:desc".into())),
+            (kind.query_key(), Some(resource_id.to_string())),
+        ])
+        .await?;
+    Ok(jobs.into_iter().next())
+}
+
+/// After `sync --watch`: tail the job the API returned, or wait for the next
+/// job created after the sync request when it didn't return one.
+pub async fn watch_triggered_resource_job(
+    api: &impl JobApi,
+    screen: &mut impl Screen,
+    resource_id: &str,
+    kind: ResourceKind,
+    job_id: Option<&str>,
+    sync_requested_at: String,
+) -> Result<(), ApiError> {
+    let interval = Duration::from_secs(3);
+    match job_id {
+        Some(job_id) => tail_job(api, screen, job_id, interval, MAX_WAIT).await,
+        None => {
+            let next = NextJob { after_created_at: Some(sync_requested_at), skip_job_id: None };
+            watch_job(api, screen, resource_id, kind, interval, next, MAX_WAIT).await
+        }
+    }
+}
+
 pub struct WatchScope {
     pub source_id: Option<String>,
     pub integration_id: Option<String>,
@@ -489,6 +526,16 @@ mod tests {
             assert_eq!(screen.out.last().map(String::as_str), Some(line), "{status}");
             assert_eq!(screen.snapshots.len(), 1, "{status} must end on the first poll");
         }
+    }
+
+    #[tokio::test]
+    async fn active_job_for_a_resource_includes_queued_jobs() {
+        let api = FakeApi::new(vec![Ok(vec![job("j1", "queued")])], vec![]);
+        let found = active_job_for_resource(&api, ResourceKind::Source, "s1").await.unwrap();
+        assert_eq!(found.and_then(|j| j["id"].as_str().map(str::to_string)).as_deref(), Some("j1"));
+        let query = &api.queries.borrow()[0];
+        assert!(query.contains(&("status", Some("running,pending,queued".into()))));
+        assert!(query.contains(&("source_id", Some("s1".into()))));
     }
 
     #[tokio::test(start_paused = true)]
