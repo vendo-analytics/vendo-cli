@@ -1,17 +1,11 @@
 //! How the TS command code turned JSON values into text, where `output.rs`
-//! has no helper for it: template literals (`${value}`), cli-table3 cells and
-//! the `??` fallbacks around them. Used by the metrics, models and
-//! measurement views (VE-3668).
+//! has no helper for it: cli-table3 cells and the `??` fallbacks around
+//! template literals (`${value}` itself is `output::js_template`). Used by the
+//! metrics, models and measurement views (VE-3668).
 
 use serde_json::Value;
 
-use crate::output::{js_string, js_truthy, time_ago};
-
-/// `${value}` in a template literal (or a lone `console.log` argument):
-/// `undefined` when the key is missing, `null` for null.
-pub fn template(value: Option<&Value>) -> String {
-    value.map(js_string).unwrap_or_else(|| "undefined".to_string())
-}
+use crate::output::{js_string, js_template, js_truthy, time_ago};
 
 /// What cli-table3 prints for a cell: strings, numbers and booleans as
 /// `String()` gives them; null, missing, objects and arrays as an empty cell.
@@ -29,7 +23,7 @@ fn present(value: Option<&Value>) -> Option<&Value> {
 
 /// `${value ?? fallback}`: an empty string stays empty.
 pub fn template_or(value: Option<&Value>, fallback: impl FnOnce() -> String) -> String {
-    present(value).map(|v| template(Some(v))).unwrap_or_else(fallback)
+    present(value).map(|v| js_template(Some(v))).unwrap_or_else(fallback)
 }
 
 /// A table cell holding `value ?? fallback`.
@@ -56,17 +50,6 @@ pub fn length_of(value: Option<&Value>) -> f64 {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn template_literals_print_undefined_and_null() {
-        assert_eq!(template(None), "undefined");
-        assert_eq!(template(Some(&json!(null))), "null");
-        assert_eq!(template(Some(&json!("x"))), "x");
-        assert_eq!(template(Some(&json!(3))), "3");
-        assert_eq!(template(Some(&json!(false))), "false");
-        assert_eq!(template(Some(&json!(["a", null]))), "a,");
-        assert_eq!(template(Some(&json!({ "a": 1 }))), "[object Object]");
-    }
 
     #[test]
     fn cells_are_empty_for_anything_but_primitives() {

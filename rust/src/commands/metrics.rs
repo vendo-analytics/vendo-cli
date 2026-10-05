@@ -11,9 +11,9 @@ use serde_json::{Map, Value, json};
 use crate::{
     commands::pipeline_resource::read_json,
     context::Ctx,
-    js_text::{cell, template, time_ago_of},
+    js_text::{cell, time_ago_of},
     output::{
-        OutputMode, bold, confirm, cyan, dim, green, js_truthy, print_count, print_field, print_json, red,
+        OutputMode, bold, confirm, cyan, dim, green, js_template, js_truthy, print_count, print_field, print_json, red,
         resolve_output_mode, run_action, short_id, table, yellow,
     },
     web_app,
@@ -103,7 +103,7 @@ pub async fn get(ctx: &Ctx, metric_id: &str, json: bool) -> Result<()> {
 
 /// The `metrics get` text view (the TS action's `console.log` lines).
 pub fn render_metric(metric: &Value) -> String {
-    let t = |key: &str| template(metric.get(key));
+    let t = |key: &str| js_template(metric.get(key));
     let status = match metric.get("status").and_then(Value::as_str) {
         Some("active") => green("active"),
         _ => t("status"),
@@ -158,9 +158,9 @@ pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
     }
     let metric = res.get("metric").unwrap_or(&Value::Null);
     println!();
-    println!("{} Metric \"{}\" created", green("✓"), template(metric.get("name")));
-    println!("  ID:     {}", template(metric.get("id")));
-    println!("  Status: {}", template(metric.get("status")));
+    println!("{} Metric \"{}\" created", green("✓"), js_template(metric.get("name")));
+    println!("  ID:     {}", js_template(metric.get("id")));
+    println!("  Status: {}", js_template(metric.get("status")));
     if metric.get("status").and_then(Value::as_str) == Some("draft") {
         println!();
         println!("{}", dim("  The calculation could not compile. Update its definition before activating it."));
@@ -211,7 +211,7 @@ pub async fn update(ctx: &Ctx, metric_id: &str, args: UpdateArgs) -> Result<()> 
         return Ok(());
     }
     println!();
-    println!("{} Metric \"{}\" updated", green("✓"), template(res.pointer("/metric/name")));
+    println!("{} Metric \"{}\" updated", green("✓"), js_template(res.pointer("/metric/name")));
     Ok(())
 }
 
@@ -224,7 +224,7 @@ pub async fn activate(ctx: &Ctx, metric_id: &str, json: bool) -> Result<()> {
         return Ok(());
     }
     println!();
-    println!("{} Metric \"{}\" is now active", green("✓"), template(res.pointer("/metric/name")));
+    println!("{} Metric \"{}\" is now active", green("✓"), js_template(res.pointer("/metric/name")));
     Ok(())
 }
 

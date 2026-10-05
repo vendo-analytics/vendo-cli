@@ -9,11 +9,11 @@ use serde_json::{Map, Value, json};
 use crate::{
     commands::pipeline_resource::js_number_value,
     context::Ctx,
-    js_text::{cell, cell_or, length_of, template, template_or, time_ago_of},
+    js_text::{cell, cell_or, length_of, template_or, time_ago_of},
     output::{
         OutputMode, arg_error, bold, cyan, dim, format_number, format_usd, green, js_number, js_number_of,
-        js_number_string, js_string, js_truthy, print_count, print_field, print_json, red, resolve_output_mode,
-        run_action, short_id, table, to_locale_number, yellow,
+        js_number_string, js_string, js_template, js_truthy, print_count, print_field, print_json, red,
+        resolve_output_mode, run_action, short_id, table, to_locale_number, yellow,
     },
     web_app,
 };
@@ -159,7 +159,7 @@ pub async fn methodologies_list(ctx: &Ctx, no_system: bool, json: bool, output: 
             cell(row.get("name")),
             cell(row.get("click_path_model")),
             if truthy(row.get("is_system")) { cyan("system") } else { "account".to_string() },
-            template(row.get("version")),
+            js_template(row.get("version")),
             time_ago_of(row.get("updated_at")),
         ]);
     }
@@ -188,7 +188,7 @@ pub async fn methodologies_get(ctx: &Ctx, methodology_id: &str, json: bool) -> R
 
 /// The `methodologies get` text view.
 pub fn render_methodology(row: &Value) -> String {
-    let t = |key: &str| template(row.get(key));
+    let t = |key: &str| js_template(row.get(key));
     let mut lines = vec![
         String::new(),
         format!("{} {}", bold(&t("name")), dim(&format!("({})", t("click_path_model")))),
@@ -241,7 +241,7 @@ pub async fn rules_preview(ctx: &Ctx, from: String, to: String, limit: &str, jso
             cell_or(context("custom_label"), dash),
             cell(row.pointer("/resolved_methodology/name")),
             if row.get("via").and_then(Value::as_str) == Some("rule") { "rule".to_string() } else { dim("default") },
-            template(row.get("sample_count")),
+            js_template(row.get("sample_count")),
         ]);
     }
     println!("{grid}");
@@ -336,7 +336,7 @@ pub async fn ltv_cohort(ctx: &Ctx, period: &str, granularity: String, segment: S
 
 /// The `ltv cohort` text view.
 pub fn render_cohort(row: &Value) -> String {
-    let t = |key: &str| template(row.get(key));
+    let t = |key: &str| js_template(row.get(key));
     let curve = array_at(row, "/cumulative_curve");
     let mut lines = vec![
         String::new(),
@@ -355,7 +355,7 @@ pub fn render_cohort(row: &Value) -> String {
         lines.push(format!(
             "  Cum revenue:    {} {}",
             fmt_money(Some(&or_zero("cumulative_gross_revenue"))),
-            dim(&format!("(t+{}d)", template(Some(&or_zero("period_offset_days")))))
+            dim(&format!("(t+{}d)", js_template(Some(&or_zero("period_offset_days")))))
         ));
         lines.push(format!("  After COGS:     {}", fmt_money(Some(&or_zero("cumulative_revenue_after_cogs")))));
     }
@@ -363,7 +363,7 @@ pub fn render_cohort(row: &Value) -> String {
         Some(prediction) => {
             lines.push(String::new());
             lines.push(bold("  Prediction:"));
-            lines.push(format!("    Method:       {}", template(prediction.get("method"))));
+            lines.push(format!("    Method:       {}", js_template(prediction.get("method"))));
             lines.push(format!("    LTV 30d:      {}", fmt_money(prediction.get("ltv_30d_predicted"))));
             lines.push(format!("    LTV 90d:      {}", fmt_money(prediction.get("ltv_90d_predicted"))));
             lines.push(format!("    LTV 12m:      {}", fmt_money(prediction.get("ltv_12m_predicted"))));
@@ -393,7 +393,7 @@ pub fn render_customer(customer_id: &str, res: &Value) -> String {
     let mut lines = vec![String::new(), bold(&format!("Customer {customer_id}"))];
     match res.get("cohort").filter(|c| js_truthy(c)) {
         Some(cohort) => {
-            let t = |key: &str| template(cohort.get(key));
+            let t = |key: &str| js_template(cohort.get(key));
             lines.push(String::new());
             lines.push(format!("  Acquired:        {}", t("acquisition_date")));
             lines.push(format!("  Channel:         {}", template_or(cohort.get("acquisition_channel"), dash)));
@@ -486,9 +486,9 @@ pub fn render_click_path(status: &Value) -> String {
         lines.push(bold("  Readiness:"));
         for item in items {
             let ok = truthy(item.get("ok"));
-            lines.push(format!("    {} {}", if ok { green("✓") } else { red("✗") }, template(item.get("label"))));
+            lines.push(format!("    {} {}", if ok { green("✓") } else { red("✗") }, js_template(item.get("label"))));
             if !ok && truthy(item.get("detail")) {
-                lines.push(format!("      {}", dim(&template(item.get("detail")))));
+                lines.push(format!("      {}", dim(&js_template(item.get("detail")))));
             }
         }
     } else if let Some(reason) = readiness.and_then(|r| r.get("reason")).filter(|r| js_truthy(r)) {

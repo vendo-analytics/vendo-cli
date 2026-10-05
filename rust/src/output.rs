@@ -1325,6 +1325,9 @@ mod tests {
         assert_eq!(js_template(None), "undefined");
         assert_eq!(js_template(Some(&json!(null))), "null");
         assert_eq!(js_template(Some(&json!(1.0))), "1");
+        assert_eq!(js_template(Some(&json!(false))), "false");
+        assert_eq!(js_template(Some(&json!(["a", null]))), "a,");
+        assert_eq!(js_template(Some(&json!({ "a": 1 }))), "[object Object]");
         assert_eq!(
             js_join(&[json!(1), json!(null), json!("a"), json!(2.5), json!([3, null])], ", "),
             "1, , a, 2.5, 3,"

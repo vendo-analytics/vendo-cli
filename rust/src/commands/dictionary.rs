@@ -9,10 +9,10 @@ use crate::{
     client::payload,
     context::Ctx,
     dictionary::{self, Item, Lookup},
-    js_text::{cell, template, time_ago_of},
+    js_text::{cell, time_ago_of},
     output::{
-        OutputMode, bold, color_status, cyan, dim, js_string, js_truthy, print_count, print_field, print_json,
-        resolve_output_mode, run_action, table,
+        OutputMode, bold, cyan, dim, js_color_status, js_join, js_string, js_template, js_truthy, print_count,
+        print_field, print_json, resolve_output_mode, run_action, table,
     },
 };
 
@@ -38,22 +38,9 @@ fn dash_cell(value: Option<&Value>) -> String {
 /// The TS `formatTags`: a dash for no tags, else `tags.join(', ')`.
 fn format_tags(tags: Option<&Value>) -> String {
     match tags {
-        Some(Value::Array(items)) if !items.is_empty() => items
-            .iter()
-            .map(|tag| if tag.is_null() { String::new() } else { js_string(tag) })
-            .collect::<Vec<_>>()
-            .join(", "),
+        Some(Value::Array(items)) if !items.is_empty() => js_join(items, ", "),
         Some(other) if js_truthy(other) && !other.is_array() => js_string(other),
         _ => dim("—"),
-    }
-}
-
-/// `colorStatus(item.status)`: known statuses are coloured, anything else
-/// prints as it is.
-fn status_text(status: Option<&Value>) -> String {
-    match status.and_then(Value::as_str) {
-        Some(s) => color_status(s),
-        None => template(status),
     }
 }
 
@@ -126,21 +113,21 @@ pub fn render_definition(item: Item) -> String {
     let title = item.display_name().filter(|name| js_truthy(name)).or(item.subject_id());
     let mut lines = vec![
         String::new(),
-        format!("{} {}", bold(&template(title)), dim(&format!("({})", template(item.subject_type())))),
+        format!("{} {}", bold(&js_template(title)), dim(&format!("({})", js_template(item.subject_type())))),
         String::new(),
-        format!("  Subject:      {}", template(item.subject_id())),
-        format!("  Type:         {}", template(item.subject_type())),
+        format!("  Subject:      {}", js_template(item.subject_id())),
+        format!("  Type:         {}", js_template(item.subject_type())),
         format!("  Display:      {}", dash(item.display_name())),
         format!("  Data type:    {}", dash(item.data_type())),
         format!("  Semantic:     {}", dash(item.semantic_type())),
         format!("  Origin:       {}", dash(item.origin())),
-        format!("  Status:       {}", status_text(item.status())),
+        format!("  Status:       {}", js_color_status(item.status())),
         format!("  Last seen:    {}", time_ago_of(item.last_seen_at())),
         format!("  Tags:         {}", format_tags(item.tags())),
     ];
     if item.description().is_some_and(js_truthy) {
         lines.push(String::new());
-        lines.push(format!("  {}", template(item.description())));
+        lines.push(format!("  {}", js_template(item.description())));
     }
     lines.iter().map(|line| format!("{line}\n")).collect()
 }
