@@ -71,12 +71,19 @@ jobs:
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          NOTES="$(cat <<'EOF'
-          Install with:
+          # A pre-release never becomes "latest", so the plain install command
+          # would install the stable release. Point testers at this tag.
+          # `--version=` (with "=") also works in the TypeScript CLI 0.3.x.
+          NOTES="$(cat <<EOF
+          Release candidate. It never becomes "latest", so normal installs and updates don't get it.
 
-          curl -fsSL https://app2.vendodata.com/install.sh | bash
+          Install this release candidate:
 
-          Staging: curl -fsSL https://stg.vendodata.com/install.sh | bash
+          curl -fsSL https://app2.vendodata.com/install.sh | VENDO_VERSION=${GITHUB_REF_NAME} bash
+
+          Or from an installed CLI: vendo self-update --version=${GITHUB_REF_NAME}
+
+          Staging: curl -fsSL https://stg.vendodata.com/install.sh | VENDO_VERSION=${GITHUB_REF_NAME} bash
           EOF
           )"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
