@@ -173,3 +173,17 @@ fn self_update_passes_only_a_non_empty_version() {
     assert_eq!(self_update_version(&["self-update", "--version", ""]), "unset");
     assert_eq!(self_update_version(&["self-update"]), "unset");
 }
+
+#[tokio::test]
+async fn proxy_variables_are_ignored_like_node_fetch() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/v1/me"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "accountId": "acct-alpha" } })))
+        .mount(&server)
+        .await;
+    let sandbox = Sandbox::new(&server.uri());
+    for var in ["HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"] {
+        let out = sandbox.command(&["whoami", "--json"]).env(var, CLOSED).output().unwrap();
+        assert_eq!(out.status.code(), Some(0), "{var}: {}", text(&out.stderr));
+    }
+}

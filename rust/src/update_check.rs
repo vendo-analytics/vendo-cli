@@ -86,6 +86,7 @@ async fn fetch_latest() -> Option<String> {
     }
     let release: Release = reqwest::Client::builder()
         .user_agent(concat!("vendo-cli/", env!("CARGO_PKG_VERSION")))
+        .no_proxy()
         .timeout(Duration::from_secs(3))
         .build()
         .ok()?
