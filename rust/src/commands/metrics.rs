@@ -13,8 +13,8 @@ use crate::{
     context::Ctx,
     js_text::{cell, time_ago_of},
     output::{
-        OutputMode, bold, confirm, cyan, dim, green, js_template, js_truthy, print_count, print_field, print_json, red,
-        resolve_output_mode, run_action, short_id, table, yellow,
+        OutputMode, bold, confirm, cyan, dim, green, js_template, js_truthy, print_count_of, print_field, print_json,
+        red, resolve_output_mode, run_action, short_id, table, yellow,
     },
     web_app,
 };
@@ -84,7 +84,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
                 ]);
             }
             println!("{grid}");
-            print_count(res.get("total").and_then(Value::as_u64).unwrap_or_default(), "metric");
+            print_count_of(res.get("total"), "metric");
         }
     }
     Ok(())

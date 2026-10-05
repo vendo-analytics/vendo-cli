@@ -11,8 +11,8 @@ use crate::{
     dictionary::{self, Item, Lookup},
     js_text::{cell, time_ago_of},
     output::{
-        OutputMode, bold, cyan, dim, js_color_status, js_join, js_string, js_template, js_truthy, print_count,
-        print_field, print_json, resolve_output_mode, run_action, table,
+        OutputMode, bold, cyan, dim, js_color_status, js_join, js_string, js_template, js_truthy, print_field,
+        print_json, print_list_count, resolve_output_mode, run_action, table,
     },
 };
 
@@ -77,13 +77,7 @@ pub async fn page(ctx: &Ctx, label: &str, args: PageArgs) -> Result<()> {
                 ]);
             }
             println!("{grid}");
-            // `meta?.pagination?.total ?? data.length`
-            let total = res
-                .pointer("/meta/pagination/total")
-                .filter(|total| !total.is_null())
-                .and_then(Value::as_u64)
-                .unwrap_or(rows.len() as u64);
-            print_count(total, &args.subject_type);
+            print_list_count(&res, rows.len(), &args.subject_type);
         }
     }
     Ok(())

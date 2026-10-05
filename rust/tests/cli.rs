@@ -1228,6 +1228,20 @@ async fn dictionary_list_counts_the_rows_when_the_server_sends_no_total() {
 }
 
 #[tokio::test]
+async fn dictionary_list_prints_the_total_as_javascript_does() {
+    // `printCount(res.meta?.pagination?.total ?? res.data.length, type)`: the total as a template
+    // literal prints it, singular only for the number 1 (what the TS CLI printed for each).
+    for (total, footer) in [(json!("1"), "1 events"), (json!(1), "1 event"), (json!(2.5), "2.5 events")] {
+        let server = MockServer::start().await;
+        let body = json!({ "data": [event_item()], "meta": { "pagination": { "total": total } } });
+        serve(&server, "GET", DICTIONARY, 200, body).await;
+        let sandbox = Sandbox::new(&server.uri());
+        let out = cells(ok_output(&sandbox.run(&["dictionary", "list"])).as_bytes());
+        assert_eq!(out.last().cloned(), Some(vec![footer.to_string()]), "total {total}");
+    }
+}
+
+#[tokio::test]
 async fn dictionary_get_prints_every_field_of_the_definition() {
     let server = MockServer::start().await;
     let column = column_item();

@@ -292,13 +292,21 @@ pub fn print_list_count(res: &Value, rows: usize, label: &str) {
     println!("{}", dim(&list_count(res, rows, label)));
 }
 
-/// `${count} ${label}${count === 1 ? '' : 's'}`: the total as JavaScript prints it, singular only
-/// for the number 1 (a total sent as the string "1" is plural).
+/// `printCount(count, label)` for a count the API sent, as it sent it.
+pub fn print_count_of(count: Option<&Value>, label: &str) {
+    println!("{}", dim(&count_text(count, label)));
+}
+
 fn list_count(res: &Value, rows: usize, label: &str) -> String {
-    let total =
-        res.pointer("/meta/pagination/total").filter(|v| !v.is_null()).cloned().unwrap_or_else(|| Value::from(rows));
-    let plural = if matches!(&total, Value::Number(n) if js_number_of(n) == 1.0) { "" } else { "s" };
-    format!("{} {label}{plural}", js_string(&total))
+    let rows = Value::from(rows);
+    count_text(Some(res.pointer("/meta/pagination/total").filter(|v| !v.is_null()).unwrap_or(&rows)), label)
+}
+
+/// `${count} ${label}${count === 1 ? '' : 's'}`: the count as a template literal prints it (a
+/// missing one is `undefined`), singular only for the number 1 (the string "1" is plural).
+fn count_text(count: Option<&Value>, label: &str) -> String {
+    let plural = if matches!(count, Some(Value::Number(n)) if js_number_of(n) == 1.0) { "" } else { "s" };
+    format!("{} {label}{plural}", js_template(count))
 }
 
 /// JavaScript `ToNumber` (objects become NaN, arrays go through their string form).
@@ -1355,6 +1363,12 @@ mod tests {
         assert_eq!(footer(json!({ "pagination": [] })), "3 apps");
         assert_eq!(footer(json!(null)), "3 apps");
         assert_eq!(list_count(&json!({ "data": [{}] }), 1, "job"), "1 job");
+        // `printCount(res.total, 'metric')` and the like: the count as a template literal prints it.
+        assert_eq!(count_text(None, "metric"), "undefined metrics");
+        assert_eq!(count_text(Some(&json!(null)), "metric"), "null metrics");
+        assert_eq!(count_text(Some(&json!("5")), "metric"), "5 metrics");
+        assert_eq!(count_text(Some(&json!(2.5)), "cohort"), "2.5 cohorts");
+        assert_eq!(count_text(Some(&json!(1)), "cohort"), "1 cohort");
     }
 
     #[test]

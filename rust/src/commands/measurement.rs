@@ -12,7 +12,7 @@ use crate::{
     js_text::{cell, cell_or, length_of, template_or, time_ago_of},
     output::{
         OutputMode, arg_error, bold, cyan, dim, format_number, format_usd, green, js_number, js_number_of,
-        js_number_string, js_string, js_template, js_truthy, print_count, print_field, print_json, red,
+        js_number_string, js_string, js_template, js_truthy, print_count, print_count_of, print_field, print_json, red,
         resolve_output_mode, run_action, short_id, table, to_locale_number, yellow,
     },
     web_app,
@@ -245,7 +245,7 @@ pub async fn rules_preview(ctx: &Ctx, from: String, to: String, limit: &str, jso
         ]);
     }
     println!("{grid}");
-    print_count(res.get("total_distinct_contexts").and_then(Value::as_u64).unwrap_or_default(), "distinct context");
+    print_count_of(res.get("total_distinct_contexts"), "distinct context");
     Ok(())
 }
 
@@ -315,7 +315,7 @@ pub async fn ltv_list(ctx: &Ctx, args: LtvListArgs) -> Result<()> {
         ]);
     }
     println!("{grid}");
-    print_count(res.pointer("/data/total_returned").and_then(Value::as_u64).unwrap_or_default(), "cohort");
+    print_count_of(res.pointer("/data/total_returned"), "cohort");
     Ok(())
 }
 
