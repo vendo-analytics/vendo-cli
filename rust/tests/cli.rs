@@ -47,8 +47,9 @@ impl Sandbox {
 
     fn command(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_vendo"));
-        cmd.args(args).env("HOME", self.home.path()).stdin(Stdio::null());
-        for var in ["VENDO_API_KEY", "VENDO_API_URL", "VENDO_ACCOUNT_ID", "VENDO_DEBUG"] {
+        // Dates and numbers follow the locale (VE-3728): pin it, and the time zone.
+        cmd.args(args).env("HOME", self.home.path()).env("LANG", "C").env("TZ", "UTC").stdin(Stdio::null());
+        for var in ["VENDO_API_KEY", "VENDO_API_URL", "VENDO_ACCOUNT_ID", "VENDO_DEBUG", "LC_ALL", "LC_MESSAGES"] {
             cmd.env_remove(var);
         }
         cmd
@@ -1327,4 +1328,36 @@ async fn dictionary_get_reports_an_entry_the_server_does_not_have() {
     for id in ["event:half", "event:other"] {
         assert_eq!(ok_output(&sandbox.run(&["dictionary", "get", id])), format!("\nNo dictionary entry for {id}\n"));
     }
+}
+
+#[tokio::test]
+async fn dates_and_row_counts_follow_lang_like_node() {
+    let server = MockServer::start().await;
+    let job = json!({
+        "id": "j-1", "status": "completed", "jobType": "import", "connectorType": "stripe",
+        "startedAt": "2026-01-05T09:07:03Z", "finishedAt": "2026-01-05T10:07:03Z",
+        "rowsProcessed": 1234567.891, "rowsWritten": 1234567,
+    });
+    Mock::given(path("/api/v1/accounts/acct-alpha/jobs/j-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": job })))
+        .mount(&server)
+        .await;
+    let sandbox = Sandbox::new(&server.uri());
+    // What `node dist/cli.js jobs get j-1` prints under each LANG with TZ=Australia/Sydney.
+    for (lang, started, read, written) in [
+        ("C", "1/5/2026", "1,234,567.891", "1,234,567"),
+        ("en_AU.UTF-8", "05/01/2026", "1,234,567.891", "1,234,567"),
+        ("de_DE.UTF-8", "5.1.2026", "1.234.567,891", "1.234.567"),
+        ("ja_JP.UTF-8", "2026/1/5", "1,234,567.891", "1,234,567"),
+    ] {
+        let out =
+            sandbox.command(&["jobs", "get", "j-1"]).env("LANG", lang).env("TZ", "Australia/Sydney").output().unwrap();
+        let stdout = text(&out.stdout);
+        assert!(stdout.contains(&format!("  Started:       {started}\n")), "{lang}: {stdout}");
+        assert!(stdout.contains(&format!("  Rows Read:     {read}\n")), "{lang}: {stdout}");
+        assert!(stdout.contains(&format!("  Rows Written:  {written}\n")), "{lang}: {stdout}");
+    }
+    // LC_ALL wins over LANG, as in Node.
+    let out = sandbox.command(&["jobs", "get", "j-1"]).env("LANG", "de_DE.UTF-8").env("LC_ALL", "C").output().unwrap();
+    assert!(text(&out.stdout).contains("  Rows Read:     1,234,567.891\n"));
 }

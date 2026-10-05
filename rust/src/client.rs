@@ -11,6 +11,8 @@
 
 use std::time::{Duration, Instant};
 
+use crate::output::{js_parse_int, to_locale_time_string};
+
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -348,18 +350,26 @@ pub fn friendly_http_error(status: u16, fallback: Option<&str>) -> String {
     }
 }
 
+/// The TS client's warning when `X-RateLimit-Remaining` drops below 5: both headers read with
+/// `parseInt`, the reset time printed with `toLocaleTimeString()`.
 pub fn rate_limit_warning(headers: &reqwest::header::HeaderMap) -> Option<String> {
-    let remaining: i64 = headers.get("x-ratelimit-remaining")?.to_str().ok()?.parse().ok()?;
-    if remaining >= 5 {
+    let header = |name: &str| {
+        let values: Vec<String> =
+            headers.get_all(name).iter().map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned()).collect();
+        (!values.is_empty()).then(|| values.join(", ")).filter(|v| !v.is_empty())
+    };
+    let remaining = header("x-ratelimit-remaining")?;
+    if !js_parse_int(&remaining).is_some_and(|n| n < 5.0) {
         return None;
     }
-    let reset = headers
-        .get("x-ratelimit-reset")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<i64>().ok())
-        .and_then(|secs| jiff::Timestamp::from_second(secs).ok())
-        .map(|ts| ts.to_zoned(jiff::tz::TimeZone::system()).strftime("%-I:%M:%S %p").to_string())
-        .unwrap_or_else(|| "soon".to_string());
+    let reset = match header("x-ratelimit-reset") {
+        None => "soon".to_string(),
+        // `new Date(NaN)`, or past ±8.64e15 ms, is an Invalid Date.
+        Some(raw) => match js_parse_int(&raw).map(|secs| secs * 1000.0) {
+            Some(ms) if ms.abs() <= 8.64e15 => to_locale_time_string(ms as i64),
+            _ => "Invalid Date".to_string(),
+        },
+    };
     Some(format!("Warning: Rate limit low ({remaining} remaining, resets {reset})"))
 }
 
@@ -614,6 +624,38 @@ mod tests {
         assert_eq!(
             (err.message.as_str(), err.status, err.status_text.is_none(), err.request_id),
             ("fetch failed", 0, true, None)
+        );
+    }
+
+    #[test]
+    fn rate_limit_headers_are_read_with_parse_int() {
+        let warning = |remaining: &str, reset: Option<&str>| {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert("x-ratelimit-remaining", remaining.parse().unwrap());
+            if let Some(reset) = reset {
+                headers.insert("x-ratelimit-reset", reset.parse().unwrap());
+            }
+            rate_limit_warning(&headers)
+        };
+        // `parseInt(remaining, 10) < 5`, and the header is printed as sent.
+        assert_eq!(warning("  3abc", None).as_deref(), Some("Warning: Rate limit low (  3abc remaining, resets soon)"));
+        assert_eq!(warning("-1", Some("")).as_deref(), Some("Warning: Rate limit low (-1 remaining, resets soon)"));
+        assert_eq!(warning("4.9", None).as_deref(), Some("Warning: Rate limit low (4.9 remaining, resets soon)"));
+        assert_eq!(warning("x3", None), None);
+        assert_eq!(warning("1e3", None).as_deref(), Some("Warning: Rate limit low (1e3 remaining, resets soon)"));
+        // The reset time through `new Date(parseInt(reset, 10) * 1000).toLocaleTimeString()`.
+        assert_eq!(
+            warning("0", Some("abc")).as_deref(),
+            Some("Warning: Rate limit low (0 remaining, resets Invalid Date)")
+        );
+        assert_eq!(
+            warning("0", Some("9999999999999")).as_deref(),
+            Some("Warning: Rate limit low (0 remaining, resets Invalid Date)")
+        );
+        let expected = crate::output::to_locale_time_string(1_700_000_000_000);
+        assert_eq!(
+            warning("0", Some("1700000000.9")),
+            Some(format!("Warning: Rate limit low (0 remaining, resets {expected})"))
         );
     }
 

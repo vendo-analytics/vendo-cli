@@ -18,6 +18,9 @@ use serde_json::Value;
 
 use crate::client::ApiError;
 
+mod locale;
+mod ymd_patterns;
+
 /// JavaScript truthiness for a JSON value.
 pub fn js_truthy(v: &Value) -> bool {
     match v {
@@ -189,31 +192,43 @@ pub fn time_ago_at(value: Option<&str>, now: jiff::Timestamp) -> String {
     if days < 30 {
         return format!("{days}d ago");
     }
-    jiff::Timestamp::from_millisecond(then_ms)
-        .map(|then| then.to_zoned(jiff::tz::TimeZone::system()).strftime("%-m/%-d/%Y").to_string())
-        .unwrap_or_else(|_| "Invalid Date".to_string())
+    to_locale_date_string(then_ms)
 }
 
 pub fn short_id(id: &str) -> String {
     if id.chars().count() > 12 { format!("{}...", id.chars().take(8).collect::<String>()) } else { id.to_string() }
 }
 
-/// `Number.prototype.toLocaleString()` in en-US: grouped thousands, at most
-/// three fraction digits.
+/// `formatNumber`: `n.toLocaleString()` in the user's locale (see [`locale`]), a dash for none.
 pub fn format_number(n: Option<f64>) -> String {
-    let Some(n) = n else { return dim("—") };
-    let rounded = format!("{:.3}", n.abs());
-    let (int, frac) = rounded.split_once('.').unwrap_or((&rounded, ""));
-    let frac = frac.trim_end_matches('0');
-    let mut grouped = String::new();
-    for (i, digit) in int.chars().enumerate() {
-        if i > 0 && (int.len() - i) % 3 == 0 {
-            grouped.push(',');
-        }
-        grouped.push(digit);
+    match n {
+        Some(n) => locale::with_current(|format| format.number(n)),
+        None => dim("—"),
     }
-    let sign = if n < 0.0 && (int != "0" || !frac.is_empty()) { "-" } else { "" };
-    if frac.is_empty() { format!("{sign}{grouped}") } else { format!("{sign}{grouped}.{frac}") }
+}
+
+/// `new Date(ms).toLocaleDateString()` in the user's locale and time zone.
+pub fn to_locale_date_string(ms: i64) -> String {
+    locale::with_current(|format| format.date(ms, &jiff::tz::TimeZone::system()))
+}
+
+/// `new Date(ms).toLocaleTimeString()` in the user's locale and time zone.
+pub fn to_locale_time_string(ms: i64) -> String {
+    locale::with_current(|format| format.time(ms, &jiff::tz::TimeZone::system()))
+}
+
+/// JavaScript `parseInt(s, 10)`: leading whitespace, an optional sign, then as many decimal
+/// digits as there are. `None` (NaN) without a digit.
+pub fn js_parse_int(s: &str) -> Option<f64> {
+    let s = s.trim_start_matches(is_js_whitespace);
+    let (negative, rest) = match s.as_bytes().first() {
+        Some(b'-') => (true, &s[1..]),
+        Some(b'+') => (false, &s[1..]),
+        _ => (false, s),
+    };
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let n: f64 = rest[..digits].parse().ok()?;
+    Some(if negative { -n } else { n })
 }
 
 /// `Date.parse` as Node evaluates it (see `js_date`): milliseconds since the
@@ -936,5 +951,34 @@ mod tests {
         ] {
             assert_eq!(selection_index(answer, 2), expected, "{answer:?}");
         }
+    }
+
+    #[test]
+    fn parse_int_matches_javascript() {
+        for (input, expected) in [
+            ("5", Some(5.0)),
+            ("  3abc", Some(3.0)),
+            ("+4", Some(4.0)),
+            (" -1", Some(-1.0)),
+            ("x3", None),
+            ("", None),
+            ("0x10", Some(0.0)),
+            ("1e3", Some(1.0)),
+            ("\u{663}", None),
+            ("4.9", Some(4.0)),
+            ("\u{a0}2", Some(2.0)),
+            ("99999999999999999999", Some(1e20)),
+        ] {
+            assert_eq!(js_parse_int(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn old_dates_and_numbers_use_the_locale() {
+        // Under `cargo test` the locale is en-US, whatever LANG is.
+        let old = time_ago_at(Some("2026-01-01T12:00:00Z"), at("2026-03-15T12:00:00Z"));
+        assert_eq!(old, to_locale_date_string(js_date_parse("2026-01-01T12:00:00Z").unwrap()));
+        assert_eq!(format_number(Some(1.0005)), "1.001");
+        assert_eq!(format_number(Some(-0.0)), "-0");
     }
 }
