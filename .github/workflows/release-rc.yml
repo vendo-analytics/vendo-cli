@@ -102,8 +102,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # A Rust binary needs at least the glibc of the image it was built on,
+          # so both Linux builds pin Ubuntu 24.04 (ubuntu-latest moves to 26).
           - target: linux-x64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             triple: x86_64-unknown-linux-gnu
           - target: linux-arm64
             runner: ubuntu-24.04-arm
