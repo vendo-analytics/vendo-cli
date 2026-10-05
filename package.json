@@ -40,6 +40,7 @@
     "test:parity": "node --test 'parity/*.test.mjs'",
     "parity": "node parity/run.mjs",
     "parity:writes": "node parity/writes.mjs",
+    "parity:help": "node parity/help.mjs",
     "rust:test": "cargo test --manifest-path rust/Cargo.toml",
     "rust:build": "cargo build --release --manifest-path rust/Cargo.toml",
     "clean": "rm -rf dist"

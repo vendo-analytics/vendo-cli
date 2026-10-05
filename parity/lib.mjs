@@ -241,3 +241,140 @@ export function stripAnsi(text) {
   // eslint-disable-next-line no-control-regex
   return text.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
 }
+
+// ── Help parity (VE-3713) ───────────────────────────────────────────────────
+// `--help` text from commander (TS) and clap (Rust) parsed into what users rely
+// on: description, positional arguments, options (short, long, value name,
+// description, default), subcommands (with aliases) and examples. Layout and
+// wording of the standard parts (`-h, --help`, `-V, --version`) are accepted
+// differences; the root's --profile and --debug are compared, and on other
+// commands they are clap's global options that commander lists only on the root.
+
+const HELP_SECTIONS = /^(Usage|Options|Commands|Examples|Arguments):\s*(.*)$/;
+const ALWAYS_IGNORED = new Set(['--help', '--version']);
+const ROOT_ONLY = new Set(['--profile', '--debug']);
+
+function helpSections(text) {
+  const out = { head: [] };
+  let current = 'head';
+  for (const line of stripAnsi(text).split('\n')) {
+    const match = line.match(HELP_SECTIONS);
+    if (match) {
+      current = match[1];
+      out[current] = match[2] ? [match[2]] : [];
+      continue;
+    }
+    (out[current] ??= []).push(line);
+  }
+  return out;
+}
+
+/** Items of an Options/Commands section; wrapped continuation lines are joined. */
+function helpEntries(lines = []) {
+  const items = [];
+  let itemIndent = null;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const indent = line.match(/^ */)[0].length;
+    if (itemIndent === null || indent <= itemIndent + 4) {
+      itemIndent ??= indent;
+      items.push(line.trim());
+    } else {
+      items[items.length - 1] += ` ${line.trim()}`;
+    }
+  }
+  return items;
+}
+
+function parseOption(entry) {
+  const match = entry.match(/^(?:(-\w),\s+)?(--[\w-]+)(?:\s+<([^>]+)>)?(?:\s+(.*))?$/);
+  if (!match) return null;
+  const [, short, long, value, rest] = match;
+  let description = (rest ?? '').trim();
+  let defaultValue = null;
+  const commander = description.match(/\s*\(default: (.*)\)$/);
+  const clap = description.match(/\s*\[default: ([^\]]*)\]$/);
+  if (commander) {
+    defaultValue = commander[1].replace(/^"(.*)"$/, '$1');
+    description = description.slice(0, commander.index);
+  } else if (clap) {
+    defaultValue = clap[1];
+    description = description.slice(0, clap.index);
+  }
+  return { long, short: short ?? null, value: value ?? null, description: description.trim(), default: defaultValue };
+}
+
+function parseUsageArgs(usage) {
+  // Drop `vendo <path…>`, then option placeholders and `--flag <value>` pairs.
+  const tokens = usage.trim().split(/\s+/).slice(1);
+  const args = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.startsWith('-')) {
+      if (tokens[i + 1]?.startsWith('<')) i++;
+      continue;
+    }
+    const match = token.match(/^(<|\[)([^>\]]+)[>\]](\.\.\.)?$/);
+    if (!match || /^(options|command)$/i.test(match[2])) continue;
+    args.push(`${match[1] === '<' ? '<' : '['}${match[2]}${match[1] === '<' ? '>' : ']'}`);
+  }
+  return args;
+}
+
+function parseCommand(entry, cli) {
+  if (cli === 'ts') {
+    const match = entry.match(/^([\w-]+)((?:\|[\w-]+)*)((?:\s+(?:\[[^\]]+\]|<[^>]+>))*)\s+(.*)$/);
+    if (!match) return null;
+    const aliases = match[2] ? match[2].split('|').filter(Boolean) : [];
+    return { name: match[1], aliases, description: match[4].trim() };
+  }
+  const match = entry.match(/^([\w-]+)\s+(.*)$/);
+  if (!match) return null;
+  let description = match[2].trim();
+  let aliases = [];
+  const alias = description.match(/\s*\[alias(?:es)?: ([^\]]*)\]$/);
+  if (alias) {
+    aliases = alias[1].split(',').map((a) => a.trim());
+    description = description.slice(0, alias.index);
+  }
+  return { name: match[1], aliases, description: description.trim() };
+}
+
+/**
+ * One `--help` screen as data. `cli` is `ts` (commander: Usage first, then the
+ * description) or `rust` (clap: description first).
+ */
+export function parseHelp(text, cli, { root = false } = {}) {
+  const sections = helpSections(text);
+  const usage = (sections.Usage?.[0] ?? '').trim();
+  const lines = (list) => (list ?? []).map((l) => l.trim()).filter(Boolean);
+  const description = (cli === 'ts' ? lines(sections.Usage).slice(1) : lines(sections.head)).join(' ');
+  const ignored = (long) => ALWAYS_IGNORED.has(long) || (!root && ROOT_ONLY.has(long));
+  const options = helpEntries(sections.Options)
+    .map(parseOption)
+    .filter((option) => option && !ignored(option.long));
+  const commands = helpEntries(sections.Commands)
+    .map((entry) => parseCommand(entry, cli))
+    .filter((command) => command && command.name !== 'help');
+  return { description, arguments: parseUsageArgs(usage), options, commands, examples: lines(sections.Examples) };
+}
+
+/** What differs between two parsed help screens; empty means the same. */
+export function diffHelp(ts, rust) {
+  const diffs = [];
+  const show = (value) => JSON.stringify(value);
+  if (ts.description !== rust.description) diffs.push({ path: 'description', a: ts.description, b: rust.description });
+  if (show(ts.arguments) !== show(rust.arguments)) diffs.push({ path: 'arguments', a: ts.arguments, b: rust.arguments });
+  const byLong = (options) => new Map(options.map((option) => [option.long, option]));
+  const [a, b] = [byLong(ts.options), byLong(rust.options)];
+  for (const long of new Set([...a.keys(), ...b.keys()])) {
+    if (show(a.get(long)) !== show(b.get(long))) diffs.push({ path: `option ${long}`, a: a.get(long), b: b.get(long) });
+  }
+  const order = (options) => options.map((option) => option.long);
+  if (diffs.every((d) => !d.path.startsWith('option')) && show(order(ts.options)) !== show(order(rust.options))) {
+    diffs.push({ path: 'option order', a: order(ts.options), b: order(rust.options) });
+  }
+  if (show(ts.commands) !== show(rust.commands)) diffs.push({ path: 'subcommands', a: ts.commands, b: rust.commands });
+  if (show(ts.examples) !== show(rust.examples)) diffs.push({ path: 'examples', a: ts.examples, b: rust.examples });
+  return diffs;
+}

@@ -11,8 +11,10 @@ import {
   failureLine,
   sameCell,
   filterIntended,
+  diffHelp,
   getPath,
   isNotPorted,
+  parseHelp,
   validateClassification,
 } from './lib.mjs';
 
@@ -204,5 +206,126 @@ describe('getPath', () => {
     const body = { data: { methodologies: [{ id: 'm1' }] } };
     assert.equal(getPath(body, 'data.methodologies[0].id'), 'm1');
     assert.equal(getPath(body, 'data.cohorts[0].cohort_period'), undefined);
+  });
+});
+
+describe('help parity', () => {
+  // Trimmed from the real `--help` of both CLIs.
+  const tsList = `Usage: vendo dictionary list [options]
+
+List catalog definitions (events by default)
+
+Options:
+  --type <type>       Filter by subject type (event, prop, group, column,
+                      metric, model, audience) (default: "event")
+  -q, --query <text>  Text search across subject ID, name and description
+  --json              Output raw JSON
+  -h, --help          display help for command
+
+Examples:
+  $ vendo dictionary list
+  $ vendo dictionary list --type prop -q email --json
+`;
+  const rustList = `List catalog definitions (events by default)
+
+Usage: vendo dictionary list [OPTIONS]
+
+Options:
+      --profile <name>  Use a specific account profile
+      --type <type>     Filter by subject type (event, prop, group, column, metric, model, audience) [default: event]
+      --debug           Enable verbose request diagnostics
+  -q, --query <text>    Text search across subject ID, name and description
+      --json            Output raw JSON
+  -h, --help            Print help
+
+Examples:
+  $ vendo dictionary list
+  $ vendo dictionary list --type prop -q email --json
+`;
+
+  it('reads wrapped descriptions, defaults and short flags from both formats the same way', () => {
+    const ts = parseHelp(tsList, 'ts');
+    assert.deepEqual(ts.options, [
+      {
+        long: '--type',
+        short: null,
+        value: 'type',
+        description: 'Filter by subject type (event, prop, group, column, metric, model, audience)',
+        default: 'event',
+      },
+      { long: '--query', short: '-q', value: 'text', description: 'Text search across subject ID, name and description', default: null },
+      { long: '--json', short: null, value: null, description: 'Output raw JSON', default: null },
+    ]);
+    assert.equal(ts.description, 'List catalog definitions (events by default)');
+    assert.deepEqual(diffHelp(ts, parseHelp(rustList, 'rust')), []);
+  });
+
+  it('reports a changed description, default, short flag or example', () => {
+    const ts = parseHelp(tsList, 'ts');
+    for (const [from, to, path] of [
+      ['Output raw JSON', 'Output raw JSON.', 'option --json'],
+      ['[default: event]', '[default: prop]', 'option --type'],
+      ['-q, --query', '    --query', 'option --query'],
+      ['--type prop -q email --json', '--type prop -q email', 'examples'],
+      ['List catalog definitions (events by default)\n', 'List definitions\n', 'description'],
+    ]) {
+      const diffs = diffHelp(ts, parseHelp(rustList.replace(from, to), 'rust'));
+      assert.deepEqual(diffs.map((d) => d.path), [path], from);
+    }
+  });
+
+  it('compares arguments from the usage line, skipping clap\'s required options', () => {
+    const ts = parseHelp('Usage: vendo jobs tail [options] [jobId]\n\nTail a job\n', 'ts');
+    const rust = parseHelp('Tail a job\n\nUsage: vendo jobs tail [OPTIONS] [jobId]\n', 'rust');
+    assert.deepEqual(ts.arguments, ['[jobId]']);
+    assert.deepEqual(diffHelp(ts, rust), []);
+    const create = parseHelp('Create\n\nUsage: vendo apps create [OPTIONS] --type <appType> --name <displayName>\n', 'rust');
+    assert.deepEqual(create.arguments, []);
+    const shell = parseHelp('Generate\n\nUsage: vendo completions [OPTIONS] <SHELL>\n', 'rust');
+    assert.deepEqual(diffHelp(parseHelp('Usage: vendo completions [options] <shell>\n\nGenerate\n', 'ts'), shell).map((d) => d.path), [
+      'arguments',
+    ]);
+  });
+
+  it('reads subcommands with aliases, and the root flags only on the root', () => {
+    const ts = `Usage: vendo [options] [command]
+
+Vendo CLI
+
+Options:
+  -V, --version          output the version number
+  --profile <name>       Use a specific account profile
+  -h, --help             display help for command
+
+Commands:
+  integrations|int       Manage data export integrations
+  measurement            Inspect Marketing Measurement methodologies, LTV, and
+                         signals
+  help [command]         display help for command
+`;
+    const rust = `Vendo CLI
+
+Usage: vendo [OPTIONS] <COMMAND>
+
+Commands:
+  integrations  Manage data export integrations [alias: int]
+  measurement   Inspect Marketing Measurement methodologies, LTV, and signals
+  help          Print this message or the help of the given subcommand(s)
+
+Options:
+      --profile <name>  Use a specific account profile
+  -V, --version         Print version
+  -h, --help            Print help
+`;
+    const parsed = parseHelp(ts, 'ts', { root: true });
+    assert.deepEqual(parsed.commands, [
+      { name: 'integrations', aliases: ['int'], description: 'Manage data export integrations' },
+      { name: 'measurement', aliases: [], description: 'Inspect Marketing Measurement methodologies, LTV, and signals' },
+    ]);
+    assert.deepEqual(parsed.options.map((o) => o.long), ['--profile']);
+    assert.deepEqual(diffHelp(parsed, parseHelp(rust, 'rust', { root: true })), []);
+    assert.deepEqual(parseHelp(rust, 'rust').options, [], 'clap lists --profile on every command; only the root compares it');
+    const noAlias = rust.replace(' [alias: int]', '');
+    assert.deepEqual(diffHelp(parsed, parseHelp(noAlias, 'rust', { root: true })).map((d) => d.path), ['subcommands']);
   });
 });
