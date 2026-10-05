@@ -257,8 +257,10 @@ impl Client {
                     status_text: Some(status_text),
                 });
             };
+            // The v1 gateway sends `{ error: { code, message, details } }`; the web-app routes
+            // (`/api/metrics…`, `/api/measurement/*`) send the message as a string (VE-3764).
             let error = parsed.get("error");
-            let error_message = error.and_then(|e| e.get("message")).and_then(Value::as_str);
+            let error_message = error.and_then(|e| e.as_str().or_else(|| e.get("message").and_then(Value::as_str)));
             let code = error.and_then(|e| e.get("code")).and_then(Value::as_str).map(str::to_string);
             let details = error.and_then(|e| e.get("details")).cloned();
             self.debug_line(
@@ -468,15 +470,66 @@ mod tests {
 
     #[tokio::test]
     async fn structured_error_message_and_code_win() {
+        // The v1 gateway's `{ error: { code, message, details } }`.
         let server = MockServer::start().await;
+        let details = json!({ "errors": [{ "path": "name", "message": "Required" }] });
         let err = fail(
             &server,
             422,
-            Some(json!({ "error": { "code": "VALIDATION_ERROR", "message": "Invalid field: name is required" } })),
+            Some(
+                json!({ "error": { "code": "VALIDATION_ERROR", "message": "Invalid field: name is required", "details": details } }),
+            ),
         )
         .await;
         assert_eq!(err.message, "Invalid field: name is required");
         assert_eq!(err.code.as_deref(), Some("VALIDATION_ERROR"));
+        assert_eq!(err.details, Some(details));
+        let shown = crate::output::format_error(&anyhow::Error::new(err.clone()));
+        assert_eq!(shown, format!("Invalid field: name is required\nRequest ID: {}", err.request_id.unwrap()));
+    }
+
+    /// A web-app route (`/api/metrics`, sent as a raw path) answering `status` with `body`.
+    async fn fail_raw(server: &MockServer, status: u16, body: Value) -> ApiError {
+        Mock::given(path("/api/metrics"))
+            .respond_with(ResponseTemplate::new(status).set_body_json(body))
+            .mount(server)
+            .await;
+        let opts = RequestOptions { raw_path: true, body: Some(json!({ "name": "x" })), ..Default::default() };
+        Client::new("k".into(), server.uri(), None, false)
+            .request(Method::POST, "/api/metrics", opts)
+            .await
+            .unwrap_err()
+    }
+
+    #[tokio::test]
+    async fn a_web_app_string_error_is_the_message() {
+        // `/api/metrics…` and `/api/measurement/*` answer `{ error: "<message>" }` (VE-3764).
+        for (status, status_text, message) in [
+            (400, "Bad Request", "name is required"),
+            (400, "Bad Request", "[\n  {\n    \"code\": \"invalid_type\"\n  }\n]"),
+            (404, "Not Found", "Metric not found"),
+        ] {
+            let server = MockServer::start().await;
+            let err = fail_raw(&server, status, json!({ "error": message })).await;
+            assert_eq!(
+                (err.message.as_str(), err.status, err.status_text.as_deref()),
+                (message, status, Some(status_text))
+            );
+            assert_eq!((&err.code, &err.details), (&None, &None));
+            let shown = crate::output::format_error(&anyhow::Error::new(err.clone()));
+            assert_eq!(shown, format!("{message}\nRequest ID: {}", err.request_id.unwrap()));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_empty_string_error_falls_back_to_the_status() {
+        let server = MockServer::start().await;
+        assert_eq!(fail_raw(&server, 400, json!({ "error": "" })).await.message, "HTTP 400");
+        let server = MockServer::start().await;
+        assert_eq!(
+            fail_raw(&server, 404, json!({ "error": "" })).await.message,
+            "Resource not found. Check the ID and try again."
+        );
     }
 
     #[tokio::test]
@@ -489,6 +542,17 @@ mod tests {
             .mount(&server)
             .await;
         assert_eq!(client(&server).get("/me", &[]).await.unwrap_err().message, "HTTP 502: Bad Gateway");
+        let server = MockServer::start().await;
+        Mock::given(path("/api/metrics"))
+            .respond_with(ResponseTemplate::new(400).set_body_string("Bad Request"))
+            .mount(&server)
+            .await;
+        let opts = RequestOptions { raw_path: true, ..Default::default() };
+        let err = Client::new("k".into(), server.uri(), None, false)
+            .request(Method::POST, "/api/metrics", opts)
+            .await
+            .unwrap_err();
+        assert_eq!((err.message.as_str(), err.code, err.request_id.is_some()), ("HTTP 400: Bad Request", None, true));
     }
 
     #[tokio::test]

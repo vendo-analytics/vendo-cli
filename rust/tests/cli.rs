@@ -345,6 +345,41 @@ fn ok_output(out: &Output) -> String {
     text(&out.stdout)
 }
 
+/// A refused request: exit 1, `Error: <message>` and the CLI's `Request ID` line, as in TS.
+fn assert_api_error(out: &Output, message: &str) {
+    let stderr = text(&out.stderr);
+    let (shown, request_id) = stderr.trim_end().rsplit_once("\nRequest ID: ").unwrap_or_else(|| panic!("{stderr}"));
+    assert_eq!((out.status.code(), shown), (Some(1), format!("Error: {message}").as_str()));
+    assert!(request_id.starts_with("cli-") && request_id.len() == 40, "{request_id}");
+}
+
+#[tokio::test]
+async fn web_app_errors_print_the_servers_reason() {
+    // The web-app routes answer `{ error: "<message>" }`; the v1 gateway's
+    // `{ error: { code, message } }` and bodies that aren't JSON print as before (VE-3764).
+    let server = MockServer::start().await;
+    let zod = "[\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"id\"\n    ],\n    \"message\": \"Required\"\n  }\n]";
+    serve(&server, "POST", "/api/metrics", 400, json!({ "error": zod })).await;
+    serve(&server, "DELETE", "/api/metrics/empty", 400, json!({ "error": "" })).await;
+    serve(&server, "GET", "/api/measurement/ltv/customer/c1", 500, json!({ "error": "BigQuery is unavailable" })).await;
+    let v1 = json!({ "error": { "code": "INTERNAL_ERROR", "message": "Methodologies are unavailable" } });
+    serve(&server, "GET", "/api/measurement/methodologies", 500, v1).await;
+    Mock::given(wiremock::matchers::method("PATCH"))
+        .and(path("/api/metrics/html"))
+        .respond_with(ResponseTemplate::new(502).set_body_string("<html>"))
+        .mount(&server)
+        .await;
+    let sandbox = Sandbox::new(&server.uri());
+    let def = sandbox.home.path().join("def.json");
+    std::fs::write(&def, r#"{"version":2,"reportType":"segmentation"}"#).unwrap();
+
+    assert_api_error(&sandbox.run(&["metrics", "create", "--name", "x", "--definition", def.to_str().unwrap()]), zod);
+    assert_api_error(&sandbox.run(&["measurement", "ltv", "customer", "c1"]), "BigQuery is unavailable");
+    assert_api_error(&sandbox.run(&["measurement", "methodologies", "list"]), "Methodologies are unavailable");
+    assert_api_error(&sandbox.run(&["metrics", "delete", "empty", "--yes"]), "HTTP 400");
+    assert_api_error(&sandbox.run(&["metrics", "activate", "html"]), "HTTP 502: Bad Gateway");
+}
+
 const M1: &str = "6f1c2a9e-1111-4c3b-9a7e-000000000001";
 
 fn metric(over: Value) -> Value {
@@ -442,11 +477,8 @@ async fn metrics_get_prints_the_detail_view_like_ts() {
     let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "get", M1, "--json"]))).unwrap();
     assert_eq!(printed, json!({ "data": metric(json!({})) }));
     assert_eq!(ok_output(&sandbox.run(&["metrics", "get", "nometric", "--json"])), "{}\n");
-    let out = sandbox.run(&["metrics", "get", "missing"]);
-    assert_eq!(
-        (out.status.code(), stderr_line(&out)),
-        (Some(1), "Error: Resource not found. Check the ID and try again.".to_string())
-    );
+    // The server's reason, not the generic 404 text (VE-3764).
+    assert_api_error(&sandbox.run(&["metrics", "get", "missing"]), "Metric not found");
 }
 
 #[tokio::test]
@@ -607,8 +639,8 @@ async fn metrics_update_activate_and_delete_like_ts() {
         serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "update", M1, "--name", "New", "--json"]))).unwrap();
     assert_eq!(printed, json!({ "data": metric(json!({ "name": "New" })) }));
     assert_eq!(ok_output(&sandbox.run(&["metrics", "activate", M1])), "\n✓ Metric \"New\" is now active\n");
-    let out = sandbox.run(&["metrics", "activate", "refused"]);
-    assert_eq!((out.status.code(), stderr_line(&out)), (Some(1), "Error: HTTP 400".to_string()));
+    // The server's reason, not `HTTP 400` (VE-3764).
+    assert_api_error(&sandbox.run(&["metrics", "activate", "refused"]), "Add a valid calculation first");
     // Not a terminal: the confirmation is skipped, as in TS.
     for args in [&["metrics", "delete", M1][..], &["metrics", "delete", M1, "--yes"], &["metrics", "delete", M1, "-y"]]
     {
