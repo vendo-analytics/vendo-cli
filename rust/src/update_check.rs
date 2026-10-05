@@ -24,21 +24,35 @@ pub struct Cache {
 
 #[derive(Debug, PartialEq)]
 pub enum Decision {
-    /// Checked within 24h: show a notice only if the cached version differs.
+    /// Checked within 24h: show a notice only if the cached version is newer.
     Cached(Option<String>),
     Fetch,
 }
 
 pub fn decide(cache: &Cache, now_ms: i64, current: &str) -> Decision {
     if now_ms - cache.last_check < CHECK_INTERVAL_MS {
-        Decision::Cached(cache.latest_version.clone().filter(|latest| latest != current))
+        Decision::Cached(cache.latest_version.clone().filter(|latest| is_newer(latest, current)))
     } else {
         Decision::Fetch
     }
 }
 
-pub fn normalize_release_version(tag: &str) -> String {
-    tag.strip_prefix("cli-v").unwrap_or(tag).to_string()
+/// Whether to announce `latest`: compared as semver, only a strictly newer
+/// version that is not a pre-release (decided 2026-10-05; the TS CLI announced
+/// any version that differed). An empty or non-semver version never is, and
+/// an rc tester isn't told to "update" back to the last stable release.
+pub fn is_newer(latest: &str, current: &str) -> bool {
+    match (semver::Version::parse(latest), semver::Version::parse(current)) {
+        (Ok(latest), Ok(current)) => latest.pre.is_empty() && latest.cmp_precedence(&current).is_gt(),
+        _ => false,
+    }
+}
+
+/// The version in a release tag: `cli-v1.2.3` → `1.2.3`. A missing or empty
+/// tag has none; `cli-v` alone gives `""`, as in the TS CLI.
+pub fn normalize_release_version(tag: Option<&str>) -> Option<String> {
+    let tag = tag.filter(|t| !t.is_empty())?;
+    Some(tag.strip_prefix("cli-v").unwrap_or(tag).to_string())
 }
 
 pub fn notice(latest: &str) -> String {
@@ -57,12 +71,15 @@ pub async fn check(cache_path: &Path) {
     }
 }
 
-/// The testable core: returns the version to announce, if any.
+/// The testable core: returns the version to announce, if any. `fetch`
+/// yields `None` when the check failed (nothing is cached) and otherwise the
+/// latest release's version, `None` inside for a release without a tag: the
+/// check still counts, so the next one waits 24 hours.
 pub async fn check_with(
     cache_path: &Path,
     now_ms: i64,
     current: &str,
-    fetch: impl Future<Output = Option<String>>,
+    fetch: impl Future<Output = Option<Option<String>>>,
 ) -> Option<String> {
     let cache: Cache =
         fs::read_to_string(cache_path).ok().and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or_default();
@@ -70,16 +87,16 @@ pub async fn check_with(
         Decision::Cached(notice) => notice,
         Decision::Fetch => {
             let latest = fetch.await?;
-            let fresh = Cache { last_check: now_ms, latest_version: Some(latest.clone()) };
+            let fresh = Cache { last_check: now_ms, latest_version: latest.clone() };
             if let Ok(body) = serde_json::to_string(&fresh) {
                 let _ = fs::write(cache_path, body);
             }
-            (latest != current).then_some(latest)
+            latest.filter(|latest| is_newer(latest, current))
         }
     }
 }
 
-async fn fetch_latest() -> Option<String> {
+async fn fetch_latest() -> Option<Option<String>> {
     #[derive(Deserialize)]
     struct Release {
         tag_name: Option<String>,
@@ -100,7 +117,7 @@ async fn fetch_latest() -> Option<String> {
         .json()
         .await
         .ok()?;
-    release.tag_name.as_deref().map(normalize_release_version)
+    Some(normalize_release_version(release.tag_name.as_deref()))
 }
 
 #[cfg(test)]
@@ -118,8 +135,13 @@ mod tests {
         (dir, path)
     }
 
-    async fn never() -> Option<String> {
+    async fn never() -> Option<Option<String>> {
         panic!("must not fetch")
+    }
+
+    fn release(tag: &str) -> impl Future<Output = Option<Option<String>>> {
+        let version = normalize_release_version(Some(tag));
+        async move { Some(version) }
     }
 
     #[tokio::test]
@@ -137,15 +159,12 @@ mod tests {
     #[tokio::test]
     async fn stale_or_missing_cache_fetches_and_saves() {
         let (_d, path) = cache_file(Some(r#"{"lastCheck":0,"latestVersion":"0.3.1"}"#));
-        assert_eq!(
-            check_with(&path, 2 * DAY, "0.3.1", async { Some("1.0.0".to_string()) }).await.as_deref(),
-            Some("1.0.0")
-        );
+        assert_eq!(check_with(&path, 2 * DAY, "0.3.1", release("cli-v1.0.0")).await.as_deref(), Some("1.0.0"));
         let saved: Cache = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(saved, Cache { last_check: 2 * DAY, latest_version: Some("1.0.0".into()) });
 
         let (_d, path) = cache_file(None);
-        assert_eq!(check_with(&path, DAY, "0.3.1", async { Some("0.3.1".to_string()) }).await, None);
+        assert_eq!(check_with(&path, DAY, "0.3.1", release("cli-v0.3.1")).await, None);
     }
 
     #[tokio::test]
@@ -153,16 +172,55 @@ mod tests {
         let (_d, path) = cache_file(None);
         assert_eq!(check_with(&path, DAY, "0.3.1", async { None }).await, None);
         let missing_dir = Path::new("/nonexistent-vendo-dir/.update-check");
-        assert_eq!(
-            check_with(missing_dir, DAY, "0.3.1", async { Some("2.0.0".to_string()) }).await.as_deref(),
-            Some("2.0.0")
-        );
+        assert_eq!(check_with(missing_dir, DAY, "0.3.1", release("cli-v2.0.0")).await.as_deref(), Some("2.0.0"));
     }
 
     #[test]
     fn release_tags_drop_the_cli_prefix() {
-        assert_eq!(normalize_release_version("cli-v1.0.0"), "1.0.0");
-        assert_eq!(normalize_release_version("1.0.0"), "1.0.0");
+        assert_eq!(normalize_release_version(Some("cli-v1.0.0")).as_deref(), Some("1.0.0"));
+        assert_eq!(normalize_release_version(Some("1.0.0")).as_deref(), Some("1.0.0"));
+        assert_eq!(normalize_release_version(Some("cli-v")).as_deref(), Some(""));
+        assert_eq!(normalize_release_version(Some("")), None);
+        assert_eq!(normalize_release_version(None), None);
+    }
+
+    #[test]
+    fn only_a_strictly_newer_stable_semver_is_announced() {
+        for (latest, current, announced) in [
+            ("0.3.2", "0.3.1", true),
+            ("1.0.0", "0.3.1", true),
+            ("0.3.1", "0.3.1", false),
+            ("0.3.0", "0.3.1", false),
+            ("0.4.0-rc.1", "0.3.1", false),
+            ("0.3.1", "0.3.2-rc.1", false),
+            ("0.3.2", "0.3.2-rc.1", true),
+            ("0.3.1+build.5", "0.3.1", false),
+            ("", "0.3.1", false),
+            ("v0.4.0", "0.3.1", false),
+            ("latest", "0.3.1", false),
+        ] {
+            assert_eq!(is_newer(latest, current), announced, "{latest} over {current}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_empty_or_older_cached_version_prints_nothing() {
+        for cached in ["", "0.3.0", "0.4.0-rc.1"] {
+            let body = format!(r#"{{"lastCheck":{},"latestVersion":"{cached}"}}"#, 10 * DAY);
+            let (_d, path) = cache_file(Some(&body));
+            assert_eq!(check_with(&path, 10 * DAY + 1000, "0.3.1", never()).await, None, "{cached:?}");
+        }
+        let (_d, path) = cache_file(None);
+        assert_eq!(check_with(&path, DAY, "0.3.1", release("cli-v")).await, None);
+        assert_eq!(fs::read_to_string(&path).unwrap(), format!(r#"{{"lastCheck":{DAY},"latestVersion":""}}"#));
+    }
+
+    #[tokio::test]
+    async fn a_release_without_a_tag_still_starts_the_24_hour_wait() {
+        let (_d, path) = cache_file(None);
+        assert_eq!(check_with(&path, DAY, "0.3.1", async { Some(None) }).await, None);
+        assert_eq!(fs::read_to_string(&path).unwrap(), format!(r#"{{"lastCheck":{DAY}}}"#));
+        assert_eq!(check_with(&path, DAY + 1000, "0.3.1", never()).await, None);
     }
 
     #[test]

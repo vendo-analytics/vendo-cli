@@ -2023,6 +2023,7 @@ dependencies = [
  "open",
  "owo-colors",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "tempfile",
