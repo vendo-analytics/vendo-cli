@@ -2223,7 +2223,7 @@ dependencies = [
 
 [[package]]
 name = "vendo"
-version = "0.3.1"
+version = "1.0.0-rc.1"
 dependencies = [
  "anyhow",
  "clap",
