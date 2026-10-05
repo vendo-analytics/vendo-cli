@@ -292,7 +292,7 @@ describe('client', () => {
     it('preserves opaque nested keys for canonical account endpoints', async () => {
       const body = {
         data: {
-          id: 'spec-1',
+          id: 'event:checkout_completed',
           validationConfig: {
             sample_window_days: 7,
             provider_config: { keep_this_key: true },
@@ -311,7 +311,7 @@ describe('client', () => {
       );
 
       const { getClient: freshGetClient } = await import('../client.js');
-      const res = await freshGetClient().getCanonical('/specs/spec-1');
+      const res = await freshGetClient().getCanonical('/dictionary/lookup');
       const data = res.data as Record<string, unknown>;
       const validationConfig = data.validationConfig as Record<string, unknown>;
 
@@ -320,7 +320,7 @@ describe('client', () => {
       expect(res.meta).toEqual({ next_cursor: 'cursor-1' });
 
       const url = vi.mocked(globalThis.fetch).mock.calls[0]![0] as string;
-      expect(url).toContain('/api/v1/accounts/acct-123/specs/spec-1');
+      expect(url).toContain('/api/v1/accounts/acct-123/dictionary/lookup');
     });
 
     it('wraps list responses with pagination metadata', async () => {
@@ -507,18 +507,16 @@ describe('client', () => {
       expect(url).toContain('/api/v1/accounts/acct-123/jobs');
     });
 
-    it('adds account prefix for /specs and sends account context', async () => {
+    it('adds account prefix for /dictionary and sends account context', async () => {
       const { getClient: freshGetClient } = await import('../client.js');
-      await freshGetClient().get('/specs/spec-123/versions');
+      await freshGetClient().get('/dictionary/lookup');
 
       const fetchCall = vi.mocked(globalThis.fetch).mock.calls[0]!;
       const url = fetchCall[0] as string;
       const options = fetchCall[1] as RequestInit;
       const headers = options.headers as Record<string, string>;
 
-      expect(url).toContain(
-        '/api/v1/accounts/acct-123/specs/spec-123/versions',
-      );
+      expect(url).toContain('/api/v1/accounts/acct-123/dictionary/lookup');
       expect(headers['X-Account-Id']).toBe('acct-123');
     });
   });
