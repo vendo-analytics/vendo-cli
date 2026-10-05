@@ -18,6 +18,31 @@ use serde_json::Value;
 
 use crate::client::ApiError;
 
+/// `print!`/`println!` (see main.rs): write errors are ignored, as Node's
+/// `console` does, so a closed pipe never aborts a command (VE-3727).
+pub fn write_stdout(args: std::fmt::Arguments, newline: bool) {
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_fmt(args);
+    if newline {
+        let _ = out.write_all(b"\n");
+    }
+}
+
+pub fn write_stdout_bytes(bytes: &[u8]) {
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(bytes);
+    let _ = out.flush();
+}
+
+/// `eprint!`/`eprintln!`: like [`write_stdout`], for stderr.
+pub fn write_stderr(args: std::fmt::Arguments, newline: bool) {
+    let mut err = std::io::stderr().lock();
+    let _ = err.write_fmt(args);
+    if newline {
+        let _ = err.write_all(b"\n");
+    }
+}
+
 /// Whether stdout is a terminal. Never in unit tests: what they assert must
 /// not depend on the terminal that runs `cargo test` (VE-3727).
 pub fn stdout_is_tty() -> bool {
