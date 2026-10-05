@@ -176,8 +176,9 @@ jobs:
 
           out="$("${cmd[@]}" --version)"
           echo "--version: $out"
-          if [ "$out" != "vendo $VERSION" ]; then
-            echo "::error::Expected --version to print 'vendo $VERSION', got '$out'"
+          # Like the TypeScript CLI, --version prints the bare version (VE-3727).
+          if [ "$out" != "$VERSION" ]; then
+            echo "::error::Expected --version to print '$VERSION', got '$out'"
             exit 1
           fi
 
