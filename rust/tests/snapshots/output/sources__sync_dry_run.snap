@@ -1,0 +1,10 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources sync 50000002-0000-4000-8000-000000000002 --dry-run
+exit: 0
+--- stdout ---
+[dry-run] Would trigger sync for source 50000002...
+  Name: Demo Ads
+  State: active
+  Active Job: none

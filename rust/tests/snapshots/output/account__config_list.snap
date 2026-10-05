@@ -1,0 +1,10 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo config list
+exit: 0
+--- stdout ---
+Tip: prefer `vendo profile list` for saved profile management.
+
+* alpha  acct-alpha  [stub]
+  beta  acct-beta  [stub]

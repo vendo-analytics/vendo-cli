@@ -1,0 +1,128 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo jobs list --json
+exit: 0
+--- stdout ---
+{
+  "data": [
+    {
+      "id": "b0000001-0000-4000-8000-000000000001",
+      "accountId": "acct-alpha",
+      "sourceId": "50000001-0000-4000-8000-000000000001",
+      "integrationId": null,
+      "jobType": "import",
+      "connectorType": "shopify",
+      "destinationType": null,
+      "status": "running",
+      "executionType": "incremental",
+      "isOnboarding": false,
+      "minTimestamp": null,
+      "maxTimestamp": null,
+      "startedAt": "[now-2h0m30s]",
+      "finishedAt": null,
+      "errorMessage": null,
+      "errorCode": null,
+      "errorCategory": null,
+      "parentJobId": null,
+      "chunkIndex": 1,
+      "totalChunks": 4,
+      "progressPct": 40,
+      "rowsProcessed": 12000,
+      "rowsWritten": 11800,
+      "metrics": {},
+      "createdAt": "[now-2h0m30s]"
+    },
+    {
+      "id": "b0000002-0000-4000-8000-000000000002",
+      "accountId": "acct-alpha",
+      "sourceId": null,
+      "integrationId": "c0000001-0000-4000-8000-000000000001",
+      "jobType": "export",
+      "connectorType": "bigquery",
+      "destinationType": "bigquery",
+      "status": "queued",
+      "executionType": null,
+      "isOnboarding": false,
+      "minTimestamp": null,
+      "maxTimestamp": null,
+      "startedAt": null,
+      "finishedAt": null,
+      "errorMessage": null,
+      "errorCode": null,
+      "errorCategory": null,
+      "parentJobId": null,
+      "chunkIndex": null,
+      "totalChunks": null,
+      "progressPct": null,
+      "rowsProcessed": null,
+      "rowsWritten": null,
+      "metrics": {},
+      "createdAt": "[now-3h30m]"
+    },
+    {
+      "id": "b0000003-0000-4000-8000-000000000003",
+      "accountId": "acct-alpha",
+      "sourceId": null,
+      "integrationId": "c0000001-0000-4000-8000-000000000001",
+      "jobType": "export",
+      "connectorType": "bigquery",
+      "destinationType": "bigquery",
+      "status": "completed",
+      "executionType": "full",
+      "isOnboarding": false,
+      "minTimestamp": null,
+      "maxTimestamp": null,
+      "startedAt": "2026-01-05T09:07:03.000Z",
+      "finishedAt": "2026-01-05T10:07:33.000Z",
+      "errorMessage": null,
+      "errorCode": null,
+      "errorCategory": null,
+      "parentJobId": null,
+      "chunkIndex": null,
+      "totalChunks": null,
+      "progressPct": 100,
+      "rowsProcessed": 1234567,
+      "rowsWritten": 1234567,
+      "metrics": {
+        "bytes_written": 98765432
+      },
+      "createdAt": "2026-01-05T09:07:03.000Z"
+    },
+    {
+      "id": "b0000004-0000-4000-8000-000000000004",
+      "accountId": "acct-alpha",
+      "sourceId": "50000002-0000-4000-8000-000000000002",
+      "integrationId": null,
+      "jobType": "import",
+      "connectorType": "google_ads",
+      "destinationType": null,
+      "status": "failed",
+      "executionType": "incremental",
+      "isOnboarding": false,
+      "minTimestamp": null,
+      "maxTimestamp": null,
+      "startedAt": "2026-01-04T00:00:00.000Z",
+      "finishedAt": "2026-01-04T00:00:42.000Z",
+      "errorMessage": "Google Ads rejected the synthetic test account's token (refresh needed)",
+      "errorCode": "AUTH_EXPIRED",
+      "errorCategory": "auth",
+      "parentJobId": null,
+      "chunkIndex": null,
+      "totalChunks": null,
+      "progressPct": null,
+      "rowsProcessed": 0,
+      "rowsWritten": 0,
+      "metrics": {},
+      "createdAt": "2026-01-04T00:00:00.000Z"
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "total": 4,
+      "limit": 20,
+      "offset": 0,
+      "hasMore": false
+    }
+  }
+}

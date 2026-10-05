@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+Resume a paused integration
+
+Usage: vendo integrations resume [OPTIONS] <integrationId>
+
+Arguments:
+  <integrationId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+      --dry-run         Preview the action without executing
+      --output <field>  Print a single field (e.g. id)
+  -h, --help            Print help
+
+Examples:
+  $ vendo integrations resume <integrationId>
+  $ vendo integrations resume <integrationId> --dry-run

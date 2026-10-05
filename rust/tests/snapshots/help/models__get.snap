@@ -1,0 +1,19 @@
+---
+source: tests/cli/snapshots.rs
+---
+Get model details
+
+Usage: vendo models get [OPTIONS] <modelId>
+
+Arguments:
+  <modelId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help
+
+Examples:
+  $ vendo models get <modelId>
+  $ vendo models get <modelId> --json

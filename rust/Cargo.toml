@@ -43,6 +43,7 @@ writeable = "0.6"
 libc = "0.2.190"
 
 [dev-dependencies]
+insta = "1.49.0"
 tempfile = "3.27.0"
 tokio = { version = "1.53.2", features = ["test-util", "macros", "rt"] }
 wiremock = "0.6.5"

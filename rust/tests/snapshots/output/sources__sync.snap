@@ -1,0 +1,8 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources sync 50000002-0000-4000-8000-000000000002
+exit: 0
+--- stdout ---
+Done: Sync triggered for source 50000002....
+Use 'vendo jobs list --source 50000002-0000-4000-8000-000000000002' to monitor.

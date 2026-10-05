@@ -1,0 +1,23 @@
+---
+source: tests/cli/snapshots.rs
+---
+Cancel a pending or running job
+
+Usage: vendo jobs cancel [OPTIONS] <jobId>
+
+Arguments:
+  <jobId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -y, --yes             Skip confirmation prompt
+      --dry-run         Preview the action without executing
+      --output <field>  Print a single field (e.g. id)
+  -h, --help            Print help
+
+Examples:
+  $ vendo jobs cancel <jobId>
+  $ vendo jobs cancel <jobId> --yes
+  $ vendo jobs cancel <jobId> --dry-run

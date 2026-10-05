@@ -1,0 +1,19 @@
+---
+source: tests/cli/snapshots.rs
+---
+Get integration details
+
+Usage: vendo integrations get [OPTIONS] <integrationId>
+
+Arguments:
+  <integrationId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help
+
+Examples:
+  $ vendo integrations get <integrationId>
+  $ vendo int get <integrationId> --json

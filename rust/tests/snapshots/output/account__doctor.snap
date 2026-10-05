@@ -1,0 +1,27 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo doctor
+exit: 1
+--- stdout ---
+Vendo CLI Doctor
+
+[warn] CLI binary: [bin] (standard install path is [home]/.local/bin/vendo)
+       Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.
+[fail] PATH: [bin-dir] is not available in PATH
+       Fix: Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc`, then restart your shell.
+[ok] Config file: [home]/.config/vendo/config.json
+[ok] Selected profile: alpha
+[ok] API key: vend...0000 (from profile)
+[ok] Base URL: [stub] (from profile)
+[ok] Account ID: acct-alpha (from profile)
+[warn] Shell completions: Zsh completions are not installed yet
+       Fix: Run `vendo completions zsh` or reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash`.
+[ok] API auth: Authenticated as Demo Account (synthetic)
+
+Summary: 6 ok, 2 warnings, 1 failures
+
+Suggested next steps
+  - Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.
+  - Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc`, then restart your shell.
+  - Run `vendo completions zsh` or reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash`.

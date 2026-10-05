@@ -1,0 +1,22 @@
+---
+source: tests/cli/snapshots.rs
+---
+Create a new metric
+
+Usage: vendo metrics create [OPTIONS] --name <name> --definition <file>
+
+Options:
+      --name <name>         Metric name
+      --profile <name>      Use a specific account profile
+      --debug               Enable verbose request diagnostics
+      --definition <file>   QuerySpec v2 definition JSON file
+      --description <desc>  Description
+      --format <format>     Display format: number, currency, percentage, multiplier [default: number]
+      --unit <unit>         Unit suffix (e.g., "$", "%")
+      --json                Output raw JSON
+  -h, --help                Print help
+
+Examples:
+  $ vendo metrics create --name "ROAS" --definition roas.query.json
+  $ vendo metrics create --name "Total Revenue" --definition revenue.query.json --format currency
+  $ vendo metrics create --name "CTR" --definition ctr.query.json --format percentage

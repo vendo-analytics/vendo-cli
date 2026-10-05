@@ -1,0 +1,25 @@
+---
+source: tests/cli/snapshots.rs
+---
+List sync jobs
+
+Usage: vendo jobs list [OPTIONS]
+
+Options:
+      --profile <name>               Use a specific account profile
+      --status <status>              Filter by status (pending, running, completed, failed, cancelled)
+      --debug                        Enable verbose request diagnostics
+      --type <type>                  Filter by job type (import, export)
+      --source <sourceId>            Filter by source ID
+      --integration <integrationId>  Filter by integration ID
+      --limit <n>                    Number of results [default: 20]
+      --offset <n>                   Pagination offset [default: 0]
+      --json                         Output raw JSON
+      --output <field>               Print a single field per row (e.g. id)
+  -h, --help                         Print help
+
+Examples:
+  $ vendo jobs list
+  $ vendo jobs list --status running
+  $ vendo jobs list --source <sourceId>
+  $ vendo jobs list --output id

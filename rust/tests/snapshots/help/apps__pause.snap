@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+Pause an app connection
+
+Usage: vendo apps pause [OPTIONS] <appId>
+
+Arguments:
+  <appId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+      --dry-run         Preview the action without executing
+      --output <field>  Print a single field (e.g. id)
+  -h, --help            Print help
+
+Examples:
+  $ vendo apps pause <appId>
+  $ vendo apps pause <appId> --dry-run

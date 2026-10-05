@@ -1,0 +1,14 @@
+---
+source: tests/cli/snapshots.rs
+---
+Alias for `vendo profile list`
+
+Usage: vendo config list [OPTIONS]
+
+Options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help
+
+Examples:
+  $ vendo config list

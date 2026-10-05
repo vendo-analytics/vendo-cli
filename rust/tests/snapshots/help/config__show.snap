@@ -1,0 +1,14 @@
+---
+source: tests/cli/snapshots.rs
+---
+Inspect low-level CLI configuration
+
+Usage: vendo config show [OPTIONS]
+
+Options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help
+
+Examples:
+  $ vendo config show

@@ -1,0 +1,7 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources update 50000001-0000-4000-8000-000000000001 --frequency 6
+exit: 0
+--- stdout ---
+Done: Source 50000001... updated.

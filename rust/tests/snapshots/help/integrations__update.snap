@@ -1,0 +1,24 @@
+---
+source: tests/cli/snapshots.rs
+---
+Update an integration
+
+Usage: vendo integrations update [OPTIONS] <integrationId>
+
+Arguments:
+  <integrationId>  
+
+Options:
+      --config-file <path>    Replace config from a JSON file
+      --profile <name>        Use a specific account profile
+      --debug                 Enable verbose request diagnostics
+      --schedule-file <path>  Replace schedule from a JSON file
+      --frequency <value>     Sync frequency value
+      --unit <unit>           Sync frequency unit
+      --json                  Output raw JSON
+      --output <field>        Print a single field (e.g. id)
+  -h, --help                  Print help
+
+Examples:
+  $ vendo int update <integrationId> --frequency 6 --unit hours
+  $ vendo int update <integrationId> --config-file new-tasks.json

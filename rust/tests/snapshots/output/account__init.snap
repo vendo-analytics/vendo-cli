@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo init
+exit: 0
+--- stdout ---
+Vendo CLI Setup
+
+Using existing profile alpha.
+
+Setup summary
+  Profile:     alpha
+  Base URL:    [stub]
+  Account ID:  acct-alpha
+  Auth:        verified as Demo Account (synthetic)
+
+Next steps
+  vendo doctor
+  vendo whoami
+  vendo status
+Done: Vendo CLI setup complete.

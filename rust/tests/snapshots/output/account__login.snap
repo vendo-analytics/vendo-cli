@@ -1,0 +1,15 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo login --api-key vendo_sk_fake_gamma_0000 --account acct-gamma --base-url [stub]
+exit: 0
+--- stdout ---
+
+Done: Authenticated as demo-account
+Active profile: demo-account
+Account ID saved: acct-gamma
+
+Next steps
+  vendo whoami
+  vendo status
+  vendo doctor

@@ -7,6 +7,12 @@ use std::process::{Command, Output, Stdio};
 use serde_json::{Value, json};
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
 
+/// Snapshots of every help screen and of each command's output (VE-3824),
+/// recorded under `tests/snapshots/` with this file's sandbox and stub. Kept in
+/// `tests/cli/` so cargo does not build it as a test target of its own.
+#[path = "cli/snapshots.rs"]
+mod snapshots;
+
 /// Nothing listens here: a test that forgets its stub fails locally.
 const CLOSED: &str = "http://127.0.0.1:9";
 
@@ -50,6 +56,11 @@ impl Sandbox {
         // Dates and numbers follow the locale (VE-3728): pin it, and the time zone.
         cmd.args(args).env("HOME", self.home.path()).env("LANG", "C").env("TZ", "UTC").stdin(Stdio::null());
         for var in ["VENDO_API_KEY", "VENDO_API_URL", "VENDO_ACCOUNT_ID", "VENDO_DEBUG", "LC_ALL", "LC_MESSAGES"] {
+            cmd.env_remove(var);
+        }
+        // Output is piped, so no colour, whatever forces it in the caller's shell (VE-3824).
+        cmd.env("NO_COLOR", "1");
+        for var in ["FORCE_COLOR", "CLICOLOR_FORCE", "CLICOLOR", "IGNORE_IS_TERMINAL", "COLUMNS", "LINES"] {
             cmd.env_remove(var);
         }
         cmd

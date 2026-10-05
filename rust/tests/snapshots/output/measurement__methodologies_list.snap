@@ -1,0 +1,11 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement methodologies list
+exit: 0
+--- stdout ---
+ ID           Name        Click Path   Scope    Version  Updated 
+ m-system-1   Last click  last_click   system   1        —       
+ m-accoun...  Blended     linear       account  3        —       
+ m-3          No weights  first_click  account  null     —       
+3 methodologys

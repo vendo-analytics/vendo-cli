@@ -1,0 +1,82 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo doctor --json
+exit: 1
+--- stdout ---
+{
+  "summary": {
+    "ok": 6,
+    "warn": 2,
+    "fail": 1
+  },
+  "checks": [
+    {
+      "name": "CLI binary",
+      "status": "warn",
+      "detail": "[bin] (standard install path is [home]/.local/bin/vendo)",
+      "remediation": "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path."
+    },
+    {
+      "name": "PATH",
+      "status": "fail",
+      "detail": "[bin-dir] is not available in PATH",
+      "remediation": "Add `export PATH=\"$HOME/.local/bin:$PATH\"` to `~/.zshrc`, then restart your shell."
+    },
+    {
+      "name": "Config file",
+      "status": "ok",
+      "detail": "[home]/.config/vendo/config.json"
+    },
+    {
+      "name": "Selected profile",
+      "status": "ok",
+      "detail": "alpha"
+    },
+    {
+      "name": "API key",
+      "status": "ok",
+      "detail": "vend...0000 (from profile)"
+    },
+    {
+      "name": "Base URL",
+      "status": "ok",
+      "detail": "[stub] (from profile)"
+    },
+    {
+      "name": "Account ID",
+      "status": "ok",
+      "detail": "acct-alpha (from profile)"
+    },
+    {
+      "name": "Shell completions",
+      "status": "warn",
+      "detail": "Zsh completions are not installed yet",
+      "remediation": "Run `vendo completions zsh` or reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash`."
+    },
+    {
+      "name": "API auth",
+      "status": "ok",
+      "detail": "Authenticated as Demo Account (synthetic)"
+    }
+  ],
+  "suggestions": [
+    "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.",
+    "Add `export PATH=\"$HOME/.local/bin:$PATH\"` to `~/.zshrc`, then restart your shell.",
+    "Run `vendo completions zsh` or reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash`."
+  ],
+  "identity": {
+    "accountId": "acct-alpha",
+    "accountName": "Demo Account (synthetic)",
+    "accountSlug": "demo-account",
+    "pictureUrl": null,
+    "apiKeyId": "key_fake_0001",
+    "scopes": [],
+    "bigquery": {
+      "projectId": "demo-project",
+      "prodDatasetId": "demo_prod",
+      "sourceDatasetId": "demo_source"
+    }
+  },
+  "shell": "zsh"
+}

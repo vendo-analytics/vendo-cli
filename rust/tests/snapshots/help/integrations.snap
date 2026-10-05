@@ -1,0 +1,23 @@
+---
+source: tests/cli/snapshots.rs
+---
+Manage data export integrations
+
+Usage: vendo integrations [OPTIONS] <COMMAND>
+
+Commands:
+  list            List all integrations
+  get             Get integration details
+  sync            Trigger a manual sync
+  refresh-source  Check source-data availability for a window and trigger top-up imports for missing ranges
+  pause           Pause an integration
+  resume          Resume a paused integration
+  delete          Delete an integration (soft delete)
+  create          Create a new integration (source → destination pipeline)
+  update          Update an integration
+  help            Print this message or the help of the given subcommand(s)
+
+Options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help

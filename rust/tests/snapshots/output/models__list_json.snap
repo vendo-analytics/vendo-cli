@@ -1,0 +1,82 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo models list --json
+exit: 0
+--- stdout ---
+{
+  "data": [
+    {
+      "id": "11111111-2222-4333-8444-555555555555",
+      "state": "active",
+      "accountId": "acct-alpha",
+      "name": "orders_clean",
+      "description": null,
+      "modelType": "sql",
+      "viewName": "orders_clean",
+      "outputConfig": {
+        "dataset_id": "prod",
+        "write_mode": "replace"
+      },
+      "schedule": {
+        "frequency_unit": "hours",
+        "frequency_value": 6
+      },
+      "columns": [
+        {
+          "name": "order_id",
+          "type": "STRING",
+          "is_nullable": false
+        }
+      ],
+      "primaryKeyColumns": null,
+      "incrementalColumn": null,
+      "isValid": true,
+      "validationError": null,
+      "lastValidatedAt": "2026-01-05T09:07:03.000Z",
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": null,
+      "managedBy": "customer"
+    },
+    {
+      "id": "22222222-3333-4444-8555-666666666666",
+      "state": "active",
+      "accountId": "acct-alpha",
+      "name": "churn_scores",
+      "description": null,
+      "modelType": "python",
+      "viewName": "orders_clean",
+      "outputConfig": {
+        "dataset_id": "prod",
+        "write_mode": "replace"
+      },
+      "schedule": {
+        "frequency_unit": "hours",
+        "frequency_value": 6
+      },
+      "columns": [
+        {
+          "name": "order_id",
+          "type": "STRING",
+          "is_nullable": false
+        }
+      ],
+      "primaryKeyColumns": null,
+      "incrementalColumn": null,
+      "isValid": false,
+      "validationError": "Table not found (synthetic)",
+      "lastValidatedAt": null,
+      "createdAt": null,
+      "updatedAt": null,
+      "managedBy": "customer"
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "total": 2,
+      "limit": 20,
+      "offset": 0,
+      "hasMore": false
+    }
+  }
+}

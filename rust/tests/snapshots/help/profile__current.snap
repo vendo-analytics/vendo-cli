@@ -1,0 +1,14 @@
+---
+source: tests/cli/snapshots.rs
+---
+Show the current effective profile
+
+Usage: vendo profile current [OPTIONS]
+
+Options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help
+
+Examples:
+  $ vendo profile current

@@ -1,0 +1,8 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo profile list
+exit: 0
+--- stdout ---
+* alpha (active)  acct-alpha  [stub]
+  beta  acct-beta  [stub]

@@ -8,3 +8,6 @@ dist/
 coverage/
 parity/out/
 rust/target/
+# insta's pending snapshots (VE-3824): review them, never commit them
+*.snap.new
+*.pending-snap

@@ -1,0 +1,8 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo logout --all
+exit: 1
+--- stdout ---
+--- stderr ---
+Error: This removes every saved profile and its API key. Re-run with --yes to confirm.

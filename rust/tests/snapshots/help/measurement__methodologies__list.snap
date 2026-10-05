@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+List methodologies (system + account)
+
+Usage: vendo measurement methodologies list [OPTIONS]
+
+Options:
+      --no-system       Exclude system-seeded methodologies
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+      --json            Output raw JSON
+      --output <field>  Print one field per row (e.g. id, name)
+  -h, --help            Print help
+
+Examples:
+  $ vendo measurement methodologies list
+  $ vendo measurement methodologies list --no-system
+  $ vendo measurement methodologies list --json
+  $ vendo measurement methodologies list --output id

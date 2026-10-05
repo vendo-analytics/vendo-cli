@@ -1,0 +1,19 @@
+---
+source: tests/cli/snapshots.rs
+---
+Get source details
+
+Usage: vendo sources get [OPTIONS] <sourceId>
+
+Arguments:
+  <sourceId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help
+
+Examples:
+  $ vendo sources get <sourceId>
+  $ vendo sources get <sourceId> --json

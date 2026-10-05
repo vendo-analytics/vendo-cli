@@ -1,0 +1,12 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo catalog list
+exit: 0
+--- stdout ---
+ App Type    Name        Category   Roles                Self-Serve 
+ bigquery    BigQuery    warehouse  destination          yes        
+ google_ads  Google Ads  ads        source, destination  yes        
+ shopify     Shopify     ecommerce  source               yes        
+ tiktok_ads  TikTok Ads  ads        source               no         
+4 integration types

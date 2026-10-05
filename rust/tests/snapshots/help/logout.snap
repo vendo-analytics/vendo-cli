@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+Remove stored credentials
+
+Usage: vendo logout [OPTIONS]
+
+Options:
+      --all             Remove every saved profile, not just the active one
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -y, --yes             Skip the confirmation prompt for --all
+  -h, --help            Print help
+
+Examples:
+  $ vendo logout
+  $ vendo logout --all
+  $ vendo logout --all --yes

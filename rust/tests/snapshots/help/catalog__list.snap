@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+List all available integration types
+
+Usage: vendo catalog list [OPTIONS]
+
+Options:
+      --category <category>  Filter by category
+      --profile <name>       Use a specific account profile
+      --debug                Enable verbose request diagnostics
+      --role <role>          Filter by role (source, destination)
+      --json                 Output raw JSON
+      --output <field>       Print a single field per row (e.g. appType)
+  -h, --help                 Print help
+
+Examples:
+  $ vendo catalog list
+  $ vendo catalog list --role source
+  $ vendo catalog list --output appType

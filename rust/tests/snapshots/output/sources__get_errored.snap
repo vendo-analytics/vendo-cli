@@ -1,0 +1,26 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources get 50000002-0000-4000-8000-000000000002
+exit: 0
+--- stdout ---
+
+Demo Ads (google_ads)
+
+  ID:          50000002-0000-4000-8000-000000000002
+  App:         Demo Ads a0000002-0000-4000-8000-000000000002
+  Type:        google_ads
+  State:       active
+  Status:      errored
+  Progress:    —
+  Frequency:   daily
+  Anchor:      — 
+  Last successful sync: 1/5/2026
+  Data access: Read in place; no import checkpoint
+  Record date range: Not measured
+  Dataset:     demo_ads_raw
+  Created:     1/2/2026
+  Error:       Token expired for the synthetic test account
+  Failures:    3 consecutive
+  Latest Job:  b0000004-0000-4000-8000-000000000004
+  Tasks:       campaign_performance

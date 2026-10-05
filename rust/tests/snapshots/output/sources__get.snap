@@ -1,0 +1,26 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources get 50000001-0000-4000-8000-000000000001
+exit: 0
+--- stdout ---
+
+Demo Shop (shopify)
+
+  ID:          50000001-0000-4000-8000-000000000001
+  App:         Demo Shop a0000001-0000-4000-8000-000000000001
+  Type:        shopify
+  State:       active
+  Status:      active
+  Progress:    40% · chunk 2/4 · 12,000 read · 11,800 written
+  Frequency:   every 6 hours
+  Anchor:      02:00 UTC
+  Last successful sync: 2h ago
+  Latest import checkpoint: 2026-01-05T09:00:00.000Z
+  Enabled streams: 2/2 with checkpoints; 0 need attention
+  Checkpoints describe import progress, not record dates or complete history.
+  Record date range: Not measured
+  Dataset:     demo_shop_raw
+  Created:     1/2/2026
+  Latest Job:  b0000001-0000-4000-8000-000000000001
+  Tasks:       orders, customers

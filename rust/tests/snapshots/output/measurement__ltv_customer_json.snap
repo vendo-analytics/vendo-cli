@@ -1,0 +1,32 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement ltv customer cust_demo_001 --json
+exit: 0
+--- stdout ---
+{
+  "cohort": {
+    "customer_id": "cust_demo_001",
+    "acquisition_date": "2026-01-05",
+    "cohort_period_daily": "2026-01-05",
+    "cohort_period_weekly": "2026-01-05",
+    "cohort_period_monthly": "2026-01-01",
+    "acquisition_channel": "Paid Social",
+    "acquisition_campaign": null,
+    "country": "AU",
+    "is_reactivated": false
+  },
+  "revenue": [
+    {
+      "revenue_period_daily": "2026-01-05",
+      "period_offset_days": 0,
+      "gross_revenue": 42.5
+    }
+  ],
+  "realised": {
+    "ltv_30d": 42.5,
+    "ltv_90d": 85.25,
+    "ltv_12m": null,
+    "ltv_full": 85.25
+  }
+}

@@ -1,0 +1,7 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo logout
+exit: 0
+--- stdout ---
+Done: Logged out of profile "alpha".

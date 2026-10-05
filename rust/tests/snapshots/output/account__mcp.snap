@@ -1,0 +1,29 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo mcp
+exit: 0
+--- stdout ---
+
+Connect an MCP client to Vendo
+
+  Endpoint:   [stub]/api/mcp
+  Transport:  streamable-http (stateless)
+  Auth:       Authorization: Bearer <api key>   (or OAuth in claude.ai)
+
+  Add to your MCP client config (Claude Desktop, Cursor, Windsurf, …):
+
+  {
+    "mcpServers": {
+      "vendo": {
+        "type": "http",
+        "url": "[stub]/api/mcp",
+        "headers": {
+          "Authorization": "Bearer ${VENDO_API_KEY}"
+        }
+      }
+    }
+  }
+
+  Replace ${VENDO_API_KEY} with your key (or set it in the client env), or re-run with --show-key to embed it.
+  Tip: the MCP server lives on app2.vendodata.com — app.vendodata.com does not serve /api/mcp.

@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+Guide first-time Vendo CLI setup
+
+Usage: vendo init [OPTIONS]
+
+Options:
+      --env <environment>  Target instance: "staging" or "prod" (default: VENDO_API_URL/profile, else prod)
+      --profile <name>     Use a specific account profile
+      --base-url <url>     Explicit API base URL (overrides --env)
+      --debug              Enable verbose request diagnostics
+  -h, --help               Print help
+
+Examples:
+  $ vendo init
+  $ vendo init --env staging

@@ -1,0 +1,32 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement signals list --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "signals": [
+      {
+        "id": "click_path",
+        "state": "live",
+        "availability": {
+          "available": true
+        }
+      },
+      {
+        "id": "mmm",
+        "state": "stub",
+        "availability": {
+          "available": false,
+          "reason": "Not enough spend history"
+        }
+      },
+      {
+        "id": "geo_lift",
+        "state": "stub",
+        "availability": null
+      }
+    ]
+  }
+}

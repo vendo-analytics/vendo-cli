@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo integrations get c0000001-0000-4000-8000-000000000001
+exit: 0
+--- stdout ---
+
+Demo Shop → Demo Warehouse (orders)
+
+  ID:            c0000001-0000-4000-8000-000000000001
+  Source App:    Demo Shop a0000001-0000-4000-8000-000000000001
+  Dest App:     Demo Warehouse a0000003-0000-4000-8000-000000000003
+  Data Type:    orders
+  State:        active
+  Status:       active
+  Progress:     queued
+  Last Sync:    2h ago
+  Created:      1/2/2026
+  Schedule:     {"frequencyValue":6,"frequencyUnit":"hours"}
+  Latest Job:   b0000003-0000-4000-8000-000000000003

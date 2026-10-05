@@ -1,0 +1,22 @@
+---
+source: tests/cli/snapshots.rs
+---
+Check source-data availability for a window and trigger top-up imports for missing ranges
+
+Usage: vendo integrations refresh-source [OPTIONS] <integrationId>
+
+Arguments:
+  <integrationId>  
+
+Options:
+      --from <date>     Window start — ISO datetime or YYYY-MM-DD (default: 7 days before --to)
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+      --to <date>       Window end — ISO datetime or YYYY-MM-DD (default: now)
+      --json            Output raw JSON
+  -h, --help            Print help
+
+Examples:
+  $ vendo integrations refresh-source <integrationId>
+  $ vendo int refresh-source <integrationId> --from 2026-06-29 --to 2026-07-02
+  $ vendo integrations refresh-source <integrationId> --json

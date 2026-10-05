@@ -1,0 +1,8 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo metrics activate 6f1c2a9e-1111-4c3b-9a7e-000000000001
+exit: 0
+--- stdout ---
+
+✓ Metric "ROAS" is now active

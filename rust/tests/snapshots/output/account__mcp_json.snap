@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo mcp --json
+exit: 0
+--- stdout ---
+{
+  "mcpServers": {
+    "vendo": {
+      "type": "http",
+      "url": "[stub]/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${VENDO_API_KEY}"
+      }
+    }
+  }
+}

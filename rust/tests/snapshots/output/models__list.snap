@@ -1,0 +1,10 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo models list
+exit: 0
+--- stdout ---
+ ID           Name          Type  Valid  Last Validated 
+ 11111111...  orders_clean        yes    1/5/2026       
+ 22222222...  churn_scores        no     —              
+2 models

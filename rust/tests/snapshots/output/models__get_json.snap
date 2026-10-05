@@ -1,0 +1,43 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo models get 11111111-2222-4333-8444-555555555555 --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "11111111-2222-4333-8444-555555555555",
+    "state": "active",
+    "accountId": "acct-alpha",
+    "name": "orders_clean",
+    "description": "Clean orders (synthetic)",
+    "modelType": "sql",
+    "viewName": "orders_clean",
+    "outputConfig": {
+      "dataset_id": "prod",
+      "write_mode": "replace"
+    },
+    "schedule": {
+      "frequency_unit": "hours",
+      "frequency_value": 6
+    },
+    "columns": [
+      {
+        "name": "order_id",
+        "type": "STRING",
+        "is_nullable": false
+      }
+    ],
+    "primaryKeyColumns": [
+      "order_id"
+    ],
+    "incrementalColumn": "updated_at",
+    "isValid": true,
+    "validationError": null,
+    "lastValidatedAt": "2026-01-05T09:07:03.000Z",
+    "createdAt": "2026-01-02T08:00:00.000Z",
+    "updatedAt": null,
+    "managedBy": "customer",
+    "sqlQuery": "SELECT order_id\nFROM `demo-project.demo_shop_raw.orders`"
+  }
+}

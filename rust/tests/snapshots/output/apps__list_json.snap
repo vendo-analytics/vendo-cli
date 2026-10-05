@@ -1,0 +1,80 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps list --json
+exit: 0
+--- stdout ---
+{
+  "data": [
+    {
+      "id": "a0000001-0000-4000-8000-000000000001",
+      "accountId": "acct-alpha",
+      "appType": "shopify",
+      "displayName": "Demo Shop",
+      "permissions": [
+        "performance_data"
+      ],
+      "roles": [
+        "source"
+      ],
+      "state": "active",
+      "errorMessage": null,
+      "lastSyncAt": "[now-2h30m]",
+      "accessStatus": "connected",
+      "accessStatusCheckedAt": "[now-3h30m]",
+      "accessStatusReason": null,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    },
+    {
+      "id": "a0000002-0000-4000-8000-000000000002",
+      "accountId": "acct-alpha",
+      "appType": "google_ads",
+      "displayName": "Demo Ads",
+      "permissions": [
+        "performance_data",
+        "send_conversions"
+      ],
+      "roles": [
+        "source",
+        "destination"
+      ],
+      "state": "active",
+      "errorMessage": "Token expired for the synthetic test account",
+      "lastSyncAt": "2026-01-05T09:07:03.000Z",
+      "accessStatus": "auth_expired",
+      "accessStatusCheckedAt": "2026-01-06T00:00:00.000Z",
+      "accessStatusReason": "OAuth token expired (synthetic)",
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    },
+    {
+      "id": "a0000003-0000-4000-8000-000000000003",
+      "accountId": "acct-alpha",
+      "appType": "bigquery",
+      "displayName": "Demo Warehouse",
+      "permissions": [
+        "send_conversions"
+      ],
+      "roles": [
+        "destination"
+      ],
+      "state": "inactive",
+      "errorMessage": null,
+      "lastSyncAt": null,
+      "accessStatus": null,
+      "accessStatusCheckedAt": null,
+      "accessStatusReason": null,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "total": 3,
+      "limit": 20,
+      "offset": 0,
+      "hasMore": false
+    }
+  }
+}

@@ -1,0 +1,61 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources list --json
+exit: 0
+--- stdout ---
+{
+  "data": [
+    {
+      "id": "50000001-0000-4000-8000-000000000001",
+      "accountId": "acct-alpha",
+      "appId": "a0000001-0000-4000-8000-000000000001",
+      "appName": "Demo Shop",
+      "syncType": "shopify",
+      "importTasks": [
+        "orders",
+        "customers"
+      ],
+      "syncFrequency": "every 6 hours",
+      "syncAnchorTime": "02:00",
+      "syncAnchorTimezone": "UTC",
+      "rollingPeriodDays": null,
+      "state": "active",
+      "integrationStatus": "active",
+      "lastSyncAt": "[now-2h30m]",
+      "lastError": null,
+      "consecutiveFailures": 0,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    },
+    {
+      "id": "50000002-0000-4000-8000-000000000002",
+      "accountId": "acct-alpha",
+      "appId": "a0000002-0000-4000-8000-000000000002",
+      "appName": "Demo Ads",
+      "syncType": "google_ads",
+      "importTasks": [
+        "campaign_performance"
+      ],
+      "syncFrequency": "daily",
+      "syncAnchorTime": null,
+      "syncAnchorTimezone": null,
+      "rollingPeriodDays": 30,
+      "state": "active",
+      "integrationStatus": "errored",
+      "lastSyncAt": "2026-01-05T09:07:03.000Z",
+      "lastError": "Token expired for the synthetic test account",
+      "consecutiveFailures": 3,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "total": 2,
+      "limit": 20,
+      "offset": 0,
+      "hasMore": false
+    }
+  }
+}

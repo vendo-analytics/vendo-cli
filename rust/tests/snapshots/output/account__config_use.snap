@@ -1,0 +1,11 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo config use beta
+exit: 0
+--- stdout ---
+Tip: prefer `vendo profile switch` for interactive profile changes.
+
+Done: Switched to profile beta.
+  Account ID: acct-beta  Base URL: [stub]
+  Verify with `vendo whoami`.

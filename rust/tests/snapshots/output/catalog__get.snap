@@ -1,0 +1,23 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo catalog get shopify
+exit: 0
+--- stdout ---
+
+Shopify (shopify)
+
+  Category:    ecommerce
+  Roles:       source
+  Self-Serve:  yes
+  Lifecycle:   ga
+  Provider:    shopify
+
+  Shopify connector (synthetic description)
+
+  Docs: https://example.com/docs/shopify
+
+  Credential Fields:
+    Shop domain (shop_domain) — text
+      The store's myshopify.com domain
+    Admin API access token (access_token) — password

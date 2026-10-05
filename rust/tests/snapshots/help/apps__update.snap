@@ -1,0 +1,25 @@
+---
+source: tests/cli/snapshots.rs
+---
+Update an app connection
+
+Usage: vendo apps update [OPTIONS] <appId>
+
+Arguments:
+  <appId>  
+
+Options:
+      --name <displayName>         New display name
+      --profile <name>             Use a specific account profile
+      --debug                      Enable verbose request diagnostics
+      --role <role>                Comma-separated capability: source, destination (derives permissions)
+      --permissions <permissions>  Comma-separated granular permissions. Overrides --role.
+      --credentials-file <path>    Replace credentials from a JSON file
+      --config-file <path>         Replace config from a JSON file
+      --json                       Output raw JSON
+      --output <field>             Print a single field (e.g. id)
+  -h, --help                       Print help
+
+Examples:
+  $ vendo apps update <appId> --name "New name"
+  $ vendo apps update <appId> --credentials-file rotated.json

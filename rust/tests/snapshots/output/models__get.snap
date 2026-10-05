@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo models get 11111111-2222-4333-8444-555555555555
+exit: 0
+--- stdout ---
+
+orders_clean (undefined)
+
+  ID:            11111111-2222-4333-8444-555555555555
+  Data Type:     undefined
+  Valid:         yes
+  Validated:     1/5/2026
+  Created:       1/2/2026
+  Description:   Clean orders (synthetic)
+  Primary Keys:  order_id
+  Incremental:   updated_at
+
+  SQL Query:
+    SELECT order_id
+    FROM `demo-project.demo_shop_raw.orders`

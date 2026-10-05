@@ -1,0 +1,199 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo status --json
+exit: 0
+--- stdout ---
+{
+  "apps": [
+    {
+      "id": "a0000001-0000-4000-8000-000000000001",
+      "accountId": "acct-alpha",
+      "appType": "shopify",
+      "displayName": "Demo Shop",
+      "permissions": [
+        "performance_data"
+      ],
+      "roles": [
+        "source"
+      ],
+      "state": "active",
+      "errorMessage": null,
+      "lastSyncAt": "[now-2h30m]",
+      "accessStatus": "connected",
+      "accessStatusCheckedAt": "[now-3h30m]",
+      "accessStatusReason": null,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    },
+    {
+      "id": "a0000002-0000-4000-8000-000000000002",
+      "accountId": "acct-alpha",
+      "appType": "google_ads",
+      "displayName": "Demo Ads",
+      "permissions": [
+        "performance_data",
+        "send_conversions"
+      ],
+      "roles": [
+        "source",
+        "destination"
+      ],
+      "state": "active",
+      "errorMessage": "Token expired for the synthetic test account",
+      "lastSyncAt": "2026-01-05T09:07:03.000Z",
+      "accessStatus": "auth_expired",
+      "accessStatusCheckedAt": "2026-01-06T00:00:00.000Z",
+      "accessStatusReason": "OAuth token expired (synthetic)",
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    },
+    {
+      "id": "a0000003-0000-4000-8000-000000000003",
+      "accountId": "acct-alpha",
+      "appType": "bigquery",
+      "displayName": "Demo Warehouse",
+      "permissions": [
+        "send_conversions"
+      ],
+      "roles": [
+        "destination"
+      ],
+      "state": "inactive",
+      "errorMessage": null,
+      "lastSyncAt": null,
+      "accessStatus": null,
+      "accessStatusCheckedAt": null,
+      "accessStatusReason": null,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    }
+  ],
+  "sources": [
+    {
+      "id": "50000001-0000-4000-8000-000000000001",
+      "accountId": "acct-alpha",
+      "appId": "a0000001-0000-4000-8000-000000000001",
+      "appName": "Demo Shop",
+      "syncType": "shopify",
+      "importTasks": [
+        "orders",
+        "customers"
+      ],
+      "syncFrequency": "every 6 hours",
+      "syncAnchorTime": "02:00",
+      "syncAnchorTimezone": "UTC",
+      "rollingPeriodDays": null,
+      "state": "active",
+      "integrationStatus": "active",
+      "lastSyncAt": "[now-2h30m]",
+      "lastError": null,
+      "consecutiveFailures": 0,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    },
+    {
+      "id": "50000002-0000-4000-8000-000000000002",
+      "accountId": "acct-alpha",
+      "appId": "a0000002-0000-4000-8000-000000000002",
+      "appName": "Demo Ads",
+      "syncType": "google_ads",
+      "importTasks": [
+        "campaign_performance"
+      ],
+      "syncFrequency": "daily",
+      "syncAnchorTime": null,
+      "syncAnchorTimezone": null,
+      "rollingPeriodDays": 30,
+      "state": "active",
+      "integrationStatus": "errored",
+      "lastSyncAt": "2026-01-05T09:07:03.000Z",
+      "lastError": "Token expired for the synthetic test account",
+      "consecutiveFailures": 3,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    }
+  ],
+  "integrations": [
+    {
+      "id": "c0000001-0000-4000-8000-000000000001",
+      "accountId": "acct-alpha",
+      "sourceAppId": "a0000001-0000-4000-8000-000000000001",
+      "sourceAppName": "Demo Shop",
+      "sourceAppType": "shopify",
+      "destinationAppId": "a0000003-0000-4000-8000-000000000003",
+      "destinationAppName": "Demo Warehouse",
+      "destinationAppType": "bigquery",
+      "dataType": "orders",
+      "config": {
+        "dataset": "demo_exports"
+      },
+      "schedule": {
+        "frequency_value": 6,
+        "frequency_unit": "hours"
+      },
+      "state": "active",
+      "status": "active",
+      "isActive": true,
+      "lastSyncAt": "[now-2h30m]",
+      "lastError": null,
+      "consecutiveFailures": 0,
+      "importDependencyStatus": null,
+      "latestJobId": "b0000003-0000-4000-8000-000000000003",
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    },
+    {
+      "id": "c0000002-0000-4000-8000-000000000002",
+      "accountId": "acct-alpha",
+      "sourceAppId": "a0000002-0000-4000-8000-000000000002",
+      "sourceAppName": "Demo Ads",
+      "sourceAppType": "google_ads",
+      "destinationAppId": "a0000003-0000-4000-8000-000000000003",
+      "destinationAppName": "Demo Warehouse",
+      "destinationAppType": "bigquery",
+      "dataType": "ad_performance",
+      "config": null,
+      "schedule": null,
+      "state": "inactive",
+      "status": "paused",
+      "isActive": false,
+      "lastSyncAt": "2026-01-05T09:07:03.000Z",
+      "lastError": "Destination dataset is missing (synthetic)",
+      "consecutiveFailures": 1,
+      "importDependencyStatus": null,
+      "latestJobId": null,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    }
+  ],
+  "recentFailures": [
+    {
+      "id": "b0000004-0000-4000-8000-000000000004",
+      "accountId": "acct-alpha",
+      "sourceId": "50000002-0000-4000-8000-000000000002",
+      "integrationId": null,
+      "jobType": "import",
+      "connectorType": "google_ads",
+      "destinationType": null,
+      "status": "failed",
+      "executionType": "incremental",
+      "isOnboarding": false,
+      "minTimestamp": null,
+      "maxTimestamp": null,
+      "startedAt": "2026-01-04T00:00:00.000Z",
+      "finishedAt": "2026-01-04T00:00:42.000Z",
+      "errorMessage": "Google Ads rejected the synthetic test account's token (refresh needed)",
+      "errorCode": "AUTH_EXPIRED",
+      "errorCategory": "auth",
+      "parentJobId": null,
+      "chunkIndex": null,
+      "totalChunks": null,
+      "progressPct": null,
+      "rowsProcessed": 0,
+      "rowsWritten": 0,
+      "metrics": {},
+      "createdAt": "2026-01-04T00:00:00.000Z"
+    }
+  ]
+}

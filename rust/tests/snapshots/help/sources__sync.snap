@@ -1,0 +1,23 @@
+---
+source: tests/cli/snapshots.rs
+---
+Trigger a manual sync
+
+Usage: vendo sources sync [OPTIONS] <sourceId>
+
+Arguments:
+  <sourceId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+      --watch           Watch the job until it completes
+      --dry-run         Preview the action without executing
+      --output <field>  Print a single field (e.g. id for job ID)
+  -h, --help            Print help
+
+Examples:
+  $ vendo sources sync <sourceId>
+  $ vendo sources sync <sourceId> --watch
+  $ vendo sources sync <sourceId> --dry-run

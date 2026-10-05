@@ -1,0 +1,19 @@
+---
+source: tests/cli/snapshots.rs
+---
+Show one customer's cohort + realised LTV + revenue timeline
+
+Usage: vendo measurement ltv customer [OPTIONS] <customerId>
+
+Arguments:
+  <customerId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help
+
+Examples:
+  $ vendo measurement ltv customer cust_abc123
+  $ vendo measurement ltv customer cust_abc123 --json

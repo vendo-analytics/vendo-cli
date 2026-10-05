@@ -1,0 +1,29 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo whoami --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "accountId": "acct-alpha",
+    "accountName": "Demo Account (synthetic)",
+    "accountSlug": "demo-account",
+    "pictureUrl": null,
+    "apiKeyId": "key_fake_0001",
+    "scopes": [],
+    "bigquery": {
+      "projectId": "demo-project",
+      "prodDatasetId": "demo_prod",
+      "sourceDatasetId": "demo_source"
+    }
+  },
+  "config": {
+    "selectedProfile": "alpha",
+    "apiKeySource": "profile",
+    "baseUrl": "[stub]",
+    "baseUrlSource": "profile",
+    "accountId": "acct-alpha",
+    "accountIdSource": "profile"
+  }
+}

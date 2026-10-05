@@ -1,0 +1,46 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement ltv cohort 2026-08-01 --json
+exit: 0
+--- stdout ---
+{
+  "cohort_period": "2026-08-01",
+  "cohort_granularity": "monthly",
+  "segment_key": "all",
+  "cohort_size": 1200,
+  "retention_matrix": [
+    {
+      "period_offset_days": 0,
+      "retained_customers": 1200,
+      "retained_revenue": 51000,
+      "retention_rate": 1
+    },
+    {
+      "period_offset_days": 30,
+      "retained_customers": 300,
+      "retained_revenue": 12750,
+      "retention_rate": 0.25
+    }
+  ],
+  "cumulative_curve": [
+    {
+      "period_offset_days": 0,
+      "cumulative_gross_revenue": 51000,
+      "cumulative_revenue_after_cogs": 40800
+    },
+    {
+      "period_offset_days": 30,
+      "cumulative_gross_revenue": 63750,
+      "cumulative_revenue_after_cogs": 51000
+    }
+  ],
+  "prediction": {
+    "method": "naive_decay",
+    "ltv_30d_predicted": 42.5,
+    "ltv_90d_predicted": 85.25,
+    "ltv_12m_predicted": null,
+    "metadata": null,
+    "computed_at": null
+  }
+}

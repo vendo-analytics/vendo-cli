@@ -1,0 +1,7 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo logout --all --yes
+exit: 0
+--- stdout ---
+Done: Logged out. All profiles removed.

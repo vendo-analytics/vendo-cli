@@ -1,0 +1,9 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources create --app a0000001-0000-4000-8000-000000000001 --sync-type shopify --import-tasks orders
+exit: 0
+--- stdout ---
+Done: Source shopify (50000003...) created.
+  App: a0000001-0000-4000-8000-000000000001
+  State: active

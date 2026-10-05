@@ -1,0 +1,23 @@
+---
+source: tests/cli/snapshots.rs
+---
+Trigger a manual sync
+
+Usage: vendo integrations sync [OPTIONS] <integrationId>
+
+Arguments:
+  <integrationId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+      --watch           Watch the job until it completes
+      --dry-run         Preview the action without executing
+      --output <field>  Print a single field (e.g. id for job ID)
+  -h, --help            Print help
+
+Examples:
+  $ vendo integrations sync <integrationId>
+  $ vendo int sync <integrationId> --watch
+  $ vendo integrations sync <integrationId> --dry-run

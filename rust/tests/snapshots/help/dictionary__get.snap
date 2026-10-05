@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+Look up one catalog definition by the subject ID from list or search, or an alias such as event:<name>
+
+Usage: vendo dictionary get [OPTIONS] <subjectId>
+
+Arguments:
+  <subjectId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help
+
+Examples:
+  $ vendo dictionary get <subjectId>
+  $ vendo dictionary get event:checkout_completed
+  $ vendo dictionary get event:checkout_completed --json

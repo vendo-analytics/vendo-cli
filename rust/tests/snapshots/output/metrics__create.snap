@@ -1,0 +1,12 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo metrics create --name 'Demo metric' --definition [home]/demo.query.json
+exit: 0
+--- stdout ---
+
+✓ Metric "Demo metric" created
+  ID:     8b3e4c1a-3333-4c3b-9a7e-000000000003
+  Status: draft
+
+  The calculation could not compile. Update its definition before activating it.

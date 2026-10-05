@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo integrations get c0000002-0000-4000-8000-000000000002
+exit: 0
+--- stdout ---
+
+Demo Ads → Demo Warehouse (ad_performance)
+
+  ID:            c0000002-0000-4000-8000-000000000002
+  Source App:    Demo Ads a0000002-0000-4000-8000-000000000002
+  Dest App:     Demo Warehouse a0000003-0000-4000-8000-000000000003
+  Data Type:    ad_performance
+  State:        inactive
+  Status:       paused
+  Progress:     —
+  Last Sync:    1/5/2026
+  Created:      1/2/2026
+  Error:        Destination dataset is missing (synthetic)
+  Failures:     1 consecutive

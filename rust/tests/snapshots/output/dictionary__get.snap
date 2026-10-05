@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo dictionary get source:11111111-2222-4333-8444-555555555555/table:customers/col:email
+exit: 0
+--- stdout ---
+
+Customer email (column)
+
+  Subject:      source:11111111-2222-4333-8444-555555555555/table:customers/col:email
+  Type:         column
+  Display:      Customer email
+  Data type:    string
+  Semantic:     email
+  Origin:       bq_schema
+  Status:       active
+  Last seen:    3d ago
+  Tags:         pii, crm
+
+  Lowercased email of the latest customer record

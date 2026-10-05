@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+Activate a draft metric
+
+Usage: vendo metrics activate [OPTIONS] <metricId>
+
+Arguments:
+  <metricId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help
+
+Examples:
+  $ vendo metrics activate <metricId>

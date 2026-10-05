@@ -1,0 +1,51 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo integrations get c0000001-0000-4000-8000-000000000001 --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "c0000001-0000-4000-8000-000000000001",
+    "accountId": "acct-alpha",
+    "sourceAppId": "a0000001-0000-4000-8000-000000000001",
+    "sourceAppName": "Demo Shop",
+    "sourceAppType": "shopify",
+    "destinationAppId": "a0000003-0000-4000-8000-000000000003",
+    "destinationAppName": "Demo Warehouse",
+    "destinationAppType": "bigquery",
+    "dataType": "orders",
+    "config": {
+      "dataset": "demo_exports"
+    },
+    "schedule": {
+      "frequency_value": 6,
+      "frequency_unit": "hours"
+    },
+    "state": "active",
+    "status": "active",
+    "isActive": true,
+    "lastSyncAt": "[now-2h30m]",
+    "lastError": null,
+    "consecutiveFailures": 0,
+    "importDependencyStatus": null,
+    "latestJobId": "b0000003-0000-4000-8000-000000000003",
+    "createdAt": "2026-01-02T08:00:00.000Z",
+    "updatedAt": "2026-01-05T09:07:03.000Z",
+    "sourceApp": {
+      "id": "a0000001-0000-4000-8000-000000000001",
+      "displayName": "Demo Shop",
+      "appType": "shopify",
+      "state": "active"
+    },
+    "destinationApp": {
+      "id": "a0000003-0000-4000-8000-000000000003",
+      "displayName": "Demo Warehouse",
+      "appType": "bigquery",
+      "state": "active"
+    },
+    "importDependencyCheckedAt": null,
+    "triggeredImportJobIds": null,
+    "historicalSyncStartDate": "2025-01-01"
+  }
+}

@@ -1,0 +1,16 @@
+---
+source: tests/cli/snapshots.rs
+---
+Update the Vendo CLI using the hosted installer
+
+Usage: vendo self-update [OPTIONS]
+
+Options:
+      --profile <name>     Use a specific account profile
+      --version <version>  Install a specific version
+      --debug              Enable verbose request diagnostics
+  -h, --help               Print help
+
+Examples:
+  $ vendo self-update
+  $ vendo self-update --version 0.3.0

@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+Browse the data dictionary catalog
+
+Usage: vendo dictionary [OPTIONS] <COMMAND>
+
+Commands:
+  list    List catalog definitions (events by default)
+  search  Search one subject type by text in subject ID, name and description
+  get     Look up one catalog definition by the subject ID from list or search, or an alias such as event:<name>
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help

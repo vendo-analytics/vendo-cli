@@ -1,0 +1,12 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps diagnose
+exit: 0
+--- stdout ---
+
+Broken access:
+  ✗ Demo Ads (a0000002..., google_ads) — reconnect required: OAuth token expired (synthetic)
+
+Connected but unused:
+  ! Demo Ads (a0000002..., google_ads) — no destination configured

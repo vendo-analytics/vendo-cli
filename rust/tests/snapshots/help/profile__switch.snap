@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+Switch to a different profile
+
+Usage: vendo profile switch [OPTIONS] [profile]
+
+Arguments:
+  [profile]  
+
+Options:
+      --account <accountId>  Switch by account ID instead of profile name
+      --profile <name>       Use a specific account profile
+      --debug                Enable verbose request diagnostics
+  -h, --help                 Print help
+
+Examples:
+  $ vendo profile switch
+  $ vendo profile switch myprofile
+  $ vendo profile switch --account <accountId>

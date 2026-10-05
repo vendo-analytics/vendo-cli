@@ -1,0 +1,12 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo jobs list
+exit: 0
+--- stdout ---
+ ID           Type    Connector   Status     Progress                                        Started   Duration 
+ b0000001...  import  shopify     running    40% · chunk 2/4 · 12,000 read · 11,800 written  2h ago    2h       
+ b0000002...  export  bigquery    queued     queued                                          3h ago    —        
+ b0000003...  export  bigquery    completed  100% · 1,234,567 rows                           1/5/2026  1h       
+ b0000004...  import  google_ads  failed     0 rows                                          1/4/2026  42s      
+4 jobs

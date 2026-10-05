@@ -1,0 +1,33 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo dictionary search customer --type column --json
+exit: 0
+--- stdout ---
+{
+  "data": [
+    {
+      "subjectId": "source:11111111-2222-4333-8444-555555555555/table:customers/col:email",
+      "subjectType": "column",
+      "displayName": "Customer email",
+      "description": "Lowercased email of the latest customer record",
+      "dataType": "string",
+      "semanticType": "email",
+      "tags": [
+        "pii",
+        "crm"
+      ],
+      "origin": "bq_schema",
+      "lastSeenAt": "[now-3d12h]",
+      "status": "active"
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "total": 1,
+      "limit": 20,
+      "offset": 0,
+      "hasMore": false
+    }
+  }
+}

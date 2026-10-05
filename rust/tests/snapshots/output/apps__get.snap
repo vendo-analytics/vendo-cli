@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps get a0000002-0000-4000-8000-000000000002
+exit: 0
+--- stdout ---
+
+Demo Ads (google_ads)
+
+  ID:          a0000002-0000-4000-8000-000000000002
+  Type:        google_ads
+  Capability:  source, destination
+  Permissions: performance_data, send_conversions
+  State:       active
+  Status:      reconnect required (checked 1/6/2026)
+  Reason:      OAuth token expired (synthetic)
+  Last Sync:   1/5/2026
+  Created:     1/2/2026
+  Error:       Token expired for the synthetic test account
+  Failures:    2 consecutive

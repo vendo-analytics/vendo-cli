@@ -1,0 +1,24 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement methodologies get m-account-2-with-a-long-id --json
+exit: 0
+--- stdout ---
+{
+  "id": "m-account-2-with-a-long-id",
+  "account_id": "acct-1",
+  "name": "Blended",
+  "description": "Click path and survey",
+  "click_path_model": "linear",
+  "ensemble_weights": {
+    "2": 5,
+    "click_path": 0.7,
+    "survey_response_share": 0.3333333,
+    "mmm": null
+  },
+  "signal_params": null,
+  "is_system": false,
+  "version": 3,
+  "created_at": null,
+  "updated_at": null
+}

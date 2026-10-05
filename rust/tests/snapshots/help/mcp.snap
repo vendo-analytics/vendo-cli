@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo
+
+Usage: vendo mcp [OPTIONS]
+
+Options:
+      --json            Output only the mcpServers JSON block
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+      --show-key        Embed your actual API key instead of a ${VENDO_API_KEY} placeholder
+  -h, --help            Print help
+
+Examples:
+  $ vendo mcp
+  $ vendo mcp --json
+  $ vendo mcp --show-key

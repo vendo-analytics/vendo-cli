@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo jobs get b0000003-0000-4000-8000-000000000003
+exit: 0
+--- stdout ---
+
+export job (bigquery)
+
+  ID:            b0000003-0000-4000-8000-000000000003
+  Status:        completed
+  Progress:      100% · 1,234,567 rows
+  Type:          export
+  Connector:     bigquery
+  Started:       1/5/2026
+  Duration:      1h
+  Rows Read:     1,234,567
+  Rows Written:  1,234,567
+  Integration:   c0000001-0000-4000-8000-000000000001
+  Execution:     full
+  Finished:      1/5/2026

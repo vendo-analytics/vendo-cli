@@ -1,0 +1,25 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo jobs get b0000004-0000-4000-8000-000000000004
+exit: 0
+--- stdout ---
+
+import job (google_ads)
+
+  ID:            b0000004-0000-4000-8000-000000000004
+  Status:        failed
+  Progress:      0 rows
+  Type:          import
+  Connector:     google_ads
+  Started:       1/4/2026
+  Duration:      42s
+  Rows Read:     0
+  Rows Written:  0
+  Source:        50000002-0000-4000-8000-000000000002
+  Execution:     incremental
+  Finished:      1/4/2026
+
+  Error:  Google Ads rejected the synthetic test account's token (refresh needed)
+  Code:   AUTH_EXPIRED
+  Category: auth

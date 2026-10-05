@@ -1,0 +1,19 @@
+---
+source: tests/cli/snapshots.rs
+---
+Get metric details
+
+Usage: vendo metrics get [OPTIONS] <metricId>
+
+Arguments:
+  <metricId>  
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help
+
+Examples:
+  $ vendo metrics get <metricId>
+  $ vendo metrics get <metricId> --json

@@ -1,0 +1,16 @@
+---
+source: tests/cli/snapshots.rs
+---
+Run local configuration and connectivity checks
+
+Usage: vendo doctor [OPTIONS]
+
+Options:
+      --json            Output raw JSON
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
+  -h, --help            Print help
+
+Examples:
+  $ vendo doctor
+  $ vendo doctor --json
