@@ -130,7 +130,7 @@ async function resolvePermissionsForRoles(
       if (perms.size === 0) {
         throw new Error(
           `App type "${appType}" does not support the requested role(s): ${roles.join(', ')}. ` +
-            `Check \'vendo catalog get ${appType}\' for its supported roles.`,
+            `Check 'vendo catalog get ${appType}' for its supported roles.`,
         );
       }
       return [...perms];

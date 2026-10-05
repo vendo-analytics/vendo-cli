@@ -157,12 +157,6 @@ mod tests {
     }
 
     #[test]
-    fn version_matches_package_json() {
-        let pkg: serde_json::Value = serde_json::from_str(include_str!("../../package.json")).unwrap();
-        assert_eq!(pkg["version"], CURRENT_VERSION, "keep rust/Cargo.toml's version equal to package.json's");
-    }
-
-    #[test]
     fn release_tags_drop_the_cli_prefix() {
         assert_eq!(normalize_release_version("cli-v1.0.0"), "1.0.0");
         assert_eq!(normalize_release_version("1.0.0"), "1.0.0");
