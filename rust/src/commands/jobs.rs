@@ -3,15 +3,14 @@
 use std::{process::ExitCode, time::Duration};
 
 use anyhow::Result;
-use serde_json::Value;
 
 use crate::{
     client::payload,
     context::Ctx,
     jobs::{Job, format_job_duration, format_job_progress, job_detail_lines, job_error_lines},
     output::{
-        OutputMode, arg_error, bold, color_status, confirm, dim, print_count, print_dry_run, print_field, print_json,
-        print_success, resolve_output_mode, run_action, short_id, table, time_ago,
+        OutputMode, arg_error, bold, color_status, confirm, dim, print_dry_run, print_field, print_json,
+        print_list_count, print_success, resolve_output_mode, run_action, short_id, table, time_ago,
     },
     watch::{self, MAX_WAIT, NextJob, ResourceKind, Terminal, WatchScope},
 };
@@ -64,8 +63,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
                 ]);
             }
             println!("{grid}");
-            let total = res.pointer("/meta/pagination/total").and_then(Value::as_u64).unwrap_or(rows.len() as u64);
-            print_count(total, "job");
+            print_list_count(&res, rows.len(), "job");
         }
     }
     Ok(())
@@ -82,7 +80,7 @@ pub async fn get(ctx: &Ctx, job_id: &str, json: bool) -> Result<()> {
     println!();
     println!(
         "{} {}",
-        bold(&format!("{} job", job.text("jobType").unwrap_or_else(|| "undefined".into()))),
+        bold(&format!("{} job", job.template("jobType"))),
         dim(&format!("({})", job.text("connectorType").unwrap_or_else(|| "unknown".into())))
     );
     println!();

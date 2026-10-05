@@ -9,10 +9,11 @@ use serde_json::{Map, Value, json};
 use crate::{
     commands::pipeline_resource::js_number_value,
     context::Ctx,
-    js_text::{cell, cell_or, format_number_of, length_of, template, template_or, time_ago_of},
+    js_text::{cell, cell_or, length_of, template, template_or, time_ago_of},
     output::{
         OutputMode, arg_error, bold, cyan, dim, format_number, green, js_number, js_number_string, js_string,
-        js_truthy, print_count, print_field, print_json, red, resolve_output_mode, run_action, short_id, table, yellow,
+        js_truthy, print_count, print_field, print_json, red, resolve_output_mode, run_action, short_id, table,
+        to_locale_number, yellow,
     },
     web_app,
 };
@@ -245,7 +246,7 @@ pub fn render_methodology(row: &Value) -> String {
         lines.push(bold("  Ensemble weights:"));
         for key in keys {
             let weight = key_value(&weights, &key).filter(|w| !w.is_null()).cloned().unwrap_or(json!(0));
-            lines.push(format!("    {}  {}", pad_end(&key, 12), format_number_of(Some(&weight))));
+            lines.push(format!("    {}  {}", pad_end(&key, 12), format_number(Some(&weight))));
         }
     }
     lines.iter().map(|line| format!("{line}\n")).collect()
@@ -342,7 +343,7 @@ pub async fn ltv_list(ctx: &Ctx, args: LtvListArgs) -> Result<()> {
         grid.add_row(vec![
             cell(row.get("cohort_period")),
             cell(row.get("segment_key")),
-            format_number_of(row.get("cohort_size")),
+            format_number(row.get("cohort_size")),
             fmt_money(realised("ltv_30d")),
             fmt_money(realised("ltv_90d")),
             fmt_money(realised("ltv_12m")),
@@ -382,9 +383,9 @@ pub fn render_cohort(row: &Value) -> String {
             dim(&format!("({}, segment={})", t("cohort_granularity"), t("segment_key")))
         ),
         String::new(),
-        format!("  Size:           {}", format_number_of(row.get("cohort_size"))),
-        format!("  Retention pts:  {}", format_number(Some(length_of(row.get("retention_matrix"))))),
-        format!("  Curve points:   {}", format_number(Some(length_of(row.get("cumulative_curve"))))),
+        format!("  Size:           {}", format_number(row.get("cohort_size"))),
+        format!("  Retention pts:  {}", to_locale_number(length_of(row.get("retention_matrix")))),
+        format!("  Curve points:   {}", to_locale_number(length_of(row.get("cumulative_curve")))),
     ];
     if let Some(last) = curve.last() {
         let or_zero = |key: &str| last.get(key).filter(|v| !v.is_null()).cloned().unwrap_or(json!(0));
@@ -452,7 +453,7 @@ pub fn render_customer(customer_id: &str, res: &Value) -> String {
     lines.push(format!("    full:          {}", fmt_money(realised("ltv_full"))));
     lines.push(dim("    after-COGS variants in --json"));
     lines.push(String::new());
-    lines.push(format!("  Revenue points:  {}", format_number(Some(length_of(res.get("revenue"))))));
+    lines.push(format!("  Revenue points:  {}", to_locale_number(length_of(res.get("revenue")))));
     lines.iter().map(|line| format!("{line}\n")).collect()
 }
 
@@ -513,7 +514,7 @@ pub fn render_click_path(status: &Value) -> String {
         String::new(),
         format!("  Enabled:        {}", if truthy(status.get("enabled")) { green("yes") } else { red("no") }),
         format!("  Last computed:  {}", time_ago_of(status.get("lastComputedAt"))),
-        format!("  Sample rows:    {}", format_number(Some(length_of(status.get("sampleEstimates"))))),
+        format!("  Sample rows:    {}", to_locale_number(length_of(status.get("sampleEstimates")))),
     ];
     let readiness = status.get("readiness");
     let items = readiness.and_then(|r| r.get("readiness")).and_then(Value::as_array).filter(|items| !items.is_empty());

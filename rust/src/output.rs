@@ -196,15 +196,138 @@ pub fn time_ago_at(value: Option<&str>, now: jiff::Timestamp) -> String {
     to_locale_date_string(then_ms)
 }
 
+/// `id.length > 12 ? id.slice(0, 8) + '...' : id`, in UTF-16 units like JavaScript.
 pub fn short_id(id: &str) -> String {
-    if id.chars().count() > 12 { format!("{}...", id.chars().take(8).collect::<String>()) } else { id.to_string() }
+    if js_length(id) > 12 { format!("{}...", js_slice(id, 8)) } else { id.to_string() }
+}
+
+/// A string's `length`: UTF-16 code units.
+pub fn js_length(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+
+/// `s.slice(0, end)` in UTF-16 units. A surrogate pair cut in half leaves a lone surrogate,
+/// which Node prints as U+FFFD.
+pub fn js_slice(s: &str, end: usize) -> String {
+    let units: Vec<u16> = s.encode_utf16().take(end).collect();
+    String::from_utf16_lossy(&units)
 }
 
 /// `formatNumber`: `n.toLocaleString()` in the user's locale (see [`locale`]), a dash for none.
-pub fn format_number(n: Option<f64>) -> String {
-    match n {
-        Some(n) => locale::with_current(|format| format.number(n)),
+pub fn format_number(n: Option<&Value>) -> String {
+    match n.filter(|v| !v.is_null()) {
+        Some(value) => js_to_locale_string(value),
         None => dim("—"),
+    }
+}
+
+/// `n.toLocaleString()` for a JavaScript number, in the user's locale.
+pub fn to_locale_number(n: f64) -> String {
+    locale::with_current(|format| format.number(n))
+}
+
+/// `value.toLocaleString()`: numbers in the user's locale, strings as they are, arrays element by
+/// element joined with ",", objects as `[object Object]`.
+pub fn js_to_locale_string(value: &Value) -> String {
+    match value {
+        Value::Number(n) => to_locale_number(js_number_of(n)),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| if item.is_null() { String::new() } else { js_to_locale_string(item) })
+            .collect::<Vec<_>>()
+            .join(","),
+        other => js_string(other),
+    }
+}
+
+/// `${object.field}`: `undefined` when the field is missing, else `String(value)`.
+pub fn js_template(value: Option<&Value>) -> String {
+    value.map(js_string).unwrap_or_else(|| "undefined".to_string())
+}
+
+/// `a ?? b`.
+pub fn js_nullish<'a>(a: Option<&'a Value>, b: Option<&'a Value>) -> Option<&'a Value> {
+    a.filter(|v| !v.is_null()).or(b)
+}
+
+/// `items.join(sep)`: null elements are empty.
+pub fn js_join(items: &[Value], sep: &str) -> String {
+    items.iter().map(|item| if item.is_null() { String::new() } else { js_string(item) }).collect::<Vec<_>>().join(sep)
+}
+
+/// `colorStatus(status)` in a template: the known statuses coloured, anything else as is.
+pub fn js_color_status(value: Option<&Value>) -> String {
+    match value {
+        Some(Value::String(status)) => color_status(status),
+        other => js_template(other),
+    }
+}
+
+/// `if (value)`: the value as a string when truthy.
+pub fn js_if(value: Option<&Value>) -> Option<String> {
+    value.filter(|v| js_truthy(v)).map(js_string)
+}
+
+/// The failure counters: `value && value > 0 ? String(value) : …`.
+pub fn js_positive(value: Option<&Value>) -> Option<String> {
+    value.filter(|v| js_truthy(v) && js_greater_than(v, 0.0)).map(js_string)
+}
+
+/// `printLabel(label, colorStatus(value))`: no line when the status is null or missing.
+pub fn print_status_label(label: &str, value: Option<&Value>) {
+    if let Some(status) = value.filter(|v| !v.is_null()) {
+        println!("  {label}: {}", js_color_status(Some(status)));
+    }
+}
+
+/// The list footer, `printCount(res.meta?.pagination?.total ?? res.data.length, label)`.
+pub fn print_list_count(res: &Value, rows: usize, label: &str) {
+    println!("{}", dim(&list_count(res, rows, label)));
+}
+
+/// `${count} ${label}${count === 1 ? '' : 's'}`: the total as JavaScript prints it, singular only
+/// for the number 1 (a total sent as the string "1" is plural).
+fn list_count(res: &Value, rows: usize, label: &str) -> String {
+    let total =
+        res.pointer("/meta/pagination/total").filter(|v| !v.is_null()).cloned().unwrap_or_else(|| Value::from(rows));
+    let plural = if matches!(&total, Value::Number(n) if js_number_of(n) == 1.0) { "" } else { "s" };
+    format!("{} {label}{plural}", js_string(&total))
+}
+
+/// JavaScript `ToNumber` (objects become NaN, arrays go through their string form).
+pub fn js_to_number(value: &Value) -> f64 {
+    match value {
+        Value::Null => 0.0,
+        Value::Bool(b) => f64::from(u8::from(*b)),
+        Value::Number(n) => js_number_of(n),
+        Value::String(s) => js_number(s),
+        Value::Array(_) => js_number(&js_string(value)),
+        Value::Object(_) => f64::NAN,
+    }
+}
+
+/// `value > n` for a number `n`.
+pub fn js_greater_than(value: &Value, n: f64) -> bool {
+    js_to_number(value) > n
+}
+
+/// `value + 1`: concatenation when the value is a string (or becomes one), else addition.
+pub fn js_plus_one(value: &Value) -> String {
+    match value {
+        Value::String(_) | Value::Array(_) | Value::Object(_) => format!("{}1", js_string(value)),
+        other => js_number_string(js_to_number(other) + 1.0),
+    }
+}
+
+/// `a === b` for JSON values: numbers by value, strings and booleans exactly, and arrays or
+/// objects never (they are different objects).
+pub fn js_strict_equals(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => js_number_of(x) == js_number_of(y),
+        (Value::String(x), Value::String(y)) => x == y,
+        (Value::Bool(x), Value::Bool(y)) => x == y,
+        (Value::Null, Value::Null) => true,
+        _ => false,
     }
 }
 
@@ -808,11 +931,11 @@ mod tests {
 
     #[test]
     fn format_number_matches_en_us_to_locale_string() {
-        assert_eq!(format_number(Some(1234567.0)), "1,234,567");
-        assert_eq!(format_number(Some(0.0)), "0");
-        assert_eq!(format_number(Some(0.4)), "0.4");
-        assert_eq!(format_number(Some(1234.5678)), "1,234.568");
-        assert_eq!(format_number(Some(-1234.0)), "-1,234");
+        assert_eq!(format_number(Some(&json!(1234567.0))), "1,234,567");
+        assert_eq!(format_number(Some(&json!(0.0))), "0");
+        assert_eq!(format_number(Some(&json!(0.4))), "0.4");
+        assert_eq!(format_number(Some(&json!(1234.5678))), "1,234.568");
+        assert_eq!(format_number(Some(&json!(-1234.0))), "-1,234");
         assert!(format_number(None).contains('—'));
     }
 
@@ -1064,8 +1187,8 @@ mod tests {
         // Under `cargo test` the locale is en-US, whatever LANG is.
         let old = time_ago_at(Some("2026-01-01T12:00:00Z"), at("2026-03-15T12:00:00Z"));
         assert_eq!(old, to_locale_date_string(js_date_parse("2026-01-01T12:00:00Z").unwrap()));
-        assert_eq!(format_number(Some(1.0005)), "1.001");
-        assert_eq!(format_number(Some(-0.0)), "-0");
+        assert_eq!(format_number(Some(&json!(1.0005))), "1.001");
+        assert_eq!(format_number(Some(&json!(-0.0))), "-0");
     }
 
     /// A body as a Node server writes it (`JSON.stringify`) and what `node dist/cli.js … --json`
@@ -1135,5 +1258,83 @@ mod tests {
             js_stringify(&camel_case_keys_deep(&value)),
             r#"{"2":7,"frequencyValue":1,"a_B":2,"x1":3,"Leading":4,"trailing_":5,"UPPER_CASE":6,"nested":{"runNowAt":[{"fG":1}]}}"#
         );
+    }
+
+    #[test]
+    fn javascript_coercions_match_node() {
+        let cases: Vec<(Value, &str, bool, bool, &str)> = vec![
+            // value, `v + 1`, `v > 1`, `v > 0`, `v.toLocaleString()` (from Node)
+            (json!(5), "6", true, true, "5"),
+            (json!("5"), "51", true, true, "5"),
+            (json!("abc"), "abc1", false, false, "abc"),
+            (json!(""), "1", false, false, ""),
+            (json!(true), "2", false, true, "true"),
+            (json!(false), "1", false, false, "false"),
+            (json!(null), "1", false, false, ""),
+            (json!([3]), "31", true, true, "3"),
+            (json!([1, 2]), "1,21", false, false, "1,2"),
+            (json!({}), "[object Object]1", false, false, "[object Object]"),
+            (json!(2.5), "3.5", true, true, "2.5"),
+            (json!("0x10"), "0x101", true, true, "0x10"),
+            (json!(" 7 "), " 7 1", true, true, " 7 "),
+        ];
+        for (value, plus_one, gt_one, gt_zero, locale) in cases {
+            assert_eq!(js_plus_one(&value), plus_one, "{value} + 1");
+            assert_eq!(js_greater_than(&value, 1.0), gt_one, "{value} > 1");
+            assert_eq!(js_greater_than(&value, 0.0), gt_zero, "{value} > 0");
+            if !value.is_null() {
+                assert_eq!(js_to_locale_string(&value), locale, "{value}.toLocaleString()");
+            }
+        }
+        assert_eq!(js_to_locale_string(&json!([1234.5, null, "x", [5678]])), "1,234.5,,x,5,678");
+        assert_eq!(format_number(Some(&json!("1234"))), "1234");
+        assert_eq!(format_number(Some(&json!(1234.5))), "1,234.5");
+        assert!(format_number(Some(&Value::Null)).contains('—') && format_number(None).contains('—'));
+    }
+
+    #[test]
+    fn templates_joins_and_equality_follow_javascript() {
+        assert_eq!(js_template(None), "undefined");
+        assert_eq!(js_template(Some(&json!(null))), "null");
+        assert_eq!(js_template(Some(&json!(1.0))), "1");
+        assert_eq!(
+            js_join(&[json!(1), json!(null), json!("a"), json!(2.5), json!([3, null])], ", "),
+            "1, , a, 2.5, 3,"
+        );
+        assert_eq!(js_nullish(Some(&json!(null)), Some(&json!("b"))), Some(&json!("b")));
+        assert_eq!(js_nullish(Some(&json!("")), Some(&json!("b"))), Some(&json!("")));
+        assert_eq!(js_nullish(None, None), None);
+        assert!(js_strict_equals(&json!(5), &json!(5.0)) && js_strict_equals(&json!(null), &json!(null)));
+        assert!(!js_strict_equals(&json!("5"), &json!(5)) && !js_strict_equals(&json!([1]), &json!([1])));
+        assert_eq!(js_color_status(Some(&json!("active"))), "active");
+        assert_eq!(js_color_status(None), "undefined");
+        assert_eq!(js_color_status(Some(&json!(null))), "null");
+    }
+
+    #[test]
+    fn list_footers_print_the_total_as_javascript_does() {
+        let footer = |meta: Value| list_count(&json!({ "data": [], "meta": meta }), 3, "app");
+        assert_eq!(footer(json!({ "pagination": { "total": 1 } })), "1 app");
+        assert_eq!(footer(json!({ "pagination": { "total": 1.0 } })), "1 app");
+        assert_eq!(footer(json!({ "pagination": { "total": "1" } })), "1 apps");
+        assert_eq!(footer(json!({ "pagination": { "total": 2.5 } })), "2.5 apps");
+        assert_eq!(footer(json!({ "pagination": { "total": 0 } })), "0 apps");
+        assert_eq!(footer(json!({ "pagination": { "total": "12" } })), "12 apps");
+        assert_eq!(footer(json!({ "pagination": { "total": null } })), "3 apps");
+        assert_eq!(footer(json!({ "pagination": [] })), "3 apps");
+        assert_eq!(footer(json!(null)), "3 apps");
+        assert_eq!(list_count(&json!({ "data": [{}] }), 1, "job"), "1 job");
+    }
+
+    #[test]
+    fn short_ids_count_utf16_units_like_javascript() {
+        assert_eq!(short_id("ab\u{1f600}cdefghijklmnop"), "ab\u{1f600}cdef...");
+        // slice(0, 8) can split a surrogate pair; Node prints the lone half as U+FFFD.
+        assert_eq!(short_id("abcdefg\u{1f600}xyzw"), "abcdefg\u{fffd}...");
+        // Six emoji are 12 units, so unchanged; seven are cut after four.
+        assert_eq!(short_id(&"\u{1f600}".repeat(6)), "\u{1f600}".repeat(6));
+        assert_eq!(short_id(&"\u{1f600}".repeat(7)), format!("{}...", "\u{1f600}".repeat(4)));
+        assert_eq!(js_slice("ab\u{1f600}cd", 3), "ab\u{fffd}");
+        assert_eq!(js_length("ab\u{1f600}"), 4);
     }
 }

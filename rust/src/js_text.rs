@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-use crate::output::{format_number, js_string, js_truthy, time_ago};
+use crate::output::{js_string, js_truthy, time_ago};
 
 /// `${value}` in a template literal (or a lone `console.log` argument):
 /// `undefined` when the key is missing, `null` for null.
@@ -44,16 +44,6 @@ pub fn time_ago_of(value: Option<&Value>) -> String {
         Some(Value::String(s)) => time_ago(Some(s)),
         Some(v) if js_truthy(v) => time_ago(Some(&js_string(v))),
         _ => time_ago(None),
-    }
-}
-
-/// The TS `formatNumber(value)`: the shared number format for numbers, a
-/// dimmed dash for null; other values print as `toLocaleString` leaves them.
-pub fn format_number_of(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => format_number(None),
-        Some(Value::Number(n)) => format_number(n.as_f64()),
-        Some(other) => js_string(other),
     }
 }
 
@@ -103,15 +93,11 @@ mod tests {
     }
 
     #[test]
-    fn falsy_dates_and_null_numbers_are_dashes() {
+    fn falsy_dates_are_dashes_and_lengths_count_arrays() {
         for falsy in [None, Some(json!(null)), Some(json!("")), Some(json!(0)), Some(json!(false))] {
             assert_eq!(time_ago_of(falsy.as_ref()), "—", "{falsy:?}");
         }
         assert_eq!(time_ago_of(Some(&json!("not a date"))), "Invalid Date");
-        assert_eq!(format_number_of(None), "—");
-        assert_eq!(format_number_of(Some(&json!(null))), "—");
-        assert_eq!(format_number_of(Some(&json!(12345))), "12,345");
-        assert_eq!(format_number_of(Some(&json!("12345"))), "12345");
         assert_eq!(length_of(Some(&json!([1, 2]))), 2.0);
         assert_eq!(length_of(None), 0.0);
     }

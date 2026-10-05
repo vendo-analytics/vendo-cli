@@ -9,8 +9,9 @@ use crate::{
     context::Ctx,
     jobs::{Job, format_job_progress},
     output::{
-        OutputMode, bold, color_status, dim, js_date_parse, js_iso_string, print_count, print_field, print_json,
-        print_label, print_success, red, resolve_output_mode, run_action, short_id, table, time_ago,
+        OutputMode, bold, color_status, dim, js_color_status, js_date_parse, js_if, js_iso_string, js_join, js_nullish,
+        js_positive, js_template, js_truthy, print_field, print_json, print_label, print_list_count,
+        print_status_label, print_success, red, resolve_output_mode, run_action, short_id, table, time_ago,
     },
     watch::{self, ResourceKind},
 };
@@ -19,8 +20,9 @@ fn text(v: &Value, key: &str) -> Option<String> {
     Job(v).text(key)
 }
 
-fn failures(v: &Value) -> Option<f64> {
-    v.get("consecutiveFailures").and_then(Value::as_f64).filter(|n| *n > 0.0)
+/// `consecutiveFailures && consecutiveFailures > 0`.
+fn failures(v: &Value) -> Option<String> {
+    js_positive(v.get("consecutiveFailures"))
 }
 
 pub struct ListArgs {
@@ -76,13 +78,12 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
             text(source, "syncType").unwrap_or_default(),
             color_status(&text(source, "integrationStatus").unwrap_or_default()),
             format_job_progress(active_by_source.get(&id).map(Job)),
-            failures(source).map(|n| red(&crate::output::js_number_string(n))).unwrap_or_else(|| dim("0")),
+            failures(source).map(|n| red(&n)).unwrap_or_else(|| dim("0")),
             time_ago(text(source, "lastSyncAt").as_deref()),
         ]);
     }
     println!("{grid}");
-    let total = res.pointer("/meta/pagination/total").and_then(Value::as_u64).unwrap_or(rows.len() as u64);
-    print_count(total, "source");
+    print_list_count(&res, rows.len(), "source");
     Ok(())
 }
 
@@ -108,16 +109,21 @@ pub async fn get(ctx: &Ctx, source_id: &str, json: bool) -> Result<()> {
 /// The `sources get` text view (the TS action's `console.log` lines).
 pub fn render_source(src: &Value, active: Option<&Value>) -> String {
     let t = |key: &str| text(src, key);
-    let sync_type = t("syncType").unwrap_or_default();
+    let field = |key: &str| src.get(key);
+    let sync_type = js_template(field("syncType"));
     let mut lines = vec![
         String::new(),
-        format!("{} {}", bold(&t("appName").unwrap_or_else(|| sync_type.clone())), dim(&format!("({sync_type})"))),
+        format!(
+            "{} {}",
+            bold(&js_template(js_nullish(field("appName"), field("syncType")))),
+            dim(&format!("({sync_type})"))
+        ),
         String::new(),
-        format!("  ID:          {}", t("id").unwrap_or_default()),
-        format!("  App:         {} {}", t("appName").unwrap_or_else(|| dim("—")), dim(&t("appId").unwrap_or_default())),
+        format!("  ID:          {}", js_template(field("id"))),
+        format!("  App:         {} {}", t("appName").unwrap_or_else(|| dim("—")), dim(&js_template(field("appId")))),
         format!("  Type:        {sync_type}"),
-        format!("  State:       {}", color_status(&t("state").unwrap_or_default())),
-        format!("  Status:      {}", color_status(&t("integrationStatus").unwrap_or_default())),
+        format!("  State:       {}", js_color_status(field("state"))),
+        format!("  Status:      {}", js_color_status(field("integrationStatus"))),
         format!("  Progress:    {}", format_job_progress(active.map(Job))),
         format!("  Frequency:   {}", t("syncFrequency").unwrap_or_else(|| dim("—"))),
         format!(
@@ -138,7 +144,7 @@ pub fn render_source(src: &Value, active: Option<&Value>) -> String {
                 .and_then(js_date_parse)
                 .map(js_iso_string);
             lines.push(format!("  Latest import checkpoint: {}", checkpoint.unwrap_or_else(|| "Not available".into())));
-            if let Some(p) = progress.filter(|p| p.is_object()) {
+            if let Some(p) = progress.filter(|p| js_truthy(p)) {
                 let n = |key: &str| p.get(key).map(crate::output::js_string).unwrap_or_else(|| "undefined".into());
                 lines.push(format!(
                     "  Enabled streams: {}/{} with checkpoints; {} need attention",
@@ -153,31 +159,23 @@ pub fn render_source(src: &Value, active: Option<&Value>) -> String {
     lines.push("  Record date range: Not measured".to_string());
     lines.push(format!("  Dataset:     {}", t("datasetId").unwrap_or_else(|| dim("—"))));
     lines.push(format!("  Created:     {}", time_ago(t("createdAt").as_deref())));
-    if let Some(error) = t("lastError").filter(|s| !s.is_empty()) {
+    if let Some(error) = js_if(field("lastError")) {
         lines.push(format!("  Error:       {}", red(&error)));
     }
     if let Some(n) = failures(src) {
-        lines.push(format!("  Failures:    {} consecutive", red(&crate::output::js_number_string(n))));
+        lines.push(format!("  Failures:    {} consecutive", red(&n)));
     }
-    if let Some(job) = t("latestJobId").filter(|s| !s.is_empty()) {
+    if let Some(job) = js_if(field("latestJobId")) {
         lines.push(format!("  Latest Job:  {}", dim(&job)));
     }
-    let tasks: Vec<String> = src
-        .get("importTasks")
-        .and_then(Value::as_array)
-        .map(|a| a.iter().map(crate::output::js_string).collect())
-        .unwrap_or_default();
-    if !tasks.is_empty() {
-        lines.push(format!("  Tasks:       {}", tasks.join(", ")));
+    if let Some(Value::Array(tasks)) = field("importTasks").filter(|t| matches!(t, Value::Array(a) if !a.is_empty())) {
+        lines.push(format!("  Tasks:       {}", js_join(tasks, ", ")));
     }
     lines.iter().map(|l| format!("{l}\n")).collect()
 }
 
 pub fn dry_run_fields(src: &Value) -> Vec<(&'static str, String)> {
-    vec![
-        ("Name", text(src, "appName").unwrap_or_else(|| "—".into())),
-        ("State", color_status(&text(src, "state").unwrap_or_default())),
-    ]
+    vec![("Name", text(src, "appName").unwrap_or_else(|| "—".into())), ("State", js_color_status(src.get("state")))]
 }
 
 pub struct CreateArgs {
@@ -213,21 +211,21 @@ pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
         return Ok(());
     }
     let src = payload(&res);
-    if src.is_null() {
+    if !js_truthy(src) {
         print_success("Source created.");
         return Ok(());
     }
     if mode == OutputMode::Field {
-        println!("{}", text(src, "id").unwrap_or_default());
+        println!("{}", js_template(src.get("id")));
         return Ok(());
     }
     print_success(&format!(
         "Source {} ({}) created.",
-        bold(&text(src, "syncType").unwrap_or_default()),
+        bold(&js_template(src.get("syncType"))),
         short_id(&text(src, "id").unwrap_or_default())
     ));
     print_label("App", src.get("appId"));
-    print_label("State", Some(&json!(color_status(&text(src, "state").unwrap_or_default()))));
+    print_status_label("State", src.get("state"));
     Ok(())
 }
 
@@ -323,5 +321,74 @@ mod tests {
         );
         assert!(out.contains("Latest import checkpoint: Not available"));
         assert!(!out.contains("Invalid Date"));
+    }
+
+    #[test]
+    fn get_prints_missing_and_null_fields_like_the_ts_cli() {
+        // Expected output from the TS CLI 0.3.1 run against a local stub with the same body (VE-3728).
+        let src = json!({
+            "id": "src-1", "appName": null, "syncType": null, "appId": null, "state": 5, "integrationStatus": null,
+            "importProgress": "x", "lastError": 0, "consecutiveFailures": "2", "latestJobId": "",
+            "importTasks": [null, "orders"],
+        });
+        assert_eq!(
+            render_source(&src, None),
+            "
+null (null)
+
+  ID:          src-1
+  App:         — null
+  Type:        null
+  State:       5
+  Status:      null
+  Progress:    —
+  Frequency:   —
+  Anchor:      — 
+  Last successful sync: —
+  Latest import checkpoint: Not available
+  Enabled streams: undefined/undefined with checkpoints; undefined need attention
+  Checkpoints describe import progress, not record dates or complete history.
+  Record date range: Not measured
+  Dataset:     —
+  Created:     —
+  Failures:    2 consecutive
+  Tasks:       , orders
+"
+        );
+        let src = json!({
+            "id": "src-2", "importProgress": null, "lastError": "bad", "latestJobId": "job-12345678901234",
+            "consecutiveFailures": 0, "importTasks": [],
+        });
+        assert_eq!(
+            render_source(&src, None),
+            "
+undefined (undefined)
+
+  ID:          src-2
+  App:         — undefined
+  Type:        undefined
+  State:       undefined
+  Status:      undefined
+  Progress:    —
+  Frequency:   —
+  Anchor:      — 
+  Last successful sync: —
+  Data access: Read in place; no import checkpoint
+  Record date range: Not measured
+  Dataset:     —
+  Created:     —
+  Error:       bad
+  Latest Job:  job-12345678901234
+"
+        );
+    }
+
+    #[test]
+    fn dry_run_rows_follow_javascript() {
+        assert_eq!(
+            dry_run_fields(&json!({ "appName": null, "state": 5 })),
+            [("Name", "—".into()), ("State", "5".into())]
+        );
+        assert_eq!(dry_run_fields(&json!({})), [("Name", "—".into()), ("State", "undefined".to_string())]);
     }
 }

@@ -10,7 +10,10 @@ use crate::{
     config::ConfigValueUpdates,
     context::Ctx,
     identity::{Identity, fetch_identity},
-    output::{bold, confirm, dim, green, print_error, print_json, print_success, run_action, yellow},
+    output::{
+        bold, confirm, dim, green, js_join, js_nullish, js_string, js_template, print_error, print_json, print_success,
+        run_action, yellow,
+    },
     profile_display::{
         SwitchOptions, format_profile_list_line, print_current_profile_summary, print_profile_list,
         switch_profile_selection,
@@ -125,27 +128,22 @@ pub async fn whoami(ctx: &Ctx, json: bool) -> Result<()> {
         return Ok(());
     }
 
+    // `${…}` of the `/me` fields, with the TS CLI's `??` fallbacks.
     let me = payload(&res);
-    let field = |key: &str| me.get(key).and_then(Value::as_str);
-    let account_id = field("accountId").unwrap_or_default();
-    let account = field("accountSlug").unwrap_or(account_id);
+    let field = |key: &str| me.get(key);
+    let account_id = field("accountId");
     println!();
-    println!("{}", bold(field("accountName").or(field("accountSlug")).unwrap_or(account_id)));
+    println!("{}", bold(&js_template(js_nullish(js_nullish(field("accountName"), field("accountSlug")), account_id))));
     println!();
-    println!("  Account:     {account}");
-    println!("  Account ID:  {account_id}");
+    println!("  Account:     {}", js_template(js_nullish(field("accountSlug"), account_id)));
+    println!("  Account ID:  {}", js_template(account_id));
     println!("  Profile:     {}", config.selected_profile.clone().unwrap_or_else(|| dim("none selected")));
     println!("  Base URL:    {}", config.base_url);
-    println!("  API Key:     {}", dim(field("apiKeyId").unwrap_or("unknown")));
-    let scopes: Vec<&str> = me
-        .get("scopes")
-        .and_then(Value::as_array)
-        .map(|s| s.iter().filter_map(Value::as_str).collect())
-        .unwrap_or_default();
-    if scopes.is_empty() {
-        println!("  Scopes:      {}", dim("full access"));
-    } else {
-        println!("  Scopes:      {}", scopes.join(", "));
+    let api_key_id = field("apiKeyId").filter(|v| !v.is_null()).map(js_string);
+    println!("  API Key:     {}", dim(api_key_id.as_deref().unwrap_or("unknown")));
+    match field("scopes") {
+        Some(Value::Array(scopes)) if !scopes.is_empty() => println!("  Scopes:      {}", js_join(scopes, ", ")),
+        _ => println!("  Scopes:      {}", dim("full access")),
     }
 
     let overrides = config.env_override_names();

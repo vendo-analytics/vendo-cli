@@ -5,7 +5,10 @@
 
 use serde_json::Value;
 
-use crate::output::{color_status, dim, format_number, js_string, red, short_id, time_ago};
+use crate::output::{
+    dim, format_number, js_color_status, js_greater_than, js_if, js_plus_one, js_strict_equals, js_string, js_template,
+    red, short_id, time_ago,
+};
 
 /// Read-only view over a job object from the API.
 #[derive(Clone, Copy)]
@@ -20,13 +23,19 @@ impl<'a> Job<'a> {
         }
     }
 
-    /// Present and non-empty (a JS truthiness check on strings).
+    /// `if (job[key])`: the field as JavaScript prints it, when truthy.
     fn truthy(&self, key: &str) -> Option<String> {
-        self.text(key).filter(|s| !s.is_empty())
+        js_if(self.0.get(key))
     }
 
-    pub fn num(&self, key: &str) -> Option<f64> {
-        self.0.get(key).and_then(Value::as_f64)
+    /// The field as sent, `None` when missing or null (`!= null`).
+    pub fn present(&self, key: &str) -> Option<&'a Value> {
+        self.0.get(key).filter(|v| !v.is_null())
+    }
+
+    /// `${job[key]}`: `undefined` when missing, `null` when null.
+    pub fn template(&self, key: &str) -> String {
+        js_template(self.0.get(key))
     }
 
     pub fn id(&self) -> String {
@@ -54,24 +63,29 @@ pub fn is_terminal(status: &str) -> bool {
     TERMINAL_STATUSES.contains(&status)
 }
 
-fn js_number(n: f64) -> String {
-    crate::output::js_number_string(n)
+/// `chunkIndex + 1` and `totalChunks` when both are set and `totalChunks > 1`, with JavaScript's
+/// coercions (a chunk index sent as a string concatenates: "1" + 1 is "11").
+fn chunk(job: Job) -> Option<(String, String)> {
+    let (index, total) = (job.present("chunkIndex")?, job.present("totalChunks")?);
+    js_greater_than(total, 1.0).then(|| (js_plus_one(index), js_string(total)))
 }
 
+/// `formatJobProgress`. Fields are used as sent: numbers sent as strings print unformatted, and
+/// read equals written only when both have the same type and value (`===`).
 pub fn format_job_progress(job: Option<Job>) -> String {
     let Some(job) = job else { return dim("—") };
     let mut parts = Vec::new();
 
-    if let Some(pct) = job.num("progressPct") {
-        parts.push(format!("{}%", js_number(pct)));
+    if let Some(pct) = job.present("progressPct") {
+        parts.push(format!("{}%", js_string(pct)));
     }
-    if let (Some(index), Some(total)) = (job.num("chunkIndex"), job.num("totalChunks"))
-        && total > 1.0
-    {
-        parts.push(format!("chunk {}/{}", js_number(index + 1.0), js_number(total)));
+    if let Some((index, total)) = chunk(job) {
+        parts.push(format!("chunk {index}/{total}"));
     }
-    match (job.num("rowsProcessed"), job.num("rowsWritten")) {
-        (Some(read), Some(written)) if read == written => parts.push(format!("{} rows", format_number(Some(read)))),
+    match (job.present("rowsProcessed"), job.present("rowsWritten")) {
+        (Some(read), Some(written)) if js_strict_equals(read, written) => {
+            parts.push(format!("{} rows", format_number(Some(read))))
+        }
         (Some(read), Some(written)) => {
             parts.push(format!("{} read", format_number(Some(read))));
             parts.push(format!("{} written", format_number(Some(written))));
@@ -123,8 +137,8 @@ pub fn format_job_duration_at(started_at: Option<&str>, finished_at: Option<&str
 pub fn job_detail_lines(job: Job) -> Vec<String> {
     let or_dash = |v: Option<String>| v.unwrap_or_else(|| dim("—"));
     let mut lines = vec![
-        format!("  ID:            {}", job.id()),
-        format!("  Status:        {}", color_status(&job.status())),
+        format!("  ID:            {}", job.template("id")),
+        format!("  Status:        {}", js_color_status(job.0.get("status"))),
         format!("  Progress:      {}", format_job_progress(Some(job))),
         format!("  Type:          {}", or_dash(job.text("jobType"))),
         format!("  Connector:     {}", or_dash(job.text("connectorType"))),
@@ -133,8 +147,8 @@ pub fn job_detail_lines(job: Job) -> Vec<String> {
             "  Duration:      {}",
             format_job_duration(job.text("startedAt").as_deref(), job.text("finishedAt").as_deref())
         ),
-        format!("  Rows Read:     {}", format_number(job.num("rowsProcessed"))),
-        format!("  Rows Written:  {}", format_number(job.num("rowsWritten"))),
+        format!("  Rows Read:     {}", format_number(job.present("rowsProcessed"))),
+        format!("  Rows Written:  {}", format_number(job.present("rowsWritten"))),
     ];
     if let Some(source) = job.truthy("sourceId") {
         lines.push(format!("  Source:        {}", dim(&source)));
@@ -151,10 +165,8 @@ pub fn job_detail_lines(job: Job) -> Vec<String> {
     if let Some(parent) = job.truthy("parentJobId") {
         lines.push(format!("  Parent Job:    {}", dim(&parent)));
     }
-    if let (Some(index), Some(total)) = (job.num("chunkIndex"), job.num("totalChunks"))
-        && total > 1.0
-    {
-        lines.push(format!("  Chunk:         {} of {}", js_number(index + 1.0), js_number(total)));
+    if let Some((index, total)) = chunk(job) {
+        lines.push(format!("  Chunk:         {index} of {total}"));
     }
     lines
 }
@@ -175,8 +187,8 @@ pub fn completed_job_summary(job: Job) -> String {
     format!(
         "Job {} completed. {} rows processed, {} written.",
         short_id(&job.id()),
-        format_number(job.num("rowsProcessed")),
-        format_number(job.num("rowsWritten"))
+        format_number(job.present("rowsProcessed")),
+        format_number(job.present("rowsWritten"))
     )
 }
 
@@ -272,5 +284,59 @@ mod tests {
         assert_eq!(job_error_lines(Job(&job)), ["  Error:  boom", "  Code:   E1"]);
         assert!(job_error_lines(Job(&json!({ "id": "x" }))).is_empty());
         assert_eq!(completed_job_summary(Job(&job)), "Job 550e8400... completed. 1,200 rows processed, 900 written.");
+    }
+
+    /// Values from the TS `formatJobProgress` and `createJobDetailLines` run in Node.
+    #[test]
+    fn progress_coerces_like_javascript() {
+        assert_eq!(
+            progress(
+                json!({ "status": "running", "progressPct": "45.5", "chunkIndex": "1", "totalChunks": "4", "rowsProcessed": "1200", "rowsWritten": "1200" })
+            ),
+            "45.5% · chunk 11/4 · 1200 rows"
+        );
+        assert_eq!(
+            progress(json!({ "status": "running", "rowsProcessed": 1200, "rowsWritten": "1200" })),
+            "1,200 read · 1200 written"
+        );
+        assert_eq!(
+            progress(json!({ "status": "running", "chunkIndex": 1, "totalChunks": "1", "rowsProcessed": [1234, 5] })),
+            "1,234,5 rows"
+        );
+        assert_eq!(
+            progress(
+                json!({ "status": "running", "progressPct": null, "chunkIndex": true, "totalChunks": 3, "rowsWritten": 2.5 })
+            ),
+            "chunk 2/3 · 2.5 written"
+        );
+    }
+
+    #[test]
+    fn detail_lines_print_undefined_and_null_like_javascript() {
+        let lines = job_detail_lines(Job(&json!({ "chunkIndex": "2", "totalChunks": 3 })));
+        assert_eq!(
+            (lines[0].as_str(), lines[1].as_str()),
+            ("  ID:            undefined", "  Status:        undefined")
+        );
+        assert_eq!(lines.last().unwrap(), "  Chunk:         21 of 3");
+        let lines = job_detail_lines(Job(&json!({ "id": null, "status": null, "chunkIndex": 2, "totalChunks": 3 })));
+        assert_eq!((lines[0].as_str(), lines[1].as_str()), ("  ID:            null", "  Status:        null"));
+        assert_eq!(lines.last().unwrap(), "  Chunk:         3 of 3");
+    }
+
+    #[test]
+    fn optional_rows_use_javascript_truthiness() {
+        // `if (job.errorCode)` and friends: 0 and false are falsy, as in the TS CLI.
+        let job = json!({ "errorMessage": "e", "errorCode": 0, "errorCategory": "c" });
+        assert_eq!(job_error_lines(Job(&job)), ["  Error:  e", "  Category: c"]);
+        assert!(job_error_lines(Job(&json!({ "errorMessage": 0, "errorCode": "E1" }))).is_empty());
+        let job = json!({ "id": "j-1", "sourceId": 0, "integrationId": false, "trigger": 5, "parentJobId": "" });
+        let lines = job_detail_lines(Job(&job));
+        assert!(lines.iter().any(|l| l == "  Trigger:       5"), "{lines:?}");
+        assert!(
+            !lines.iter().any(|l| l.starts_with("  Source:")
+                || l.starts_with("  Integration:")
+                || l.starts_with("  Parent Job:"))
+        );
     }
 }

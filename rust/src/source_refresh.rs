@@ -88,18 +88,18 @@ pub struct Summary {
 /// `ready` and `importing` are successes, `unavailable` is an error, anything
 /// else is informational. Reads the payload as the API sends it.
 pub fn summarize(result: &Value) -> Summary {
-    let text = |key: &str| result.get(key).and_then(Value::as_str).map(str::to_string);
+    // `result[key] ?? …`, printed as JavaScript prints the value.
+    let text = |key: &str| result.get(key).filter(|v| !v.is_null()).map(crate::output::js_string);
     let job_ids: Vec<String> = result
         .get("importJobIds")
         .and_then(Value::as_array)
         .map(|ids| ids.iter().map(crate::output::js_string).collect())
         .unwrap_or_default();
-    let status = text("status");
-    let (tone, fallback) = match status.as_deref() {
+    let (tone, fallback) = match result.get("status").and_then(Value::as_str) {
         Some("ready") => (Tone::Success, "Source data already available — nothing to import.".to_string()),
         Some("importing") => (Tone::Success, format!("Triggered {} import job(s) for missing data.", job_ids.len())),
         Some("unavailable") => (Tone::Error, "Could not trigger imports — check the source configuration.".to_string()),
-        _ => (Tone::Info, format!("Availability status: {}", status.as_deref().unwrap_or("unknown"))),
+        _ => (Tone::Info, format!("Availability status: {}", text("status").as_deref().unwrap_or("unknown"))),
     };
     Summary { tone, headline: text("message").unwrap_or(fallback), job_ids }
 }
@@ -189,6 +189,19 @@ mod tests {
         let other = summarize(&json!({ "status": "partial" }));
         assert_eq!(other.tone, Tone::Info);
         assert!(other.headline.contains("partial"));
+    }
+
+    #[test]
+    fn summaries_print_odd_values_like_javascript() {
+        // Expected values from Node running the TS `summarizeEnsureSourceData`.
+        let headline = |result: Value| summarize(&result).headline;
+        assert_eq!(headline(json!({ "status": 5 })), "Availability status: 5");
+        assert_eq!(headline(json!({ "status": null })), "Availability status: unknown");
+        assert_eq!(headline(json!({ "status": false })), "Availability status: false");
+        assert_eq!(headline(json!({ "status": "ready", "message": 7 })), "7");
+        let importing = summarize(&json!({ "status": "importing", "importJobIds": [null, 3] }));
+        assert_eq!(importing.headline, "Triggered 2 import job(s) for missing data.");
+        assert_eq!(importing.job_ids, ["null", "3"]);
     }
 
     #[test]
