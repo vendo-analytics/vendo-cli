@@ -8,6 +8,9 @@ DOWNLOAD_BASE="https://github.com/${REPO}/releases/download"
 INSTALL_DIR="${HOME}/.local/bin"
 INSTALL_PATH="${INSTALL_DIR}/vendo"
 COMPLETIONS_DIR="${HOME}/.local/share/vendo/completions"
+CONFIG_PATH="${HOME}/.config/vendo/config.json"
+# Set by install_completions; shown in the summary at the end.
+COMPLETIONS_SUMMARY=""
 
 log() {
   printf '%s\n' "$1"
@@ -109,7 +112,7 @@ install_binary() {
 
 install_completions() {
   if [ "${VENDO_INSTALL_COMPLETIONS:-1}" = "0" ]; then
-    log "Skipping shell completions because VENDO_INSTALL_COMPLETIONS=0"
+    COMPLETIONS_SUMMARY="skipped (VENDO_INSTALL_COMPLETIONS=0)"
     return
   fi
 
@@ -121,21 +124,21 @@ install_completions() {
       mkdir -p "$COMPLETIONS_DIR"
       "$INSTALL_PATH" completions bash > "${COMPLETIONS_DIR}/vendo.bash"
       ensure_bash_completion_block "${HOME}/.bashrc" "${COMPLETIONS_DIR}/vendo.bash"
-      log "Enabled bash completions in ${HOME}/.bashrc"
+      COMPLETIONS_SUMMARY="bash, loaded from $(tilde "${HOME}/.bashrc")"
       ;;
     zsh)
       mkdir -p "$COMPLETIONS_DIR"
       "$INSTALL_PATH" completions zsh > "${COMPLETIONS_DIR}/vendo.zsh"
       ensure_zsh_completion_block "${HOME}/.zshrc" "${COMPLETIONS_DIR}/vendo.zsh"
-      log "Enabled zsh completions in ${HOME}/.zshrc"
+      COMPLETIONS_SUMMARY="zsh, loaded from $(tilde "${HOME}/.zshrc")"
       ;;
     fish)
       mkdir -p "${HOME}/.config/fish/completions"
       "$INSTALL_PATH" completions fish > "${HOME}/.config/fish/completions/vendo.fish"
-      log "Installed fish completions to ${HOME}/.config/fish/completions/vendo.fish"
+      COMPLETIONS_SUMMARY="fish, in $(tilde "${HOME}/.config/fish/completions/vendo.fish")"
       ;;
     *)
-      log "Skipping shell completions: unsupported shell '${shell_name:-unknown}'"
+      COMPLETIONS_SUMMARY="skipped (unsupported shell: ${shell_name:-unknown})"
       ;;
   esac
 }
@@ -182,6 +185,49 @@ fi
 EOF
 }
 
+# Show a path under $HOME as ~/... (display only, so the ~ stays literal).
+# shellcheck disable=SC2088
+tilde() {
+  case "$1" in
+    "${HOME}"/*) printf '~/%s' "${1#"${HOME}"/}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+print_summary() {
+  local version settings
+  version="$1"
+  if [ -f "$CONFIG_PATH" ]; then
+    settings="$(tilde "$CONFIG_PATH") (your existing profiles are kept)"
+  else
+    settings="$(tilde "$CONFIG_PATH") (created when you sign in)"
+  fi
+
+  cat <<'EOF'
+
+                     _
+__   _____ _ __   __| | ___
+\ \ / / _ \ '_ \ / _` |/ _ \
+ \ V /  __/ | | | (_| | (_) |
+  \_/ \___|_| |_|\__,_|\___/
+
+EOF
+  log "Vendo CLI ${version} is installed."
+  log ""
+  log "  Command      $(tilde "$INSTALL_PATH")"
+  log "  Completions  ${COMPLETIONS_SUMMARY}"
+  log "  Settings     ${settings}"
+  log ""
+  case ":$PATH:" in
+    *":${INSTALL_DIR}:"*) log "Get started in a new terminal, so completions load:" ;;
+    *) log "Add $(tilde "$INSTALL_DIR") to your PATH, then in a new terminal:" ;;
+  esac
+  log "  vendo init     Sign in through your browser and check your account"
+  log "  vendo --help   See every command"
+  log ""
+  log "Docs: https://docs.vendodata.com/cli"
+}
+
 main() {
   require_command curl
   require_command uname
@@ -210,17 +256,7 @@ main() {
   install_binary "$asset_path"
   install_completions
 
-  log "Installed to ${INSTALL_PATH}"
-
-  case ":$PATH:" in
-    *":${INSTALL_DIR}:"*) ;;
-    *)
-      log "Add ${INSTALL_DIR} to your PATH to run \`vendo\` from new shells."
-      ;;
-  esac
-
-  log "Open a new shell to load completions."
-  log "Run \`vendo --version\` to confirm the install."
+  print_summary "$version"
 }
 
 main "$@"
