@@ -66,6 +66,10 @@
       "reason": "Decided by Yalcin, 2026-10-05 (VE-3728). A Node API writes numbers as JSON.stringify does, and for those the output is byte-identical to TS. A body with forms Node never writes keeps them (1.0, 1.50, integers past 2^53) where the TS CLI reprinted them as JavaScript numbers. The harness compares parsed values, so it never reports this."
     },
     {
+      "what": "Numbers, money and times in the locales ICU4X has no data for",
+      "reason": "Accepted by Yalcin, 2026-10-05 (VE-3728); to be expanded if it becomes an issue. 132 of Node's 943 locales (se, ff, gsw, ksh, ln, sg, tok, wae, zgh and others) have no ICU4X number data, so their numbers and money print in the root format. 12 of 166 time checks across 83 POSIX locales use a different medium time pattern (am-ET, es-AR, es-MX, sv-FI and others); only the rate-limit line prints a time. From 100,000, ml, mr and or money is grouped in threes by Node and in Indian grouping by Rust. The harness runs in one locale, so it never reports this."
+    },
+    {
       "what": "Null or corrupt config values the TS CLI crashed on",
       "reason": "Accepted by Yalcin, 2026-10-05 (VE-3727). A null or wrongly typed value in config.json (for example \"profiles\": null) made the TS CLI throw; Rust treats it as unset."
     },
