@@ -14,6 +14,7 @@ import {
   diffHelp,
   getPath,
   isNotPorted,
+  isRefusalWithoutYes,
   parseHelp,
   validateClassification,
 } from './lib.mjs';
@@ -167,6 +168,24 @@ describe('failureLine', () => {
     const crash = 'file:///dist/cli.js:4247\n    for (const row of rows) {\n\nTypeError: rows is not iterable\n    at Command\n\nNode.js v22\n';
     assert.equal(failureLine(crash), 'TypeError: rows is not iterable');
     assert.equal(failureLine('something odd\nlast words\n'), 'last words');
+  });
+});
+
+describe('isRefusalWithoutYes', () => {
+  // VE-3823: without a terminal, Rust refuses a delete that has no --yes where TS went ahead.
+  const ts = { code: 0, stdout: '{\n  "data": {}\n}\n', stderr: '' };
+  const refusal = 'Error: This deletes metric m-1 and cannot be undone. Re-run with --yes to confirm.\n';
+
+  it('accepts exactly the refusal', () => {
+    assert.equal(isRefusalWithoutYes(ts, { code: 1, stdout: '', stderr: refusal }), true);
+    assert.equal(isRefusalWithoutYes(ts, { code: 1, stdout: '', stderr: `\u001b[31mError:\u001b[39m ${refusal.slice(7)}` }), true);
+  });
+
+  it('still reports any other difference', () => {
+    assert.equal(isRefusalWithoutYes(ts, { code: 1, stdout: '', stderr: 'Error: Metric not found\n' }), false);
+    assert.equal(isRefusalWithoutYes(ts, { code: 1, stdout: 'Cancelled\n', stderr: refusal }), false);
+    assert.equal(isRefusalWithoutYes({ ...ts, code: 1 }, { code: 1, stdout: '', stderr: refusal }), false);
+    assert.equal(isRefusalWithoutYes(ts, ts), false);
   });
 });
 

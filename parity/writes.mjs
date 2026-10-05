@@ -2,6 +2,9 @@
 // resume/sync/activate/delete commands with the TypeScript CLI and the Rust CLI
 // on staging, each CLI on its own throwaway resources, and compare output and
 // exit codes after masking what must differ (IDs, timestamps, the names).
+// A step may name an accepted difference (parity/intended-differences.json);
+// it is reported as `accepted` instead of `DIFFERS` when that is all that
+// differs.
 //
 //   pnpm build && pnpm parity:writes --profile <staging profile> [--rust <binary>] [--only pipeline|metrics] [--keep]
 //
@@ -15,7 +18,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { MISSING_ID, camelCaseKeysDeep, diffCells, diffErrors, diffJson, failureLine } from './lib.mjs';
+import { MISSING_ID, camelCaseKeysDeep, diffCells, diffErrors, diffJson, failureLine, isRefusalWithoutYes } from './lib.mjs';
 import { createSession, fail, root } from './session.mjs';
 
 const { values: opts } = parseArgs({
@@ -144,13 +147,14 @@ function flakySides(res) {
 /**
  * Run `argsFor(cli)` with both CLIs and compare. `json` compares the parsed
  * output (Rust camelCased first when `keyCasing`), otherwise table cells.
- * `must` aborts the run (after cleanup) unless both CLIs exit 0.
+ * `must` aborts the run (after cleanup) unless both CLIs exit 0. `accepted(ts, rust)`
+ * recognises an accepted difference, which is neither retried nor counted as one.
  */
-function step(name, argsFor, { json = false, keyCasing = false, must = false } = {}) {
+function step(name, argsFor, { json = false, keyCasing = false, must = false, accepted } = {}) {
   const res = Object.fromEntries(CLIS.map((cli) => [cli, runCli(cli, argsFor(cli))]));
   let diffs = compare(res.ts, res.rust, { json, keyCasing });
   const retried = [];
-  if (diffs.length) {
+  if (diffs.length && !accepted?.(res.ts, res.rust)) {
     for (const cli of flakySides(res)) {
       retried.push(`${label(cli)} after: ${failureLine(res[cli].stderr)}`);
       res[cli] = runCli(cli, argsFor(cli));
@@ -158,7 +162,7 @@ function step(name, argsFor, { json = false, keyCasing = false, must = false } =
     if (retried.length) diffs = compare(res.ts, res.rust, { json, keyCasing });
   }
   const { ts, rust } = res;
-  const outcome = diffs.length ? 'DIFFERS' : 'same';
+  const outcome = !diffs.length ? 'same' : accepted?.(ts, rust) ? 'accepted' : 'DIFFERS';
   const exit = ts.code === rust.code ? `exit ${ts.code}` : `exit TS ${ts.code} / Rust ${rust.code}`;
   console.log(`[${outcome}] ${name} (${exit})${retried.length ? ` (retried ${retried.join('; ')})` : ''}`);
   for (const diff of diffs.slice(0, 6)) {
@@ -433,7 +437,16 @@ function metricsScenario() {
     );
   }
   step('metrics delete --yes', (cli) => ['metrics', 'delete', metric[cli], '--yes']);
-  step('metrics delete --json', (cli) => ['metrics', 'delete', plainMetric[cli], '--json'], { json: true });
+  step('metrics delete --yes --json', (cli) => ['metrics', 'delete', plainMetric[cli], '--yes', '--json'], { json: true });
+  // No terminal and no --yes: TS deleted (--json implied --yes), Rust refuses and
+  // keeps the metric (accepted, VE-3823). The sweep deletes the Rust one.
+  const noYesMetric = Object.fromEntries(
+    CLIS.map((cli) => [cli, getJson(cli, ['metrics', 'create', '--name', name(cli, ' no yes'), '--definition', metricDefinition])?.data?.id]),
+  );
+  if (!noYesMetric.ts || !noYesMetric.rust) throw new Error('could not create the metrics to delete without --yes');
+  step('metrics delete --json (no --yes)', (cli) => ['metrics', 'delete', noYesMetric[cli], '--json'], { json: true, accepted: isRefusalWithoutYes });
+  const kept = getJson('rust', ['metrics', 'get', noYesMetric.rust])?.data?.id === noYesMetric.rust;
+  check('Rust metrics delete --json without --yes kept the metric', kept, 'metric is gone');
   step('metrics get (deleted)', (cli) => ['metrics', 'get', metric[cli]]);
   step('metrics delete (missing)', () => ['metrics', 'delete', MISSING_ID, '--yes']);
 }
@@ -475,13 +488,14 @@ try {
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────
-const differs = results.filter((r) => r.outcome !== 'same');
+const differs = results.filter((r) => r.outcome === 'DIFFERS');
+const accepted = results.filter((r) => r.outcome === 'accepted');
 writeFileSync(join(outDir, 'results.json'), JSON.stringify({ profile: opts.profile, baseUrl: session.baseUrl, results }, null, 2));
 const lines = [
   `# CLI write parity, ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`,
   '',
   `- Profile \`${opts.profile}\` on ${session.baseUrl}`,
-  `- ${results.length} steps and checks; ${differs.length} differ or failed${failures.length ? `; stopped early: ${failures.join('; ')}` : ''}`,
+  `- ${results.length} steps and checks; ${differs.length} differ or failed; ${accepted.length} accepted differences${failures.length ? `; stopped early: ${failures.join('; ')}` : ''}`,
   '',
   '| Step | Result |',
   '|---|---|',
@@ -489,5 +503,7 @@ const lines = [
   '',
 ];
 writeFileSync(join(outDir, 'report.md'), lines.join('\n'));
-console.log(`\n${results.length - differs.length}/${results.length} same${failures.length ? ', STOPPED EARLY' : ''}. Report: ${join(outDir, 'report.md')}`);
+console.log(
+  `\n${results.length - differs.length - accepted.length}/${results.length} same, ${accepted.length} accepted${failures.length ? ', STOPPED EARLY' : ''}. Report: ${join(outDir, 'report.md')}`,
+);
 process.exit(failures.length || differs.length ? 1 : 0);

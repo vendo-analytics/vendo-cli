@@ -204,6 +204,17 @@ export function diffErrors(a, b) {
   return diffs;
 }
 
+/**
+ * Accepted difference (VE-3823, decided by Yalcin, 2026-10-05): without a
+ * terminal the Rust CLI stops a delete, cancel or reset that has no `--yes`,
+ * where the TS CLI went ahead. True only when that is the whole difference:
+ * TS succeeded, and Rust exited 1 with the refusal and printed nothing else.
+ */
+export function isRefusalWithoutYes(ts, rust) {
+  const refusal = /^Error: This .+\. Re-run with --yes to confirm\.$/;
+  return ts.code === 0 && rust.code === 1 && rust.stdout === '' && refusal.test(errorLine(rust.stderr) ?? '');
+}
+
 /** clap reports an unknown subcommand with exit 2; that means "not ported yet". */
 export function isNotPorted(result) {
   return result.code === 2 && /unrecognized subcommand/i.test(result.stderr);

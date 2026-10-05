@@ -84,6 +84,10 @@
     {
       "what": "A closed stdout doesn't stop the CLI",
       "reason": "Like the TS CLI, Rust drops writes to a closed pipe and keeps running (`jobs watch | head -1` keeps polling) instead of crashing; finished commands exit 0. Confirmed by Yalcin, 2026-10-05 (VE-3727)."
+    },
+    {
+      "what": "Delete, cancel and reset need --yes when no one is at a terminal",
+      "reason": "Decided by Yalcin, 2026-10-05 (VE-3823). The TS CLI answered its own \"are you sure?\" with yes whenever stdout was not a terminal, and `--json` skipped the question (`metrics delete --json` deleted permanently). The Rust CLI asks only when stdin and stdout are both terminals. Otherwise `apps delete`, `sources delete`, `integrations delete`, `metrics delete`, `jobs cancel` and `config reset` without `--yes` exit 1 with `Error: This deletes <thing> <id>. Re-run with --yes to confirm.` before any request; `--json` no longer implies `--yes`, and `--dry-run` needs no `--yes`. On a terminal the y/N question is unchanged. parity/writes.mjs passes `--yes` to every delete and keeps one `metrics delete --json` step without it, which it reports as accepted (`isRefusalWithoutYes` in parity/lib.mjs)."
     }
   ],
   "paths": [

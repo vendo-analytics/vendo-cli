@@ -27,6 +27,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `LANG` as Node's ICU does (ICU4X, `rust/src/output/locale.rs`). Node-generated tables fill ICU4X's gaps
   (`scripts/gen-ymd-patterns.mjs`, `scripts/gen-usd-patterns.mjs`), and `scripts/gen-locale-fixture.mjs`
   writes the Node values the tests check. Regenerate all three when Node's ICU changes.
+- Confirmation (VE-3823, decided by Yalcin, 2026-10-05): delete, cancel and reset ask y/N only when stdin and
+  stdout are both terminals. Otherwise they need `--yes` and stop with exit 1 before any request, where the TS CLI
+  went ahead; `--json` no longer implies `--yes`. `output::confirm` owns this.
 - Stack: clap 4, reqwest (rustls), tokio, serde_json (`preserve_order`, `arbitrary_precision`), ICU4X,
   comfy-table, indicatif.
   Toolchain: `rustup` stable (`~/.cargo/bin`); `pnpm rust:test`, `pnpm rust:build`,
