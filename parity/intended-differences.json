@@ -62,6 +62,10 @@
       "reason": "Decided by Yalcin, 2026-10-05. rustls with the platform verifier (macOS keychain, the system CA store on Linux) replaces Node's bundled CA list."
     },
     {
+      "what": "`--json` prints numbers as the API sent them",
+      "reason": "Decided by Yalcin, 2026-10-05 (VE-3728). A Node API writes numbers as JSON.stringify does, and for those the output is byte-identical to TS. A body with forms Node never writes keeps them (1.0, 1.50, integers past 2^53) where the TS CLI reprinted them as JavaScript numbers. The harness compares parsed values, so it never reports this."
+    },
+    {
       "what": "Null or corrupt config values the TS CLI crashed on",
       "reason": "Accepted by Yalcin, 2026-10-05 (VE-3727). A null or wrongly typed value in config.json (for example \"profiles\": null) made the TS CLI throw; Rust treats it as unset."
     },

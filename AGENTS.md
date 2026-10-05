@@ -21,8 +21,14 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
 - `--json` prints the API response verbatim (no key rewriting), so nested `config`/`schedule`/
   `metrics` keys print snake_case where the TS client camelCased them (decided 2026-10-05). Where a TS command
   built its own JSON (whoami's `config`, the `metrics` `{ data }` envelope), Rust keeps that shape (Yalcin,
-  2026-10-05, VE-3668).
-- Stack: clap 4, reqwest (rustls), tokio, serde_json (`preserve_order`), comfy-table, indicatif.
+  2026-10-05, VE-3668). Numbers print as the API sent them (serde_json `arbitrary_precision`), and keys take
+  JavaScript's order, array-index keys first, as `JSON.parse` gave the TS CLI (VE-3728).
+- Locale (VE-3728): dates, numbers, the rate-limit time and measurement money follow `LC_ALL`/`LC_MESSAGES`/
+  `LANG` as Node's ICU does (ICU4X, `rust/src/output/locale.rs`). Node-generated tables fill ICU4X's gaps
+  (`scripts/gen-ymd-patterns.mjs`, `scripts/gen-usd-patterns.mjs`), and `scripts/gen-locale-fixture.mjs`
+  writes the Node values the tests check. Regenerate all three when Node's ICU changes.
+- Stack: clap 4, reqwest (rustls), tokio, serde_json (`preserve_order`, `arbitrary_precision`), ICU4X,
+  comfy-table, indicatif.
   Toolchain: `rustup` stable (`~/.cargo/bin`); `pnpm rust:test`, `pnpm rust:build`,
   `cargo clippy --all-targets` and `cargo fmt` (120 columns, `rust/rustfmt.toml`) from `rust/`.
 - Tests: unit tests sit next to the code; `rust/tests/cli.rs` runs the built binary end to end with an isolated
