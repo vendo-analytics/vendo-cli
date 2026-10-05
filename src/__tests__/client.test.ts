@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from '../client.js';
 import { requireAccountId } from '../config.js';
 import { setDebugEnabled } from '../debug.js';
+import { formatError } from '../output.js';
 
 // Mock config module
 vi.mock('../config.js', () => ({
@@ -204,6 +205,107 @@ describe('client', () => {
         expect(err).toBeInstanceOf(ClientError);
         expect((err as ClientError).message).toContain('HTTP 500');
       }
+    });
+  });
+
+  // The v1 gateway answers `{ error: { code, message, details } }`; the web-app
+  // routes behind `vendo metrics` and `vendo measurement` (`/api/metrics…`,
+  // `/api/measurement/*`) answer `{ error: "<message>" }` (VE-3764).
+  describe('error bodies', () => {
+    let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      vi.stubGlobal('fetch', vi.fn());
+      consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      consoleWarnSpy.mockRestore();
+    });
+
+    async function failWith(
+      status: number,
+      statusText: string,
+      body: string,
+    ): Promise<ClientError> {
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(body, {
+          status,
+          statusText,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        }),
+      );
+      const { getClient: freshGetClient } = await import('../client.js');
+      try {
+        await freshGetClient().postRaw('/api/metrics', { name: 'x' });
+      } catch (err) {
+        expect(err).toBeInstanceOf(ClientError);
+        return err as ClientError;
+      }
+      return expect.fail('Should have thrown');
+    }
+
+    it("prints a web-app route's string error as the message", async () => {
+      for (const [status, statusText, message] of [
+        [400, 'Bad Request', 'name is required'],
+        [400, 'Bad Request', '[\n  {\n    "code": "invalid_type"\n  }\n]'],
+        [404, 'Not Found', 'Metric not found'],
+      ] as const) {
+        const err = await failWith(
+          status,
+          statusText,
+          JSON.stringify({ error: message }),
+        );
+        expect(err.message).toBe(message);
+        expect(err.statusCode).toBe(status);
+        expect(err.statusText).toBe(statusText);
+        expect(err.code).toBeUndefined();
+        expect(err.details).toBeUndefined();
+        expect(err.requestId).toMatch(/^cli-/);
+        expect(formatError(err)).toBe(
+          `${message}\nRequest ID: ${err.requestId}`,
+        );
+      }
+    });
+
+    it('reads the v1 gateway error object as before', async () => {
+      const details = { errors: [{ path: 'name', message: 'Required' }] };
+      const err = await failWith(
+        422,
+        'Unprocessable Entity',
+        JSON.stringify({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid request body',
+            details,
+          },
+        }),
+      );
+      expect(err.message).toBe('Invalid request body');
+      expect(err.code).toBe('VALIDATION_ERROR');
+      expect(err.details).toEqual(details);
+      expect(err.statusCode).toBe(422);
+      expect(formatError(err)).toBe(
+        `Invalid request body\nRequest ID: ${err.requestId}`,
+      );
+    });
+
+    it('falls back to the status for an empty string error', async () => {
+      const empty = JSON.stringify({ error: '' });
+      expect((await failWith(400, 'Bad Request', empty)).message).toBe(
+        'HTTP 400',
+      );
+      expect((await failWith(404, 'Not Found', empty)).message).toBe(
+        'Resource not found. Check the ID and try again.',
+      );
+    });
+
+    it('keeps the status message for a body that is not JSON', async () => {
+      const err = await failWith(400, 'Bad Request', 'Bad Request');
+      expect(err.message).toBe('HTTP 400: Bad Request');
+      expect(err.code).toBeUndefined();
+      expect(err.requestId).toMatch(/^cli-/);
     });
   });
 
@@ -742,6 +844,29 @@ describe('client', () => {
       );
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         expect.stringContaining('errorMessage="Invalid payload"'),
+      );
+    });
+
+    it("logs a web-app route's string error as the error message", async () => {
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(JSON.stringify({ error: 'name is required' }), {
+          status: 400,
+          statusText: 'Bad Request',
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+        }),
+      );
+
+      const { getClient: freshGetClient } = await import('../client.js');
+
+      await expect(
+        freshGetClient().postRaw('/api/metrics', { name: '' }),
+      ).rejects.toBeInstanceOf(ClientError);
+
+      const line = consoleErrorSpy.mock.calls
+        .map((args: unknown[]) => String(args[0]))
+        .find((text: string) => text.startsWith('[debug] response_error'));
+      expect(line).toMatch(
+        /^\[debug\] response_error method=POST url=https:\/\/api\.test\.com\/api\/metrics requestId=cli-[0-9a-f-]{36} status=400 statusText="Bad Request" errorMessage="name is required" durationMs=\d+$/,
       );
     });
   });

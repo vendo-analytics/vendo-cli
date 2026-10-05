@@ -16,12 +16,20 @@ export interface ApiResponse<T = unknown> {
   };
 }
 
+/** The v1 gateway's error object. */
+interface ApiErrorObject {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+/**
+ * An error response body. The v1 gateway (`/api/v1/*`) sends an object; the
+ * web-app routes (`/api/metrics…`, `/api/measurement/*`) send the message as a
+ * string (VE-3764).
+ */
 export interface ApiError {
-  error: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
+  error: ApiErrorObject | string;
 }
 
 /** Identity payload returned by `/api/v1/me`. */
@@ -235,6 +243,12 @@ class VendoClient {
           );
         }
 
+        // A web-app route's string `error` is the message (VE-3764).
+        const error: Partial<ApiErrorObject> | undefined =
+          typeof errorBody.error === 'string'
+            ? { message: errorBody.error }
+            : errorBody.error;
+
         printDebug('response_error', {
           method,
           url: url.toString(),
@@ -242,20 +256,20 @@ class VendoClient {
           serverRequestId,
           status: res.status,
           statusText: res.statusText,
-          errorMessage: errorBody.error?.message,
+          errorMessage: error?.message,
           durationMs,
-          code: errorBody.error?.code,
-          details: errorBody.error?.details,
+          code: error?.code,
+          details: error?.details,
         });
 
         throw new ClientError(
-          errorBody.error?.message || friendlyHttpError(res.status),
+          error?.message || friendlyHttpError(res.status),
           res.status,
-          errorBody.error?.code,
+          error?.code,
           {
             requestId,
             serverRequestId,
-            details: errorBody.error?.details,
+            details: error?.details,
             statusText: res.statusText,
           },
         );
