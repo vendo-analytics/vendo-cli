@@ -7,5 +7,8 @@ pub mod health;
 pub mod integrations;
 pub mod jobs;
 pub mod login;
+pub mod measurement;
+pub mod metrics;
+pub mod models;
 pub mod pipeline_resource;
 pub mod sources;

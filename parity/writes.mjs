@@ -1,13 +1,14 @@
-// Write-command parity (VE-3667): run the same create/update/pause/resume/sync/
-// delete commands with the TypeScript CLI and the Rust CLI on staging, each CLI
-// on its own throwaway resources, and compare output and exit codes after
-// masking what must differ (IDs, timestamps, the resource names).
+// Write-command parity (VE-3667, VE-3668): run the same create/update/pause/
+// resume/sync/activate/delete commands with the TypeScript CLI and the Rust CLI
+// on staging, each CLI on its own throwaway resources, and compare output and
+// exit codes after masking what must differ (IDs, timestamps, the names).
 //
-//   pnpm build && pnpm parity:writes --profile <staging profile> [--rust <binary>] [--keep]
+//   pnpm build && pnpm parity:writes --profile <staging profile> [--rust <binary>] [--only pipeline|metrics] [--keep]
 //
 // Use a disposable staging workspace (e.g. "Vendo CLI test"): the run creates
-// webhook apps and sources there. At the end, also when a step fails, it
-// deletes every app named "CLI parity …" and their sources. Same safety as
+// webhook apps, sources and draft metrics there. At the end of each scenario,
+// also when a step fails, it deletes every app named "CLI parity …" with its
+// sources, and every metric named "CLI parity …". Same safety as
 // parity/run.mjs: staging or localhost only, isolated HOME.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -22,8 +23,11 @@ const { values: opts } = parseArgs({
     profile: { type: 'string' },
     rust: { type: 'string' },
     keep: { type: 'boolean', default: false },
+    only: { type: 'string' },
   },
 });
+const SCENARIOS = ['pipeline', 'metrics'];
+if (opts.only && !SCENARIOS.includes(opts.only)) fail(`--only must be one of: ${SCENARIOS.join(', ')}.`);
 
 // `sync --watch` follows a job to the end, so allow more than the read harness.
 const session = createSession({ ...opts, timeoutMs: 600_000 });
@@ -38,6 +42,26 @@ const emptyCredentials = join(outDir, 'empty-credentials.json');
 writeFileSync(emptyCredentials, '{}\n');
 const integrationConfig = join(outDir, 'integration-config.json');
 writeFileSync(integrationConfig, JSON.stringify({ tasks: [{ name: 'parity' }] }));
+// A valid QuerySpec v2 segmentation definition (VE-2637). A workspace without
+// this event can't compile it, so the metric stays a draft.
+const metricDefinition = join(outDir, 'metric.query.json');
+writeFileSync(
+  metricDefinition,
+  JSON.stringify({
+    version: 2,
+    id: 'cli-parity-metric',
+    reportType: 'segmentation',
+    entities: [{ id: 'events', kind: 'events', label: 'Events' }],
+    measures: [{ id: 'A', kind: 'event', entityId: 'events', eventName: 'cli_parity_event', aggregation: 'count', filters: [] }],
+    dimensions: [],
+    filters: [],
+    timeRange: { preset: 'last_30_days' },
+    config: {},
+    metricOutput: { kind: 'measure', measureId: 'A' },
+  }),
+);
+const invalidMetricDefinition = join(outDir, 'invalid-metric.query.json');
+writeFileSync(invalidMetricDefinition, JSON.stringify({ version: 2, reportType: 'segmentation' }));
 
 // ── Masking: what legitimately differs between the two CLIs' resources ─────
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
@@ -195,10 +219,10 @@ function confirmOnTty(cli, kind, id) {
   return { asked: res.status === 0, output: res.stdout ?? '', error: res.error?.message };
 }
 
-// ── Scenario ────────────────────────────────────────────────────────────────
+// ── Scenario: apps, sources and integration refusals (VE-3667) ─────────────
 const name = (cli, suffix = '') => `CLI parity ${label(cli)}${suffix}`;
-let failure;
-try {
+
+function pipelineScenario() {
   // Apps: one webhook app per CLI per output mode (webhook needs no credentials).
   let res = step(
     'apps create --json',
@@ -320,11 +344,105 @@ try {
   step('apps delete --yes --json', (cli) => ['apps', 'delete', app[cli], '--yes', '--json'], { json: true, keyCasing: true });
   step('apps delete --yes', (cli) => ['apps', 'delete', sourceApp[cli], '--yes']);
   step('apps delete --yes --output id', (cli) => ['apps', 'delete', fieldApp[cli], '--yes', '--output', 'id']);
-} catch (err) {
-  failure = err;
-  console.error(`\nStopped: ${err.message}`);
+}
+
+// ── Scenario: metrics (VE-3668) ─────────────────────────────────────────────
+// Each CLI creates its own draft metrics, then lists, reads, updates,
+// activates and deletes them. A workspace that can't compile the definition
+// refuses activation; both CLIs must report the refusal the same way.
+function metricsScenario() {
+  const res = step(
+    'metrics create --json',
+    (cli) => ['metrics', 'create', '--name', name(cli), '--definition', metricDefinition, '--json'],
+    { json: true, must: true },
+  );
+  const metric = idsFrom(res);
+  step(
+    'metrics create --format --unit --description',
+    (cli) => [
+      'metrics', 'create', '--name', name(cli, ' plain'), '--definition', metricDefinition,
+      '--format', 'currency', '--unit', '$', '--description', 'CLI parity check',
+    ],
+    { must: true },
+  );
+  const listed = getJson('rust', ['metrics', 'list', '--limit', '100']);
+  const plainMetric = Object.fromEntries(CLIS.map((cli) => [cli, listed?.data?.find((m) => m.name === name(cli, ' plain'))?.id]));
+  if (!plainMetric.ts || !plainMetric.rust) throw new Error('could not find the metrics created without --json');
+
+  step('metrics create (invalid definition)', (cli) => ['metrics', 'create', '--name', name(cli, ' invalid'), '--definition', invalidMetricDefinition]);
+  step('metrics create (missing definition file)', () => ['metrics', 'create', '--name', 'x', '--definition', '/nonexistent/parity.query.json']);
+  step('metrics list', () => ['metrics', 'list', '--limit', '100']);
+  step('metrics list --json', () => ['metrics', 'list', '--limit', '100', '--json'], { json: true });
+  step('metrics list --status draft --output id', () => ['metrics', 'list', '--status', 'draft', '--limit', '100', '--output', 'id']);
+  step('metrics get', (cli) => ['metrics', 'get', metric[cli]]);
+  step('metrics get --json', (cli) => ['metrics', 'get', metric[cli], '--json'], { json: true });
+  step('metrics get (missing)', () => ['metrics', 'get', MISSING_ID]);
+  step(
+    'metrics update --name --description --json',
+    (cli) => ['metrics', 'update', metric[cli], '--name', name(cli, ' renamed'), '--description', 'updated by parity', '--json'],
+    { json: true, must: true },
+  );
+  step(
+    'metrics update --definition --format',
+    (cli) => ['metrics', 'update', metric[cli], '--definition', metricDefinition, '--format', 'percentage'],
+    { must: true },
+  );
+  step('metrics update (no flags)', (cli) => ['metrics', 'update', metric[cli]]);
+  step('metrics update (missing definition file)', (cli) => ['metrics', 'update', metric[cli], '--definition', '/nonexistent/parity.query.json']);
+  step('metrics activate', (cli) => ['metrics', 'activate', metric[cli]]);
+  step('metrics activate --json', (cli) => ['metrics', 'activate', plainMetric[cli], '--json'], { json: true });
+  step('metrics activate (missing)', () => ['metrics', 'activate', MISSING_ID]);
+  step('metrics update --status archived --json', (cli) => ['metrics', 'update', plainMetric[cli], '--status', 'archived', '--json'], { json: true });
+  step('metrics list --status archived', () => ['metrics', 'list', '--status', 'archived', '--limit', '100']);
+  for (const cli of CLIS) {
+    const tty = confirmOnTty(cli, 'metrics', metric[cli]);
+    const still = getJson(cli, ['metrics', 'get', metric[cli]])?.data?.id === metric[cli];
+    const cancelled = /Cancelled/.test(tty.output);
+    check(
+      `${label(cli)} metrics delete asks on a TTY and "n" keeps the metric`,
+      tty.asked && still && cancelled,
+      tty.error ?? `asked=${tty.asked} kept=${still} cancelled=${cancelled} ${tty.output.slice(-200)}`,
+    );
+  }
+  step('metrics delete --yes', (cli) => ['metrics', 'delete', metric[cli], '--yes']);
+  step('metrics delete --json', (cli) => ['metrics', 'delete', plainMetric[cli], '--json'], { json: true });
+  step('metrics get (deleted)', (cli) => ['metrics', 'get', metric[cli]]);
+  step('metrics delete (missing)', () => ['metrics', 'delete', MISSING_ID, '--yes']);
+}
+
+/** Delete every metric named "CLI parity …", archived ones included. */
+function sweepMetrics() {
+  for (const status of [[], ['--status', 'archived']]) {
+    const listed = runWithRetry(['metrics', 'list', '--limit', '100', ...status, '--json']);
+    if (listed.code !== 0) {
+      console.log(`cleanup: could not list metrics: ${failureLine(listed.stderr)}`);
+      continue;
+    }
+    for (const m of JSON.parse(listed.stdout).data.filter((m) => /^CLI parity /.test(m.name))) {
+      const res = runWithRetry(['metrics', 'delete', m.id, '--yes', '--json']);
+      console.log(`cleanup: metric "${m.name}" ${res.code === 0 ? 'deleted' : `NOT deleted: ${failureLine(res.stderr)}`}`);
+    }
+  }
+}
+
+// ── Run: each scenario cleans up after itself, also when a step fails ──────
+const scenarios = [
+  { name: 'pipeline', run: pipelineScenario, cleanup: sweep },
+  { name: 'metrics', run: metricsScenario, cleanup: sweepMetrics },
+];
+const failures = [];
+try {
+  for (const scenario of scenarios.filter((s) => !opts.only || s.name === opts.only)) {
+    try {
+      scenario.run();
+    } catch (err) {
+      failures.push(`${scenario.name}: ${err.message}`);
+      console.error(`\nStopped ${scenario.name}: ${err.message}`);
+    } finally {
+      scenario.cleanup();
+    }
+  }
 } finally {
-  sweep();
   session.cleanup();
 }
 
@@ -335,7 +453,7 @@ const lines = [
   `# CLI write parity, ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`,
   '',
   `- Profile \`${opts.profile}\` on ${session.baseUrl}`,
-  `- ${results.length} steps and checks; ${differs.length} differ or failed${failure ? `; stopped early: ${failure.message}` : ''}`,
+  `- ${results.length} steps and checks; ${differs.length} differ or failed${failures.length ? `; stopped early: ${failures.join('; ')}` : ''}`,
   '',
   '| Step | Result |',
   '|---|---|',
@@ -343,5 +461,5 @@ const lines = [
   '',
 ];
 writeFileSync(join(outDir, 'report.md'), lines.join('\n'));
-console.log(`\n${results.length - differs.length}/${results.length} same${failure ? ', STOPPED EARLY' : ''}. Report: ${join(outDir, 'report.md')}`);
-process.exit(failure || differs.length ? 1 : 0);
+console.log(`\n${results.length - differs.length}/${results.length} same${failures.length ? ', STOPPED EARLY' : ''}. Report: ${join(outDir, 'report.md')}`);
+process.exit(failures.length || differs.length ? 1 : 0);

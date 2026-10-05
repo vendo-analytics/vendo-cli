@@ -173,6 +173,21 @@ pub enum Command {
         #[command(subcommand)]
         command: CatalogCommand,
     },
+    /// Manage custom metrics in the Metrics Library
+    Metrics {
+        #[command(subcommand)]
+        command: MetricsCommand,
+    },
+    /// Manage data models
+    Models {
+        #[command(subcommand)]
+        command: ModelsCommand,
+    },
+    /// Inspect Marketing Measurement methodologies, LTV, and signals
+    Measurement {
+        #[command(subcommand)]
+        command: MeasurementCommand,
+    },
     /// Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo
     #[command(after_help = "Examples:\n  $ vendo mcp\n  $ vendo mcp --json\n  $ vendo mcp --show-key")]
     Mcp {
@@ -835,6 +850,315 @@ pub enum CatalogCommand {
 }
 
 #[derive(Subcommand)]
+pub enum MetricsCommand {
+    /// List all custom metrics
+    #[command(
+        after_help = "Examples:\n  $ vendo metrics list\n  $ vendo metrics list --status active\n  $ vendo metrics list --output id"
+    )]
+    List {
+        /// Filter by status (draft, active, archived)
+        #[arg(long, value_name = "status")]
+        status: Option<String>,
+        /// Number of results
+        #[arg(long, value_name = "n", default_value = "20")]
+        limit: String,
+        /// Pagination offset
+        #[arg(long, value_name = "n", default_value = "0")]
+        offset: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+        /// Print a single field per row (e.g. id, name)
+        #[arg(long, value_name = "field")]
+        output: Option<String>,
+    },
+    /// Get metric details
+    #[command(after_help = "Examples:\n  $ vendo metrics get <metricId>\n  $ vendo metrics get <metricId> --json")]
+    Get {
+        #[arg(value_name = "metricId")]
+        id: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new metric
+    #[command(
+        after_help = "Examples:\n  $ vendo metrics create --name \"ROAS\" --definition roas.query.json\n  $ vendo metrics create --name \"Total Revenue\" --definition revenue.query.json --format currency\n  $ vendo metrics create --name \"CTR\" --definition ctr.query.json --format percentage"
+    )]
+    Create {
+        /// Metric name
+        #[arg(long, value_name = "name", required = true)]
+        name: String,
+        /// QuerySpec v2 definition JSON file
+        #[arg(long, value_name = "file", required = true)]
+        definition: String,
+        /// Description
+        #[arg(long, value_name = "desc")]
+        description: Option<String>,
+        /// Display format: number, currency, percentage, multiplier
+        #[arg(long, value_name = "format", default_value = "number")]
+        format: String,
+        /// Unit suffix (e.g., "$", "%")
+        #[arg(long, value_name = "unit")]
+        unit: Option<String>,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Update a metric
+    #[command(
+        after_help = "Examples:\n  $ vendo metrics update <metricId> --name \"New Name\"\n  $ vendo metrics update <metricId> --status active\n  $ vendo metrics update <metricId> --definition revised.query.json"
+    )]
+    Update {
+        #[arg(value_name = "metricId")]
+        id: String,
+        /// New name
+        #[arg(long, value_name = "name")]
+        name: Option<String>,
+        /// New description
+        #[arg(long, value_name = "desc")]
+        description: Option<String>,
+        /// New QuerySpec v2 definition JSON file
+        #[arg(long, value_name = "file")]
+        definition: Option<String>,
+        /// New format
+        #[arg(long, value_name = "format")]
+        format: Option<String>,
+        /// New unit
+        #[arg(long, value_name = "unit")]
+        unit: Option<String>,
+        /// New status
+        #[arg(long, value_name = "status")]
+        status: Option<String>,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Activate a draft metric
+    #[command(after_help = "Examples:\n  $ vendo metrics activate <metricId>")]
+    Activate {
+        #[arg(value_name = "metricId")]
+        id: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Delete a metric
+    #[command(after_help = "Examples:\n  $ vendo metrics delete <metricId>\n  $ vendo metrics delete <metricId> -y")]
+    Delete {
+        #[arg(value_name = "metricId")]
+        id: String,
+        /// Skip confirmation
+        #[arg(short, long)]
+        yes: bool,
+        /// Output raw JSON (implies --yes)
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ModelsCommand {
+    /// List all data models
+    #[command(
+        after_help = "Examples:\n  $ vendo models list\n  $ vendo models list --valid\n  $ vendo models list --output id"
+    )]
+    List {
+        /// Filter by data type
+        #[arg(long = "type", value_name = "type")]
+        data_type: Option<String>,
+        /// Only show valid models
+        #[arg(long)]
+        valid: bool,
+        /// Only show invalid models
+        #[arg(long)]
+        invalid: bool,
+        /// Number of results
+        #[arg(long, value_name = "n", default_value = "20")]
+        limit: String,
+        /// Pagination offset
+        #[arg(long, value_name = "n", default_value = "0")]
+        offset: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+        /// Print a single field per row (e.g. id, name)
+        #[arg(long, value_name = "field")]
+        output: Option<String>,
+    },
+    /// Get model details
+    #[command(after_help = "Examples:\n  $ vendo models get <modelId>\n  $ vendo models get <modelId> --json")]
+    Get {
+        #[arg(value_name = "modelId")]
+        id: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MeasurementCommand {
+    /// List measurement methodologies
+    Methodologies {
+        #[command(subcommand)]
+        command: MethodologiesCommand,
+    },
+    /// Methodology segmentation rules
+    Rules {
+        #[command(subcommand)]
+        command: RulesCommand,
+    },
+    /// Cohort lifetime-value views
+    Ltv {
+        #[command(subcommand)]
+        command: LtvCommand,
+    },
+    /// Measurement signal availability
+    Signals {
+        #[command(subcommand)]
+        command: SignalsCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MethodologiesCommand {
+    /// List methodologies (system + account)
+    #[command(
+        after_help = "Examples:\n  $ vendo measurement methodologies list\n  $ vendo measurement methodologies list --no-system\n  $ vendo measurement methodologies list --json\n  $ vendo measurement methodologies list --output id"
+    )]
+    List {
+        /// Exclude system-seeded methodologies
+        #[arg(long = "no-system")]
+        no_system: bool,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+        /// Print one field per row (e.g. id, name)
+        #[arg(long, value_name = "field")]
+        output: Option<String>,
+    },
+    /// Show one methodology by ID
+    #[command(
+        after_help = "Examples:\n  $ vendo measurement methodologies get <methodologyId>\n  $ vendo measurement methodologies get <methodologyId> --json"
+    )]
+    Get {
+        #[arg(value_name = "methodologyId")]
+        id: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RulesCommand {
+    /// Preview which segmentation rule fires for recent rows
+    #[command(
+        after_help = "Examples:\n  $ vendo measurement rules preview --from 2025-01-01 --to 2025-01-31\n  $ vendo measurement rules preview --from 2025-01-01 --to 2025-01-31 --limit 100 --json"
+    )]
+    Preview {
+        /// Inclusive ISO date (YYYY-MM-DD)
+        #[arg(long, value_name = "date", required = true)]
+        from: String,
+        /// Inclusive ISO date (YYYY-MM-DD)
+        #[arg(long, value_name = "date", required = true)]
+        to: String,
+        /// Max distinct contexts to return
+        #[arg(long, value_name = "n", default_value = "50")]
+        limit: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum LtvCommand {
+    /// List cohort LTV rows
+    #[command(
+        after_help = "Examples:\n  $ vendo measurement ltv list\n  $ vendo measurement ltv list --granularity weekly --segment channel:meta\n  $ vendo measurement ltv list --from 2025-01-01 --to 2025-06-30 --no-predicted"
+    )]
+    List {
+        /// daily | weekly | monthly
+        #[arg(long, value_name = "value", default_value = "monthly")]
+        granularity: String,
+        /// Segment key (e.g. "all", "channel:meta")
+        #[arg(long, value_name = "key", default_value = "all")]
+        segment: String,
+        /// Inclusive ISO cohort period (YYYY-MM-DD)
+        #[arg(long, value_name = "period")]
+        from: Option<String>,
+        /// Inclusive ISO cohort period (YYYY-MM-DD)
+        #[arg(long, value_name = "period")]
+        to: Option<String>,
+        /// Max rows
+        #[arg(long, value_name = "n", default_value = "50")]
+        limit: String,
+        /// Skip the naive-decay prediction join
+        #[arg(long = "no-predicted")]
+        no_predicted: bool,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+        /// Print one field per row
+        #[arg(long, value_name = "field")]
+        output: Option<String>,
+    },
+    /// Show one cohort by period — retention matrix + cumulative LTV curve + prediction
+    #[command(
+        after_help = "Examples:\n  $ vendo measurement ltv cohort 2025-01-01\n  $ vendo measurement ltv cohort 2025-01-01 --granularity weekly --segment channel:meta\n  $ vendo measurement ltv cohort 2025-01-01 --json"
+    )]
+    Cohort {
+        #[arg(value_name = "period")]
+        period: String,
+        /// daily | weekly | monthly
+        #[arg(long, value_name = "value", default_value = "monthly")]
+        granularity: String,
+        /// Segment key
+        #[arg(long, value_name = "key", default_value = "all")]
+        segment: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one customer's cohort + realised LTV + revenue timeline
+    #[command(
+        after_help = "Examples:\n  $ vendo measurement ltv customer cust_abc123\n  $ vendo measurement ltv customer cust_abc123 --json"
+    )]
+    Customer {
+        #[arg(value_name = "customerId")]
+        customer_id: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SignalsCommand {
+    /// Per-signal availability summary
+    #[command(after_help = "Examples:\n  $ vendo measurement signals list\n  $ vendo measurement signals list --json")]
+    List {
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Click-path signal status — readiness, last-computed, recent SignalEstimates
+    #[command(
+        after_help = "Examples:\n  $ vendo measurement signals click-path\n  $ vendo measurement signals click-path --sample-limit 50 --json"
+    )]
+    ClickPath {
+        /// Number of recent SignalEstimates to fetch (1..500)
+        #[arg(long, value_name = "n")]
+        sample_limit: Option<String>,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum JobsCommand {
     /// List sync jobs
     #[command(
@@ -1058,6 +1382,56 @@ mod tests {
         // After `--` nothing is an option.
         let args = os(&["vendo", "apps", "get", "--", "--version"]);
         assert_eq!(preprocess(args.clone()), Invocation::Run(args));
+    }
+
+    #[test]
+    fn metrics_take_native_query_spec_files_and_no_legacy_authoring_flags() {
+        // Port of the TS metrics-command test (VE-2637): --definition is required on create, and
+        // the retired builder flags are gone.
+        assert!(parse(&["vendo", "metrics", "create", "--name", "ROAS"]).is_err());
+        let cli = parse(&["vendo", "metrics", "create", "--name", "ROAS", "--definition", "roas.query.json"]).unwrap();
+        let Command::Metrics { command: MetricsCommand::Create { definition, format, .. } } = cli.command else {
+            panic!()
+        };
+        assert_eq!((definition.as_str(), format.as_str()), ("roas.query.json", "number"));
+        for flag in ["--type", "--formula"] {
+            let create = ["vendo", "metrics", "create", "--name", "N", "--definition", "d.json", flag, "x"];
+            assert!(parse(&create).is_err(), "create {flag}");
+            assert!(parse(&["vendo", "metrics", "update", "m1", flag, "x"]).is_err(), "update {flag}");
+        }
+    }
+
+    #[test]
+    fn measurement_negated_flags_and_defaults_match_commander() {
+        let cli = parse(&["vendo", "measurement", "methodologies", "list", "--no-system"]).unwrap();
+        let Command::Measurement {
+            command: MeasurementCommand::Methodologies { command: MethodologiesCommand::List { no_system, .. } },
+        } = cli.command
+        else {
+            panic!()
+        };
+        assert!(no_system);
+        let cli = parse(&["vendo", "measurement", "ltv", "list", "--no-predicted"]).unwrap();
+        let Command::Measurement {
+            command:
+                MeasurementCommand::Ltv {
+                    command: LtvCommand::List { granularity, segment, limit, no_predicted, from, to, .. },
+                },
+        } = cli.command
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (granularity.as_str(), segment.as_str(), limit.as_str(), no_predicted, from, to),
+            ("monthly", "all", "50", true, None, None)
+        );
+        assert!(
+            parse(&["vendo", "measurement", "rules", "preview", "--from", "2026-01-01"]).is_err(),
+            "--to is required"
+        );
+        let cli = parse(&["vendo", "metrics", "delete", "m1", "-y"]).unwrap();
+        let Command::Metrics { command: MetricsCommand::Delete { yes, json, .. } } = cli.command else { panic!() };
+        assert!(yes && !json);
     }
 
     #[test]

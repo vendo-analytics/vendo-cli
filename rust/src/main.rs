@@ -28,21 +28,24 @@ mod context;
 mod identity;
 mod jobs;
 mod js_date;
+mod js_text;
 mod output;
 mod profile_display;
 mod source_refresh;
 mod update_check;
 mod watch;
+mod web_app;
 
 use std::process::ExitCode;
 
 use crate::{
     cli::{
-        AppsCommand, CatalogCommand, Command, ConfigCommand, IntegrationsCommand, Invocation, JobsCommand,
-        ProfileCommand, SourcesCommand,
+        AppsCommand, CatalogCommand, Command, ConfigCommand, IntegrationsCommand, Invocation, JobsCommand, LtvCommand,
+        MeasurementCommand, MethodologiesCommand, MetricsCommand, ModelsCommand, ProfileCommand, RulesCommand,
+        SignalsCommand, SourcesCommand,
     },
     commands::{
-        account, apps, catalog, health, integrations, jobs as jobs_cmd, login,
+        account, apps, catalog, health, integrations, jobs as jobs_cmd, login, measurement, metrics, models,
         pipeline_resource::{self as resource, ActionOpts},
         sources,
     },
@@ -286,6 +289,61 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             CatalogCommand::CredentialSchema { app_type, json } => {
                 catalog::credential_schema(ctx, &app_type, json).await.map(|_| ok)
             }
+        },
+        Command::Metrics { command } => match command {
+            MetricsCommand::List { status, limit, offset, json, output } => {
+                metrics::list(ctx, metrics::ListArgs { status, limit, offset, json, output }).await.map(|_| ok)
+            }
+            MetricsCommand::Get { id, json } => metrics::get(ctx, &id, json).await.map(|_| ok),
+            MetricsCommand::Create { name, definition, description, format, unit, json } => {
+                let args = metrics::CreateArgs { name, definition, description, format, unit, json };
+                metrics::create(ctx, args).await.map(|_| ok)
+            }
+            MetricsCommand::Update { id, name, description, definition, format, unit, status, json } => {
+                let args = metrics::UpdateArgs { name, description, definition, format, unit, status, json };
+                metrics::update(ctx, &id, args).await.map(|_| ok)
+            }
+            MetricsCommand::Activate { id, json } => metrics::activate(ctx, &id, json).await.map(|_| ok),
+            MetricsCommand::Delete { id, yes, json } => metrics::delete(ctx, &id, yes, json).await.map(|_| ok),
+        },
+        Command::Models { command } => match command {
+            ModelsCommand::List { data_type, valid, invalid, limit, offset, json, output } => {
+                let args = models::ListArgs { data_type, valid, invalid, limit, offset, json, output };
+                models::list(ctx, args).await.map(|_| ok)
+            }
+            ModelsCommand::Get { id, json } => models::get(ctx, &id, json).await.map(|_| ok),
+        },
+        Command::Measurement { command } => match command {
+            MeasurementCommand::Methodologies { command } => match command {
+                MethodologiesCommand::List { no_system, json, output } => {
+                    measurement::methodologies_list(ctx, no_system, json, output).await.map(|_| ok)
+                }
+                MethodologiesCommand::Get { id, json } => {
+                    measurement::methodologies_get(ctx, &id, json).await.map(|_| ok)
+                }
+            },
+            MeasurementCommand::Rules { command: RulesCommand::Preview { from, to, limit, json } } => {
+                measurement::rules_preview(ctx, from, to, &limit, json).await.map(|_| ok)
+            }
+            MeasurementCommand::Ltv { command } => match command {
+                LtvCommand::List { granularity, segment, from, to, limit, no_predicted, json, output } => {
+                    let args =
+                        measurement::LtvListArgs { granularity, segment, from, to, limit, no_predicted, json, output };
+                    measurement::ltv_list(ctx, args).await.map(|_| ok)
+                }
+                LtvCommand::Cohort { period, granularity, segment, json } => {
+                    measurement::ltv_cohort(ctx, &period, granularity, segment, json).await.map(|_| ok)
+                }
+                LtvCommand::Customer { customer_id, json } => {
+                    measurement::ltv_customer(ctx, &customer_id, json).await.map(|_| ok)
+                }
+            },
+            MeasurementCommand::Signals { command } => match command {
+                SignalsCommand::List { json } => measurement::signals_list(ctx, json).await.map(|_| ok),
+                SignalsCommand::ClickPath { sample_limit, json } => {
+                    measurement::click_path(ctx, sample_limit, json).await.map(|_| ok)
+                }
+            },
         },
         Command::Mcp { json, show_key } => {
             account::mcp(ctx, json, show_key);

@@ -220,7 +220,8 @@ impl Client {
         }
 
         if status == StatusCode::NO_CONTENT {
-            return Ok(json!({ "data": {} }));
+            // The TS client answered `{ data: {} }`; raw-path callers read the body from that `data`.
+            return Ok(if opts.raw_path { json!({}) } else { json!({ "data": {} }) });
         }
         let body = res.bytes().await.map_err(|err| client_error(error_chain(&err), 0, None))?;
 
@@ -646,6 +647,20 @@ mod tests {
             r#"[debug] response_error method=GET serverRequestId=req_server_422 status=422 statusText="Unprocessable Entity" errorMessage="Invalid payload" code=VALIDATION_ERROR details={"field":"account_id"}"#
         );
         assert_eq!(format_debug_line("request", &[]), "[debug] request");
+    }
+
+    #[tokio::test]
+    async fn a_raw_path_with_no_content_is_an_empty_body() {
+        // The TS client answered 204 with `{ data: {} }`, and the web-app
+        // commands read the body from `data`: an empty object (VE-3668).
+        let server = MockServer::start().await;
+        Mock::given(path("/api/metrics/m1")).respond_with(ResponseTemplate::new(204)).mount(&server).await;
+        let c = Client::new("k".into(), server.uri(), None, false);
+        let res = c
+            .request(Method::DELETE, "/api/metrics/m1", RequestOptions { raw_path: true, ..Default::default() })
+            .await
+            .unwrap();
+        assert_eq!(res, json!({}));
     }
 
     #[tokio::test]
