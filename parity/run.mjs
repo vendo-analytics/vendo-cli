@@ -8,15 +8,13 @@
 // chosen profile is copied into a throwaway HOME (VENDO_* env cleared); any
 // base URL other than staging/localhost is refused.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import {
   MISSING_ID,
   camelCaseKeysDeep,
-  assertSafeBaseUrl,
   diffCells,
   diffErrors,
   diffFlags,
@@ -27,8 +25,8 @@ import {
   isNotPorted,
   validateClassification,
 } from './lib.mjs';
+import { createSession, fail, root } from './session.mjs';
 
-const root = resolve(import.meta.dirname, '..');
 const { values: opts } = parseArgs({
   options: {
     profile: { type: 'string' },
@@ -38,27 +36,8 @@ const { values: opts } = parseArgs({
   },
 });
 
-function fail(message) {
-  console.error(`parity: ${message}`);
-  process.exit(2);
-}
-
 // ── Setup: profile, guard, binaries, classification ─────────────────────────
-if (!opts.profile) fail('--profile <staging profile> is required.');
-const realConfigPath = join(homedir(), '.config', 'vendo', 'config.json');
-const realConfig = existsSync(realConfigPath) ? JSON.parse(readFileSync(realConfigPath, 'utf8')) : {};
-const profile = realConfig.profiles?.[opts.profile];
-if (!profile?.apiKey) fail(`profile "${opts.profile}" not found in ${realConfigPath}, or it has no API key.`);
-let baseUrl;
-try {
-  baseUrl = assertSafeBaseUrl(profile.baseUrl);
-} catch (err) {
-  fail(err.message);
-}
-
-if (!existsSync(join(root, 'dist', 'cli.js'))) fail('dist/cli.js is missing. Run `pnpm build` first.');
-const rustPath = opts.rust ? resolve(opts.rust) : join(root, 'rust', 'target', 'release', 'vendo');
-const hasRust = existsSync(rustPath);
+const { baseUrl, rustPath, hasRust, home, run, cleanup } = createSession(opts);
 
 const discovery = spawnSync(process.execPath, [join(root, 'parity', 'discover.mjs'), root], { encoding: 'utf8' });
 if (discovery.status !== 0) fail(`command discovery failed:\n${discovery.stderr}`);
@@ -70,40 +49,10 @@ const intendedRows = intended.rows ?? [];
 const intendedKeyCasing = intended.keyCasing ?? [];
 const problems = validateClassification(discovered.map((leaf) => leaf.path), commands);
 if (problems.length > 0) fail(`parity/commands.json is out of date:\n  ${problems.join('\n  ')}`);
-
-// ── Isolated HOME: neither CLI can touch the real config or update cache ────
-const home = mkdtempSync(join(tmpdir(), 'vendo-parity-'));
-mkdirSync(join(home, '.config', 'vendo'), { recursive: true });
-writeFileSync(
-  join(home, '.config', 'vendo', 'config.json'),
-  JSON.stringify({ activeProfile: opts.profile, profiles: { [opts.profile]: profile } }, null, 2),
-);
-const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('VENDO_')));
-env.HOME = home;
-const cleanup = () => {
-  if (!opts.keep) rmSync(home, { recursive: true, force: true });
-};
 process.on('SIGINT', () => {
   cleanup();
   process.exit(130);
 });
-
-function run(cli, args) {
-  const [cmd, ...prefix] = cli === 'ts' ? [process.execPath, join(root, 'dist', 'cli.js')] : [rustPath];
-  const res = spawnSync(cmd, [...prefix, ...args], {
-    cwd: root,
-    env,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 90_000,
-  });
-  const timedOut = res.error?.code === 'ETIMEDOUT';
-  return {
-    code: res.status ?? 1,
-    stdout: res.stdout ?? '',
-    stderr: (res.stderr ?? '') + (timedOut ? '\nError: timed out after 90s' : ''),
-  };
-}
 
 // ── Arguments and variants ──────────────────────────────────────────────────
 const sources = new Map();

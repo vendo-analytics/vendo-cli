@@ -169,6 +169,38 @@ pub fn format_number(n: Option<f64>) -> String {
     if frac.is_empty() { format!("{sign}{grouped}") } else { format!("{sign}{grouped}.{frac}") }
 }
 
+/// `Date.parse` for the ISO shapes the API and users send: offset datetimes
+/// (`Z`, `±HH:MM`, and V8's lenient `±HHMM`), bare dates as UTC midnight, and
+/// offset-less datetimes as local time. Milliseconds since the epoch.
+pub fn js_date_parse(value: &str) -> Option<i64> {
+    let value = value.trim();
+    if let Ok(ts) = value.parse::<jiff::Timestamp>() {
+        return Some(ts.as_millisecond());
+    }
+    let chars: Vec<char> = value.chars().collect();
+    let n = chars.len();
+    if n >= 5 && matches!(chars[n - 5], '+' | '-') && chars[n - 4..].iter().all(char::is_ascii_digit) {
+        let with_colon: String = chars[..n - 2].iter().chain([':'].iter()).chain(chars[n - 2..].iter()).collect();
+        if let Ok(ts) = with_colon.parse::<jiff::Timestamp>() {
+            return Some(ts.as_millisecond());
+        }
+    }
+    if n == 10
+        && let Ok(date) = value.parse::<jiff::civil::Date>()
+    {
+        return date.to_zoned(jiff::tz::TimeZone::UTC).ok().map(|z| z.timestamp().as_millisecond());
+    }
+    let datetime = value.parse::<jiff::civil::DateTime>().ok()?;
+    datetime.to_zoned(jiff::tz::TimeZone::system()).ok().map(|z| z.timestamp().as_millisecond())
+}
+
+/// `Date.prototype.toISOString()`: UTC with milliseconds.
+pub fn js_iso_string(ms: i64) -> String {
+    jiff::Timestamp::from_millisecond(ms)
+        .map(|ts| ts.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+        .unwrap_or_else(|_| "Invalid Date".to_string())
+}
+
 /// JavaScript `String(value)` for JSON values, which `--output <field>` uses.
 pub fn js_string(value: &Value) -> String {
     match value {
@@ -391,6 +423,17 @@ mod tests {
         assert_eq!(time_ago_at(Some("2026-01-15T12:00:00Z"), at("2026-01-20T12:00:00Z")), "5d ago");
         let old = time_ago_at(Some("2026-01-01T12:00:00Z"), at("2026-03-15T12:00:00Z"));
         assert!(old.contains("/2026") && !old.contains("ago"), "{old}");
+    }
+
+    #[test]
+    fn js_dates_match_date_parse_and_to_iso_string() {
+        let iso = |s: &str| js_date_parse(s).map(js_iso_string);
+        assert_eq!(iso("2026-09-30T00:00:00Z").as_deref(), Some("2026-09-30T00:00:00.000Z"));
+        assert_eq!(iso("2026-10-04T22:53:56.658342+00:00").as_deref(), Some("2026-10-04T22:53:56.658Z"));
+        assert_eq!(iso("2026-07-01T00:00:00-0500").as_deref(), Some("2026-07-01T05:00:00.000Z"));
+        assert_eq!(iso("2026-06-29").as_deref(), Some("2026-06-29T00:00:00.000Z"));
+        assert_eq!(js_date_parse("invalid"), None);
+        assert!(js_date_parse("2026-06-29T06:30:00").is_some(), "naive datetimes parse as local time");
     }
 
     #[test]

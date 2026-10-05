@@ -156,8 +156,12 @@ impl Client {
         let res = match req.send().await {
             Ok(res) => res,
             Err(err) => {
-                let (message, status) =
-                    if err.is_timeout() { ("Request timed out".to_string(), 408) } else { (error_chain(&err), 0) };
+                // The TS client (undici fetch) said only "fetch failed"; the full cause goes to --debug.
+                let (message, status) = if err.is_timeout() {
+                    ("Request timed out".to_string(), 408)
+                } else {
+                    ("fetch failed".to_string(), 0)
+                };
                 self.debug_line(
                     "request_failed",
                     &[
@@ -165,10 +169,11 @@ impl Client {
                         ("url", Field::Str(url.as_str())),
                         ("requestId", Field::Str(&request_id)),
                         ("durationMs", Field::Num(started.elapsed().as_millis() as i64)),
-                        ("error", Field::Str(&message)),
+                        ("error", Field::Str(&error_chain(&err))),
                     ],
                 );
-                return Err(client_error(message, status, Some(request_id)));
+                // Like the TS client, network failures carry no request ID: the server never saw one.
+                return Err(client_error(message, status, None));
             }
         };
 
@@ -194,7 +199,7 @@ impl Client {
         if status == StatusCode::NO_CONTENT {
             return Ok(json!({ "data": {} }));
         }
-        let body = res.bytes().await.map_err(|err| client_error(error_chain(&err), 0, Some(request_id.clone())))?;
+        let body = res.bytes().await.map_err(|err| client_error(error_chain(&err), 0, None))?;
 
         if !status.is_success() {
             let parsed: Option<Value> = serde_json::from_slice(&body).ok();
@@ -255,7 +260,7 @@ impl Client {
         }
 
         serde_json::from_slice(&body)
-            .map_err(|err| client_error(format!("Unexpected response from {url}: {err}"), 0, Some(request_id)))
+            .map_err(|err| client_error(format!("Unexpected response from {url}: {err}"), 0, None))
     }
 
     fn route(&self, path: &str) -> Result<(String, Option<String>), ApiError> {
@@ -574,11 +579,15 @@ mod tests {
         let c = Client::with_timeout("k".into(), server.uri(), Some("a".into()), false, Duration::from_millis(50));
         let err = c.get("/me", &[]).await.unwrap_err();
         assert_eq!((err.message.as_str(), err.status, err.status_text.is_none()), ("Request timed out", 408, true));
+        assert_eq!(err.request_id, None, "the TS CLI prints no Request ID line for a timeout");
 
         let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
         let c = Client::new("k".into(), format!("http://{closed}"), Some("a".into()), false);
         let err = c.get("/me", &[]).await.unwrap_err();
-        assert_eq!((err.status, err.status_text.is_none()), (0, true));
+        assert_eq!(
+            (err.message.as_str(), err.status, err.status_text.is_none(), err.request_id),
+            ("fetch failed", 0, true, None)
+        );
     }
 
     #[test]
