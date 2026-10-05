@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'cli-v*'
+      # Release candidates (cli-vX.Y.Z-rc.N) are Rust builds published as
+      # pre-releases by release-rc.yml. This TypeScript flow stays until the
+      # switch-over (VE-3669).
+      - '!cli-v*-rc*'
 
 concurrency:
   group: release-vendo-cli-${{ github.ref }}

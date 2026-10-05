@@ -1,0 +1,211 @@
+name: Release candidate vendo-cli (Rust)
+
+# cli-vX.Y.Z-rc.N tags build the Rust CLI and publish a GitHub pre-release.
+# Pre-releases never become "latest", so install.sh, `vendo self-update` and the
+# update notice keep serving the TypeScript release. Every other cli-v* tag runs
+# release.yml until the switch-over (VE-3669).
+on:
+  push:
+    tags:
+      # The exact complement of release.yml's exclusion; the verify job rejects
+      # anything that is not cli-vX.Y.Z-rc.N.
+      - 'cli-v*-rc*'
+
+concurrency:
+  group: release-rc-vendo-cli-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify:
+    name: Verify tag and run tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify version matches tag
+        id: version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#cli-v}"
+          if ! [[ "$TAG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            echo "::error::Release candidate tags look like cli-vX.Y.Z-rc.N, got $GITHUB_REF_NAME"
+            exit 1
+          fi
+          # Without --no-deps, --locked also fails if the bump commit left Cargo.lock behind.
+          CARGO_VERSION="$(cargo metadata --manifest-path rust/Cargo.toml --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "vendo") | .version')"
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match rust/Cargo.toml version ($CARGO_VERSION)"
+            exit 1
+          fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        working-directory: rust
+        run: cargo test --locked
+
+  release:
+    name: Create pre-release
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Create GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          # A pre-release never becomes "latest", so the plain install command
+          # would install the stable release. Point testers at this tag.
+          # `--version=` (with "=") also works in the TypeScript CLI 0.3.x.
+          NOTES="$(cat <<EOF
+          Release candidate. It never becomes "latest", so normal installs and updates don't get it.
+
+          Install this release candidate:
+
+          curl -fsSL https://app2.vendodata.com/install.sh | VENDO_VERSION=${GITHUB_REF_NAME} bash
+
+          Or from an installed CLI: vendo self-update --version=${GITHUB_REF_NAME}
+
+          Staging: curl -fsSL https://stg.vendodata.com/install.sh | VENDO_VERSION=${GITHUB_REF_NAME} bash
+          EOF
+          )"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "Vendo CLI $VERSION" \
+              --notes "$NOTES" \
+              --prerelease --latest=false
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "Vendo CLI $VERSION" \
+              --notes "$NOTES" \
+              --prerelease --latest=false
+          fi
+
+  publish:
+    name: Publish ${{ matrix.target }}
+    needs: [verify, release]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # A Rust binary needs at least the glibc of the image it was built on,
+          # so both Linux builds pin Ubuntu 24.04 (ubuntu-latest moves to 26).
+          - target: linux-x64
+            runner: ubuntu-24.04
+            triple: x86_64-unknown-linux-gnu
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            triple: aarch64-unknown-linux-gnu
+          - target: darwin-arm64
+            runner: macos-14
+            triple: aarch64-apple-darwin
+            lipo-arch: arm64
+          # No Intel runner: cross-compiled on Apple silicon.
+          - target: darwin-x64
+            runner: macos-14
+            triple: x86_64-apple-darwin
+            lipo-arch: x86_64
+    env:
+      ASSET: vendo-${{ matrix.target }}
+      TRIPLE: ${{ matrix.triple }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.triple }}
+
+      - name: Build release binary
+        working-directory: rust
+        run: cargo build --release --locked --target "$TRIPLE"
+
+      - name: Stage binary
+        run: |
+          mkdir -p dist
+          cp "rust/target/$TRIPLE/release/vendo" "dist/$ASSET"
+
+      # Running a binary on macOS doesn't prove its architecture (Rosetta runs
+      # x86_64 transparently), so check the Mach-O slice explicitly.
+      - name: Check architecture
+        if: runner.os == 'macOS'
+        env:
+          EXPECTED_ARCH: ${{ matrix.lipo-arch }}
+        run: |
+          ACTUAL_ARCH="$(lipo -archs "dist/$ASSET")"
+          echo "dist/$ASSET: $ACTUAL_ARCH"
+          if [ "$ACTUAL_ARCH" != "$EXPECTED_ARCH" ]; then
+            echo "::error::Expected a $EXPECTED_ARCH binary, got: $ACTUAL_ARCH"
+            exit 1
+          fi
+
+      - name: Smoke test binary
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          cmd=("./dist/$ASSET")
+          if [ "$TRIPLE" = x86_64-apple-darwin ] && [ "$(uname -m)" = arm64 ]; then
+            if arch -x86_64 /usr/bin/true 2>/dev/null; then
+              cmd=(arch -x86_64 "./dist/$ASSET")
+            else
+              echo "::warning::Rosetta is not available on this runner, so $ASSET was checked by architecture only."
+              exit 0
+            fi
+          fi
+
+          out="$("${cmd[@]}" --version)"
+          echo "--version: $out"
+          if [ "$out" != "vendo $VERSION" ]; then
+            echo "::error::Expected --version to print 'vendo $VERSION', got '$out'"
+            exit 1
+          fi
+
+          "${cmd[@]}" completions bash > "$RUNNER_TEMP/vendo.bash"
+          if [ ! -s "$RUNNER_TEMP/vendo.bash" ]; then
+            echo "::error::completions bash printed nothing"
+            exit 1
+          fi
+          echo "completions bash: $(wc -c < "$RUNNER_TEMP/vendo.bash") bytes"
+
+      # Same format as the TypeScript release: install.sh runs `sha256sum -c` on it.
+      - name: Write checksum
+        run: |
+          cd dist
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$ASSET" > "$ASSET.sha256"
+            sha256sum -c "$ASSET.sha256"
+          else
+            shasum -a 256 "$ASSET" > "$ASSET.sha256"
+            shasum -a 256 -c "$ASSET.sha256"
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            "dist/$ASSET" \
+            "dist/$ASSET.sha256" \
+            --clobber

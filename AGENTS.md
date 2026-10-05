@@ -25,7 +25,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `cargo clippy --all-targets` and `cargo fmt` (120 columns, `rust/rustfmt.toml`) from `rust/`.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
-  integrations (`int`) and catalog (VE-3667). Keep `rust/Cargo.toml`'s version equal to `package.json`'s.
+  integrations (`int`) and catalog (VE-3667).
+- Versions: `rust/Cargo.toml` carries the Rust CLI's release version, and release-candidate tags must match
+  it. `package.json` stays the TypeScript CLI's version until the switch-over (VE-3669).
 
 ## Layout (`src/`)
 `cli.ts`, `client.ts`, `config.ts`, `identity.ts`, plus `commands/` (21 modules on 2026-10-05 — `ls src/commands` to recount: apps, sources,
@@ -46,4 +48,25 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
   everything it created, also on failure. Point it at a disposable staging workspace ("Vendo CLI test"),
   not one people use (VE-3667).
 - Distribution: `install.sh` pulls per-platform binaries from GitHub Releases
-  (`vendo-analytics/vendo-cli`); release CI is tag-triggered (`cli-v*`, `.github/workflows/release.yml`).
+  (`vendo-analytics/vendo-cli`); releases are tag-triggered, see below.
+
+## CI and releases (VE-3731)
+- CI (`.github/workflows/ci.yml`) runs on every pull request and push to `main`, one job per area:
+  - TypeScript: `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:parity`.
+  - Rust, from `rust/`: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`,
+    `cargo test --locked`.
+  - `cargo deny check` with `rust/deny.toml` (advisories in one job; licences, bans and sources in another).
+    Locally: `cargo install cargo-deny --locked`, then `cargo deny check` from `rust/`. Allow a new licence or
+    ignore an advisory only with a reason in `deny.toml`.
+- `cli-vX.Y.Z` tags run `release.yml`: the TypeScript binaries, published as a normal release that becomes
+  "latest", which is what `install.sh`, `vendo self-update` and the update notice install. Stays until VE-3669.
+- `cli-vX.Y.Z-rc.N` tags run `release-rc.yml`: the Rust binaries for linux-x64, linux-arm64, darwin-arm64 and
+  darwin-x64 (cross-compiled on Apple silicon), same asset names and `.sha256` files, published as a GitHub
+  pre-release that never becomes "latest". The workflow checks the tag matches `rust/Cargo.toml`, runs
+  `cargo test`, then builds, smoke-tests and uploads each binary.
+- Cutting a release candidate: bump `version` in `rust/Cargo.toml` to `X.Y.Z-rc.N` and update `rust/Cargo.lock`
+  (`cargo update --workspace` from `rust/`) in one commit, merged through a PR like any change. Then tag that
+  commit `cli-vX.Y.Z-rc.N` and push the tag. Agents never push tags or create releases: Yalcin approves each one.
+- Installing a release candidate: `VENDO_VERSION=cli-vX.Y.Z-rc.N bash install.sh` from a checkout,
+  `curl -fsSL https://app2.vendodata.com/install.sh | VENDO_VERSION=cli-vX.Y.Z-rc.N bash` from anywhere, or
+  `vendo self-update --version cli-vX.Y.Z-rc.N`.
