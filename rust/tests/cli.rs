@@ -275,3 +275,26 @@ async fn a_role_the_catalog_refuses_creates_nothing() {
     let requests = server.received_requests().await.unwrap();
     assert!(requests.iter().all(|r| r.method.as_str() == "GET"), "no POST may be sent");
 }
+
+#[cfg(unix)]
+#[test]
+fn doctor_names_the_running_binary_by_its_real_path() {
+    let sandbox = Sandbox::new(CLOSED);
+    let links = tempfile::tempdir().unwrap();
+    let link = links.path().join("vendo");
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_vendo"), &link).unwrap();
+    let out = Command::new(&link)
+        .args(["doctor", "--json"])
+        .env("HOME", sandbox.home.path())
+        .env("PATH", "/usr/bin:/bin")
+        .env_remove("VENDO_API_KEY")
+        .env_remove("VENDO_API_URL")
+        .env_remove("VENDO_ACCOUNT_ID")
+        .output()
+        .unwrap();
+    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let real = std::fs::canonicalize(env!("CARGO_BIN_EXE_vendo")).unwrap();
+    let detail = report["checks"][0]["detail"].as_str().unwrap();
+    assert!(detail.starts_with(&format!("{} (standard install path is ", real.display())), "{detail}");
+    assert_eq!(report["checks"][1]["detail"], format!("{} is not available in PATH", real.parent().unwrap().display()));
+}

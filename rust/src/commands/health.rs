@@ -160,13 +160,28 @@ pub struct DoctorEnv {
 const REINSTALL: &str =
     "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.";
 
+/// Doctor's standard install path: the TS template `${homedir()}/.local/bin/vendo`,
+/// so a HOME ending in `/` gives `//` as it did there.
+pub fn doctor_standard_binary(home: &Path) -> PathBuf {
+    let mut path = home.as_os_str().to_owned();
+    path.push("/.local/bin/vendo");
+    PathBuf::from(path)
+}
+
+/// The running binary as Node's `process.execPath` names it: symlinks resolved.
+fn running_binary() -> PathBuf {
+    std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default()
+}
+
 /// The local checks, in the TS order (API auth is appended by the caller).
+/// Paths are compared as plain strings, as the TS CLI did: a PATH entry with
+/// a trailing slash doesn't match.
 pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorCheck> {
     use CheckStatus::*;
     let mut checks = Vec::new();
     let binary = env.binary.display().to_string();
 
-    if env.binary == env.standard_binary {
+    if env.binary.as_os_str() == env.standard_binary.as_os_str() {
         checks.push(check("CLI binary", Ok, binary.clone(), None));
     } else {
         checks.push(check(
@@ -179,7 +194,7 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
 
     let binary_dir = env.binary.parent().map(Path::to_path_buf).unwrap_or_default();
     let segments: Vec<&str> = env.path_var.split(':').filter(|s| !s.is_empty()).collect();
-    let in_path = |dir: &Path| segments.iter().any(|s| Path::new(s) == dir);
+    let in_path = |dir: &Path| segments.iter().any(|s| std::ffi::OsStr::new(s) == dir.as_os_str());
     let standard_dir = env.standard_binary.parent().map(Path::to_path_buf).unwrap_or_default();
     if in_path(&binary_dir) || in_path(&standard_dir) {
         checks.push(check("PATH", Ok, format!("{} is available in PATH", binary_dir.display()), None));
@@ -343,8 +358,8 @@ pub async fn doctor(ctx: &Ctx, json: bool) -> Result<ExitCode> {
     let shell =
         std::env::var("SHELL").ok().and_then(|s| s.rsplit('/').next().map(str::to_string)).filter(|s| !s.is_empty());
     let env = DoctorEnv {
-        binary: std::env::current_exe().unwrap_or_default(),
-        standard_binary: ctx.standard_binary_path(),
+        binary: running_binary(),
+        standard_binary: doctor_standard_binary(&ctx.home),
         path_var: std::env::var("PATH").unwrap_or_default(),
         shell: shell.clone(),
         home: ctx.home.clone(),
@@ -417,8 +432,9 @@ pub fn self_update(ctx: &Ctx, version: Option<String>) -> Result<ExitCode> {
         return Ok(ExitCode::from(status.code().unwrap_or(1).clamp(1, 255) as u8));
     }
     print_success("Vendo CLI updated.");
+    // `join(homedir(), '.local', 'bin', 'vendo')` against `process.execPath`, as strings.
     let standard = ctx.standard_binary_path();
-    if std::env::current_exe().ok().as_deref() != Some(standard.as_path()) {
+    if running_binary().as_os_str() != standard.as_os_str() {
         println!();
         println!(
             "{}",
@@ -552,5 +568,44 @@ mod tests {
         );
         let profile = checks.iter().find(|c| c.name == "Selected profile").unwrap();
         assert_eq!(profile.detail, "No active profile selected");
+    }
+
+    #[test]
+    fn path_entries_are_compared_as_plain_strings() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        // A trailing slash or a `.` segment is a different string, as for `Array.includes` in TS.
+        for path_var in ["/opt/vendo/bin/", "/opt/vendo/./bin", "/opt//vendo/bin"] {
+            let checks =
+                local_checks(&env(h, "/opt/vendo/bin/vendo", path_var, Some("zsh")), &config(None, None, None, true));
+            let path = checks.iter().find(|c| c.name == "PATH").unwrap();
+            assert_eq!(path.status, CheckStatus::Fail, "{path_var}");
+        }
+        let standard_dir_with_slash = format!("{}/", h.join(".local/bin").display());
+        let checks = local_checks(
+            &env(h, "/opt/vendo/bin/vendo", &standard_dir_with_slash, None),
+            &config(None, None, None, true),
+        );
+        assert_eq!(checks.iter().find(|c| c.name == "PATH").unwrap().status, CheckStatus::Fail);
+    }
+
+    #[test]
+    fn the_standard_path_is_the_home_string_plus_the_install_path() {
+        // `${homedir()}/.local/bin/vendo`: a HOME ending in `/` gives `//`, which
+        // never equals the running binary's canonical path.
+        assert_eq!(doctor_standard_binary(Path::new("/h/")), PathBuf::from("/h//.local/bin/vendo"));
+        let checks = local_checks(
+            &DoctorEnv {
+                binary: PathBuf::from("/h/.local/bin/vendo"),
+                standard_binary: doctor_standard_binary(Path::new("/h/")),
+                path_var: "/h/.local/bin".into(),
+                shell: None,
+                home: PathBuf::from("/h/"),
+            },
+            &config(None, None, None, true),
+        );
+        assert_eq!(checks[0].status, CheckStatus::Warn);
+        assert_eq!(checks[0].detail, "/h/.local/bin/vendo (standard install path is /h//.local/bin/vendo)");
+        assert_eq!(checks[1].status, CheckStatus::Ok);
     }
 }
