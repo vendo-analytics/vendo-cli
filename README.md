@@ -68,7 +68,7 @@ vendo int list                           # export integrations
 vendo models list                        # data models
 vendo metrics list                       # custom metrics
 vendo dictionary list                    # data dictionary (events by default)
-vendo dictionary search checkout         # search catalog names/descriptions
+vendo dictionary search checkout         # text search within one subject type
 vendo catalog list                       # connector catalog (apps you can install)
 vendo measurement methodologies list     # marketing measurement methodologies
 vendo measurement ltv list               # LTV cohorts
@@ -85,7 +85,7 @@ vendo int get <integration-id>
 vendo jobs get <job-id>
 vendo models get <model-id>
 vendo metrics get <metric-id>
-vendo dictionary get event:checkout_completed
+vendo dictionary get <subject-id>
 ```
 
 ### Create / update / delete
@@ -110,19 +110,27 @@ vendo metrics delete <metric-id> -y
 ### Data dictionary
 
 Browse catalog definitions — events, properties, groups, columns, metrics,
-models, and audiences. Matches the MCP dictionary search/list/lookup tools.
-`vendo dictionary list` shows events by default (name, display, description).
+models, and audiences. `vendo dictionary list` shows events by default
+(subject ID, display name, description).
 
 ```bash
 vendo dictionary list
 vendo dictionary list --type event --query checkout
 vendo dictionary search checkout
+vendo dictionary get <subject-id>
 vendo dictionary get event:checkout_completed
 ```
 
 `--type` accepts `event`, `prop`, `group`, `column`, `metric`, `model`, or
-`audience`. `--query` / `-q` is a text search. Use `--json` for the raw
-`{ data, meta }` envelope.
+`audience`. `search` and `--query` / `-q` are a case-insensitive text match
+within one subject type; they are not the ranked semantic search behind the
+MCP `dictionary_search` tool. Use `--json` for the raw `{ data, meta }` envelope.
+
+`get` takes the subject ID that `list` and `search` print: a registry ID for
+events, properties, groups, metrics, and audiences, or a path such as
+`source:…/table:…/col:…` for columns and `model:…` for models. It also accepts an
+alias such as `event:checkout_completed` (URL-encode spaces: `event:Order%20Placed`)
+when the name belongs to one source.
 
 ### Run + watch jobs
 

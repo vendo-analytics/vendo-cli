@@ -21,11 +21,11 @@ describe('validateClassification', () => {
     const problems = validateClassification(['apps list', 'apps get', 'jobs list'], {
       'apps list': { class: 'read' },
       'apps get': { class: 'read' },
-      'specs list': { class: 'read' },
+      'retired list': { class: 'read' },
     });
     assert.deepEqual(problems, [
       'unclassified command: "jobs list"',
-      'classified command no longer exists: "specs list"',
+      'classified command no longer exists: "retired list"',
     ]);
   });
 

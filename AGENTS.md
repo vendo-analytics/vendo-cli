@@ -28,8 +28,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   integrations (`int`) and catalog (VE-3667). Keep `rust/Cargo.toml`'s version equal to `package.json`'s.
 
 ## Layout (`src/`)
-`cli.ts`, `client.ts`, `config.ts`, `identity.ts`, plus `commands/` (21 modules on 2026-09-23 — `ls src/commands` to recount: apps, sources,
-integrations, jobs, metrics, models, catalog, measurement, specs, pipeline-resource, mcp, login,
+`cli.ts`, `client.ts`, `config.ts`, `identity.ts`, plus `commands/` (21 modules on 2026-10-05 — `ls src/commands` to recount: apps, sources,
+integrations, jobs, metrics, models, catalog, dictionary, measurement, pipeline-resource, mcp, login,
 logout, init, doctor, status, whoami, profile, config, completions, self-update). Tests in `src/__tests__/`.
 
 ## Key commands

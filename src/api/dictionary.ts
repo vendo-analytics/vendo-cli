@@ -21,7 +21,7 @@ export type DictionarySubjectType = (typeof DICTIONARY_SUBJECT_TYPES)[number];
  *
  * For event, prop, group, metric and audience, `subjectId` is the published
  * semantic registry ID (32 hex characters). Columns and models keep their
- * `source:…/table:…/col:…` style paths.
+ * path IDs (`source:…/table:…/col:…`, `model:…`).
  */
 export interface DictionaryItem {
   subjectId: string;
