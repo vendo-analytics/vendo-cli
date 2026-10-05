@@ -547,7 +547,7 @@ fn js_key_order_value(value: Value) -> Value {
 }
 
 /// A canonical array index: digits without a leading zero, below 2^32 - 1.
-fn array_index(key: &str) -> Option<u32> {
+pub fn array_index(key: &str) -> Option<u32> {
     let canonical = !key.is_empty() && key.bytes().all(|b| b.is_ascii_digit()) && (key == "0" || !key.starts_with('0'));
     canonical.then(|| key.parse::<u32>().ok()).flatten().filter(|n| *n < u32::MAX)
 }
@@ -583,9 +583,12 @@ fn snake_to_camel(key: &str) -> String {
     out
 }
 
-/// `JSON.parse(text)`: serde_json parses, and an error reads the way V8 words it.
+/// `JSON.parse(text)`: serde_json parses, keys take JavaScript's property order (array-index keys
+/// first, as the TS CLI printed and iterated them), and an error reads the way V8 words it.
 pub fn parse_json(text: &str) -> Result<Value, String> {
-    serde_json::from_str(text).map_err(|err| v8_json::parse_error(text).unwrap_or_else(|| err.to_string()))
+    serde_json::from_str(text)
+        .map(js_key_order_value)
+        .map_err(|err| v8_json::parse_error(text).unwrap_or_else(|| err.to_string()))
 }
 
 /// The text `res.json()` parses: UTF-8 with a leading byte order mark dropped, invalid bytes as
@@ -1227,6 +1230,21 @@ mod tests {
     ]
   }
 }"#;
+
+    #[test]
+    fn parsed_json_keys_follow_javascript_property_order() {
+        // `JSON.parse` puts array-index keys first, ascending, at every level; the TS CLI printed
+        // and iterated them in that order.
+        let value =
+            parse_json(r#"{"b":1,"10":2,"a":3,"2":{"z":1,"1":2},"02":5,"4294967295":6,"4294967294":7}"#).unwrap();
+        let keys = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+        assert_eq!(keys(&value), ["2", "10", "4294967294", "b", "a", "02", "4294967295"]);
+        assert_eq!(keys(&value["2"]), ["1", "z"]);
+        assert_eq!(
+            json_pretty(&parse_json(r#"[{"y":1.0,"0":true}]"#).unwrap()),
+            "[\n  {\n    \"0\": true,\n    \"y\": 1.0\n  }\n]"
+        );
+    }
 
     #[test]
     fn json_output_keeps_numbers_as_the_api_sent_them() {

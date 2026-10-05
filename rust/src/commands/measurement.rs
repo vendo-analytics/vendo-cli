@@ -91,7 +91,7 @@ fn pad_end(text: &str, width: usize) -> String {
 /// `Object.keys(value)` for an object or array, in V8's order: array-index
 /// keys ascending, then the rest in insertion order.
 fn object_keys(value: &Value) -> Vec<String> {
-    let index = |key: &str| key.parse::<u32>().ok().filter(|n| *n < u32::MAX && n.to_string() == key);
+    let index = crate::output::array_index;
     match value {
         Value::Object(map) => {
             let mut indexed: Vec<(u32, &String)> = map.keys().filter_map(|k| index(k).map(|n| (n, k))).collect();
