@@ -207,7 +207,10 @@ pub enum Command {
     #[command(
         after_help = "Examples:\n  $ vendo completions bash\n  $ vendo completions zsh\n  $ vendo completions fish"
     )]
-    Completions { shell: Shell },
+    Completions {
+        #[arg(value_name = "shell")]
+        shell: Shell,
+    },
     /// Run local configuration and connectivity checks
     #[command(after_help = "Examples:\n  $ vendo doctor\n  $ vendo doctor --json")]
     Doctor {
@@ -397,8 +400,12 @@ pub enum AppsCommand {
         /// Comma-separated capability: source, destination (derives default permissions)
         #[arg(long, value_name = "role", default_value = "source")]
         role: String,
-        /// Comma-separated granular permissions (e.g. performance_data,send_conversions). Overrides --role.
-        #[arg(long, value_name = "permissions")]
+        // `help =`, not a doc comment: clap drops a doc comment's trailing period, and TS keeps it.
+        #[arg(
+            long,
+            value_name = "permissions",
+            help = "Comma-separated granular permissions (e.g. performance_data,send_conversions). Overrides --role."
+        )]
         permissions: Option<String>,
         /// Path to a JSON file with the credential payload
         #[arg(long, value_name = "path")]
@@ -426,8 +433,7 @@ pub enum AppsCommand {
         /// Comma-separated capability: source, destination (derives permissions)
         #[arg(long, value_name = "role")]
         role: Option<String>,
-        /// Comma-separated granular permissions. Overrides --role.
-        #[arg(long, value_name = "permissions")]
+        #[arg(long, value_name = "permissions", help = "Comma-separated granular permissions. Overrides --role.")]
         permissions: Option<String>,
         /// Replace credentials from a JSON file
         #[arg(long, value_name = "path")]
