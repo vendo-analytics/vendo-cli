@@ -1361,3 +1361,19 @@ async fn dates_and_row_counts_follow_lang_like_node() {
     let out = sandbox.command(&["jobs", "get", "j-1"]).env("LANG", "de_DE.UTF-8").env("LC_ALL", "C").output().unwrap();
     assert!(text(&out.stdout).contains("  Rows Read:     1,234,567.891\n"));
 }
+
+#[tokio::test]
+async fn json_output_matches_the_ts_cli_byte_for_byte() {
+    // A body written the way the Node API writes it (`JSON.stringify`), with numbers serde_json
+    // used to reformat: 0.000001 (was 1e-6) and 1e20 (was 1e+20).
+    let body = r#"{"data":{"id":"j-1","a":0.000001,"b":1e+21,"c":1.5,"d":0,"e":9007199254740992,"f":12345678901234567000,"g":[100000000000000000000,2.5e-7]}}"#;
+    let server = MockServer::start().await;
+    Mock::given(path("/api/v1/accounts/acct-alpha/jobs/j-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+        .mount(&server)
+        .await;
+    let out = Sandbox::new(&server.uri()).run(&["jobs", "get", "j-1", "--json"]);
+    // `node dist/cli.js jobs get j-1 --json` against the same stub.
+    let ts = "{\n  \"data\": {\n    \"id\": \"j-1\",\n    \"a\": 0.000001,\n    \"b\": 1e+21,\n    \"c\": 1.5,\n    \"d\": 0,\n    \"e\": 9007199254740992,\n    \"f\": 12345678901234567000,\n    \"g\": [\n      100000000000000000000,\n      2.5e-7\n    ]\n  }\n}\n";
+    assert_eq!(text(&out.stdout), ts);
+}

@@ -9,7 +9,7 @@ use crate::{
     context::Ctx,
     jobs::{Job, format_job_progress},
     output::{
-        OutputMode, bold, color_status, dim, js_string, js_truthy, print_count, print_field, print_json, print_label,
+        OutputMode, bold, color_status, dim, js_truthy, print_count, print_field, print_json, print_label,
         print_success, red, resolve_output_mode, run_action, short_id, table, time_ago,
     },
     source_refresh::{Tone, resolve_refresh_window, summarize},
@@ -134,7 +134,7 @@ pub async fn get(ctx: &Ctx, integration_id: &str, json: bool) -> Result<()> {
         println!("  Error:        {}", red(&error));
     }
     if let Some(n) = int.get("consecutiveFailures").and_then(Value::as_f64).filter(|n| *n > 0.0) {
-        println!("  Failures:     {} consecutive", red(&js_string(&json!(n))));
+        println!("  Failures:     {} consecutive", red(&crate::output::js_number_string(n)));
     }
     if let Some(job) = t("latestJobId").filter(|s| !s.is_empty()) {
         println!("  Latest Job:   {}", dim(&job));

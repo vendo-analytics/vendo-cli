@@ -55,7 +55,7 @@ pub fn is_terminal(status: &str) -> bool {
 }
 
 fn js_number(n: f64) -> String {
-    js_string(&serde_json::json!(n))
+    crate::output::js_number_string(n)
 }
 
 pub fn format_job_progress(job: Option<Job>) -> String {

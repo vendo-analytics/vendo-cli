@@ -76,7 +76,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
             text(source, "syncType").unwrap_or_default(),
             color_status(&text(source, "integrationStatus").unwrap_or_default()),
             format_job_progress(active_by_source.get(&id).map(Job)),
-            failures(source).map(|n| red(&crate::output::js_string(&json!(n)))).unwrap_or_else(|| dim("0")),
+            failures(source).map(|n| red(&crate::output::js_number_string(n))).unwrap_or_else(|| dim("0")),
             time_ago(text(source, "lastSyncAt").as_deref()),
         ]);
     }
@@ -157,7 +157,7 @@ pub fn render_source(src: &Value, active: Option<&Value>) -> String {
         lines.push(format!("  Error:       {}", red(&error)));
     }
     if let Some(n) = failures(src) {
-        lines.push(format!("  Failures:    {} consecutive", red(&crate::output::js_string(&json!(n)))));
+        lines.push(format!("  Failures:    {} consecutive", red(&crate::output::js_number_string(n))));
     }
     if let Some(job) = t("latestJobId").filter(|s| !s.is_empty()) {
         lines.push(format!("  Latest Job:  {}", dim(&job)));

@@ -321,7 +321,7 @@ pub async fn get(ctx: &Ctx, app_id: &str, json: bool) -> Result<()> {
         println!("  Error:       {}", red(&error));
     }
     if let Some(n) = app.get("consecutiveFailureCount").and_then(Value::as_f64).filter(|n| *n > 0.0) {
-        println!("  Failures:    {} consecutive", red(&crate::output::js_string(&json!(n))));
+        println!("  Failures:    {} consecutive", red(&crate::output::js_number_string(n)));
     }
     Ok(())
 }

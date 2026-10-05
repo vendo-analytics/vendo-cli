@@ -26,7 +26,7 @@ pub fn js_truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
         Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+        Value::Number(n) => js_number_of(n) != 0.0,
         Value::String(s) => !s.is_empty(),
         _ => true,
     }
@@ -350,6 +350,15 @@ impl serde_json::ser::Formatter for JsFormatter {
         if value <= JS_SAFE_INTEGER { write!(writer, "{value}") } else { self.write_f64(writer, value as f64) }
     }
 
+    /// Numbers parsed from text (an API response or a `--*-file`): through a double, as
+    /// `JSON.parse` then `JSON.stringify` did, so `1.0` is `1` and `1e400` is `null`.
+    fn write_number_str<W: ?Sized + Write>(&mut self, writer: &mut W, value: &str) -> std::io::Result<()> {
+        match value.parse::<f64>() {
+            Ok(n) if n.is_finite() => self.write_f64(writer, n),
+            _ => writer.write_all(b"null"),
+        }
+    }
+
     fn write_i64<W: ?Sized + Write>(&mut self, writer: &mut W, value: i64) -> std::io::Result<()> {
         if value.unsigned_abs() <= JS_SAFE_INTEGER {
             write!(writer, "{value}")
@@ -369,10 +378,7 @@ pub fn js_string(value: &Value) -> String {
     match value {
         Value::Null => "null".to_string(),
         Value::Bool(b) => b.to_string(),
-        Value::Number(n) => match n.as_f64() {
-            Some(f) if n.is_f64() && f.fract() == 0.0 && f.abs() < 1e21 => format!("{f:.0}"),
-            _ => n.to_string(),
-        },
+        Value::Number(n) => js_number_string(js_number_of(n)),
         Value::String(s) => s.clone(),
         Value::Array(items) => items
             .iter()
@@ -386,8 +392,21 @@ pub fn js_string(value: &Value) -> String {
     }
 }
 
+/// The number JavaScript's `JSON.parse` makes of a JSON number: the nearest double, ±Infinity
+/// beyond the range. Numbers keep the API's text (serde_json `arbitrary_precision`).
+pub fn js_number_of(n: &serde_json::Number) -> f64 {
+    n.as_str().parse().unwrap_or(f64::NAN)
+}
+
+/// `--json` output: pretty-printed with two spaces like `JSON.stringify(data, null, 2)`, and
+/// numbers exactly as the API sent them (decided 2026-10-05), which is what the TS CLI printed
+/// for anything a Node server sends.
+pub fn json_pretty(value: &Value) -> String {
+    serde_json::to_string_pretty(value).expect("JSON values always serialize")
+}
+
 pub fn print_json(value: &Value) {
-    println!("{}", serde_json::to_string_pretty(value).expect("JSON values always serialize"));
+    println!("{}", json_pretty(value));
 }
 
 /// `--output <field>`: one line per row, skipping rows where it's null/absent.
@@ -980,5 +999,63 @@ mod tests {
         assert_eq!(old, to_locale_date_string(js_date_parse("2026-01-01T12:00:00Z").unwrap()));
         assert_eq!(format_number(Some(1.0005)), "1.001");
         assert_eq!(format_number(Some(-0.0)), "-0");
+    }
+
+    /// A body as a Node server writes it (`JSON.stringify`) and what `node dist/cli.js … --json`
+    /// printed for it against a stub (VE-3728).
+    const NODE_BODY: &str = r#"{"data":{"accountId":"acct-alpha","a":0.000001,"b":1e+21,"c":1.5,"d":0,"e":9007199254740992,"f":1,"g":1e+21,"h":1e+21,"i":1e-7,"j":12345678901234567000,"k":100,"l":0,"m":1.5,"n":[100000000000000000000,2.5e-7,-1.5e+300]}}"#;
+    pub(crate) const TS_JSON_OUTPUT: &str = r#"{
+  "data": {
+    "accountId": "acct-alpha",
+    "a": 0.000001,
+    "b": 1e+21,
+    "c": 1.5,
+    "d": 0,
+    "e": 9007199254740992,
+    "f": 1,
+    "g": 1e+21,
+    "h": 1e+21,
+    "i": 1e-7,
+    "j": 12345678901234567000,
+    "k": 100,
+    "l": 0,
+    "m": 1.5,
+    "n": [
+      100000000000000000000,
+      2.5e-7,
+      -1.5e+300
+    ]
+  }
+}"#;
+
+    #[test]
+    fn json_output_keeps_numbers_as_the_api_sent_them() {
+        let body: Value = serde_json::from_str(NODE_BODY).unwrap();
+        assert_eq!(json_pretty(&body), TS_JSON_OUTPUT);
+        // Forms a Node server never writes print as sent too (decided 2026-10-05), except that
+        // serde_json writes integers and exponents canonically: -0 is 0 and 1E21 is 1e+21, as
+        // JSON.stringify writes them. TS printed 1, 9007199254740992 and 1e+21 for the others.
+        let raw: Value = serde_json::from_str(r#"{"a":1.0,"b":-0,"c":9007199254740993,"d":1E21}"#).unwrap();
+        assert_eq!(json_pretty(&raw), "{\n  \"a\": 1.0,\n  \"b\": 0,\n  \"c\": 9007199254740993,\n  \"d\": 1e+21\n}");
+        // Key order and number reads still work.
+        assert_eq!(body["data"].as_object().unwrap().keys().next().unwrap(), "accountId");
+        assert_eq!((body["data"]["k"].as_u64(), body["data"]["c"].as_f64()), (Some(100), Some(1.5)));
+    }
+
+    #[test]
+    fn js_string_reads_numbers_as_javascript_doubles() {
+        let raw: Value =
+            serde_json::from_str(r#"[1.0, -0, 9007199254740993, 1E21, 1e400, 0.000001, 1e-7, 12.50]"#).unwrap();
+        let strings: Vec<String> = raw.as_array().unwrap().iter().map(js_string).collect();
+        assert_eq!(strings, ["1", "0", "9007199254740992", "1e+21", "Infinity", "0.000001", "1e-7", "12.5"]);
+        assert!(!js_truthy(&raw[1]) && js_truthy(&raw[4]));
+    }
+
+    #[test]
+    fn request_bodies_write_numbers_like_json_stringify() {
+        // A config file goes through JSON.parse then JSON.stringify in the TS CLI.
+        let file: Value =
+            serde_json::from_str(r#"{"a":1.0,"b":-0,"c":9007199254740993,"d":1E21,"e":1e400,"f":[0.000001]}"#).unwrap();
+        assert_eq!(js_stringify(&file), r#"{"a":1,"b":0,"c":9007199254740992,"d":1e+21,"e":null,"f":[0.000001]}"#);
     }
 }
