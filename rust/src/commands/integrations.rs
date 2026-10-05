@@ -9,8 +9,8 @@ use crate::{
     context::Ctx,
     jobs::{Job, format_job_progress},
     output::{
-        OutputMode, bold, color_status, dim, js_truthy, print_count, print_field, print_json, print_label,
-        print_success, red, resolve_output_mode, run_action, short_id, table, time_ago,
+        OutputMode, bold, camel_case_keys_deep, color_status, dim, js_stringify, js_truthy, print_count, print_field,
+        print_json, print_label, print_success, red, resolve_output_mode, run_action, short_id, table, time_ago,
     },
     source_refresh::{Tone, resolve_refresh_window, summarize},
     watch::{self, ResourceKind},
@@ -127,8 +127,8 @@ pub async fn get(ctx: &Ctx, integration_id: &str, json: bool) -> Result<()> {
     println!("  Progress:     {}", format_job_progress(active.as_ref().map(Job)));
     println!("  Last Sync:    {}", time_ago(t("lastSyncAt").as_deref()));
     println!("  Created:      {}", time_ago(t("createdAt").as_deref()));
-    if let Some(schedule) = int.get("schedule").filter(|s| js_truthy(s)) {
-        println!("  Schedule:     {schedule}");
+    if let Some(line) = schedule_line(int) {
+        println!("{line}");
     }
     if let Some(error) = t("lastError").filter(|s| !s.is_empty()) {
         println!("  Error:        {}", red(&error));
@@ -140,6 +140,12 @@ pub async fn get(ctx: &Ctx, integration_id: &str, json: bool) -> Result<()> {
         println!("  Latest Job:   {}", dim(&job));
     }
     Ok(())
+}
+
+/// `JSON.stringify(int.schedule)` after the TS client camelCased the response, when truthy.
+fn schedule_line(int: &Value) -> Option<String> {
+    let schedule = int.get("schedule").filter(|s| js_truthy(s))?;
+    Some(format!("  Schedule:     {}", js_stringify(&camel_case_keys_deep(schedule))))
 }
 
 pub fn dry_run_fields(int: &Value) -> Vec<(&'static str, String)> {
@@ -287,4 +293,21 @@ pub async fn update(ctx: &Ctx, integration_id: &str, args: UpdateArgs) -> Result
         OutputMode::Table => print_success(&format!("Integration {} updated.", short_id(integration_id))),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_schedule_row_prints_camel_case_keys_like_ts() {
+        let int = json!({ "schedule": { "frequency_value": 1.0, "frequency_unit": "days", "run_now": false } });
+        assert_eq!(
+            schedule_line(&int).as_deref(),
+            Some(r#"  Schedule:     {"frequencyValue":1,"frequencyUnit":"days","runNow":false}"#)
+        );
+        assert_eq!(schedule_line(&json!({ "schedule": null })), None);
+        assert_eq!(schedule_line(&json!({ "schedule": "" })), None);
+        assert_eq!(schedule_line(&json!({})), None);
+    }
 }

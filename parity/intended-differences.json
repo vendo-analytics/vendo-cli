@@ -59,7 +59,7 @@
     },
     {
       "what": "TLS uses the OS trust store; NODE_EXTRA_CA_CERTS is ignored",
-      "reason": "❓ Accepted by Yalcin, 2026-10-05 (VE-3727). rustls with the platform verifier (macOS keychain, the system CA store on Linux) replaces Node's bundled CA list; confirm with Yalcin."
+      "reason": "Decided by Yalcin, 2026-10-05. rustls with the platform verifier (macOS keychain, the system CA store on Linux) replaces Node's bundled CA list."
     },
     {
       "what": "Null or corrupt config values the TS CLI crashed on",
@@ -98,12 +98,6 @@
       "variant": "plain",
       "rowPattern": "^\\[\\w+\\] (CLI binary|PATH):",
       "reason": "These two checks name the running executable and its directory, which differ between the CLIs."
-    },
-    {
-      "command": "integrations get",
-      "variant": "plain",
-      "rowPattern": "^Schedule:  \\{",
-      "reason": "The Schedule row prints the integration's schedule object as the API sends it (snake_case keys, matching `--json`); the TS client camelCased it. ❓ Verbatim here is an assumption pending Yalcin. The values are still compared through the `integrations get --json` keyCasing rule."
     }
   ],
   "keyCasing": [

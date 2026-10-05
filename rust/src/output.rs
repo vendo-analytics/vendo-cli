@@ -398,6 +398,60 @@ pub fn js_number_of(n: &serde_json::Number) -> f64 {
     n.as_str().parse().unwrap_or(f64::NAN)
 }
 
+/// JavaScript's property order, which `JSON.parse` and `JSON.stringify` keep:
+/// array-index keys ("0" to "4294967294") first in ascending order, then the
+/// rest in insertion order, at every level.
+pub fn js_key_order(map: serde_json::Map<String, Value>) -> serde_json::Map<String, Value> {
+    let (mut indexes, rest): (Vec<_>, Vec<_>) = map.into_iter().partition(|(key, _)| array_index(key).is_some());
+    indexes.sort_by_key(|(key, _)| array_index(key));
+    indexes.into_iter().chain(rest).map(|(key, value)| (key, js_key_order_value(value))).collect()
+}
+
+fn js_key_order_value(value: Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(js_key_order(map)),
+        Value::Array(items) => Value::Array(items.into_iter().map(js_key_order_value).collect()),
+        other => other,
+    }
+}
+
+/// A canonical array index: digits without a leading zero, below 2^32 - 1.
+fn array_index(key: &str) -> Option<u32> {
+    let canonical = !key.is_empty() && key.bytes().all(|b| b.is_ascii_digit()) && (key == "0" || !key.starts_with('0'));
+    canonical.then(|| key.parse::<u32>().ok()).flatten().filter(|n| *n < u32::MAX)
+}
+
+/// The TS client's `toCamelCaseDeep`: `_x` becomes `X` for x in a-z and 0-9, in every key; a
+/// key that maps onto an earlier one replaces its value in place, as object assignment does.
+pub fn camel_case_keys_deep(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (key, value) in map {
+                out.insert(snake_to_camel(key), camel_case_keys_deep(value));
+            }
+            Value::Object(js_key_order(out))
+        }
+        Value::Array(items) => Value::Array(items.iter().map(camel_case_keys_deep).collect()),
+        other => other.clone(),
+    }
+}
+
+fn snake_to_camel(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    let mut chars = key.chars().peekable();
+    while let Some(c) = chars.next() {
+        match chars.peek() {
+            Some(&next) if c == '_' && (next.is_ascii_lowercase() || next.is_ascii_digit()) => {
+                out.push(next.to_ascii_uppercase());
+                chars.next();
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// `--json` output: pretty-printed with two spaces like `JSON.stringify(data, null, 2)`, and
 /// numbers exactly as the API sent them (decided 2026-10-05), which is what the TS CLI printed
 /// for anything a Node server sends.
@@ -1057,5 +1111,16 @@ mod tests {
         let file: Value =
             serde_json::from_str(r#"{"a":1.0,"b":-0,"c":9007199254740993,"d":1E21,"e":1e400,"f":[0.000001]}"#).unwrap();
         assert_eq!(js_stringify(&file), r#"{"a":1,"b":0,"c":9007199254740992,"d":1e+21,"e":null,"f":[0.000001]}"#);
+    }
+
+    #[test]
+    fn camel_case_keys_like_the_ts_client() {
+        let value: Value =
+            serde_json::from_str(r#"{"frequency_value":1,"a__b":2,"x_1":3,"_leading":4,"trailing_":5,"UPPER_CASE":6,"nested":{"run_now_at":[{"f_g":1.0}]},"2":7}"#)
+                .unwrap();
+        assert_eq!(
+            js_stringify(&camel_case_keys_deep(&value)),
+            r#"{"2":7,"frequencyValue":1,"a_B":2,"x1":3,"Leading":4,"trailing_":5,"UPPER_CASE":6,"nested":{"runNowAt":[{"fG":1}]}}"#
+        );
     }
 }
