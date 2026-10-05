@@ -9,10 +9,11 @@ use serde_json::{Map, Value, json};
 use crate::{
     commands::pipeline_resource::js_number_value,
     context::Ctx,
-    js_text::{cell, cell_or, format_number_of, length_of, template, template_or, time_ago_of},
+    js_text::{cell, cell_or, length_of, template_or, time_ago_of},
     output::{
-        OutputMode, arg_error, bold, cyan, dim, format_number, green, js_number, js_number_string, js_string,
-        js_truthy, print_count, print_field, print_json, red, resolve_output_mode, run_action, short_id, table, yellow,
+        OutputMode, arg_error, bold, cyan, dim, format_number, format_usd, green, js_number, js_number_of,
+        js_number_string, js_string, js_template, js_truthy, print_count, print_count_of, print_field, print_json, red,
+        resolve_output_mode, run_action, short_id, table, to_locale_number, yellow,
     },
     web_app,
 };
@@ -30,30 +31,7 @@ fn array_at<'a>(value: &'a Value, pointer: &str) -> &'a [Value] {
 }
 
 // ── Number formats only measurement uses ───────────────────────────────────
-
-/// `n.toLocaleString(undefined, { style: 'currency', currency: 'USD',
-/// maximumFractionDigits: 2 })` in en-US: Intl rounds the shortest decimal
-/// form of the number half away from zero, so 1.005 is $1.01.
-/// ❓ en-US only: the TS output follows the user's locale (VE-3728).
-fn format_usd(n: f64) -> String {
-    let scientific = format!("{:e}", n.abs());
-    let (mantissa, exponent) = scientific.split_once('e').expect("{:e} always has an exponent");
-    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
-    let point = exponent.parse::<i64>().expect("{:e} exponent is an integer") + 1;
-    let (int, frac) = if point <= 0 {
-        ("0".to_string(), format!("{}{digits}", "0".repeat(point.unsigned_abs() as usize)))
-    } else if point as usize >= digits.len() {
-        (format!("{digits}{}", "0".repeat(point as usize - digits.len())), String::new())
-    } else {
-        (digits[..point as usize].to_string(), digits[point as usize..].to_string())
-    };
-    let round_up = frac.as_bytes().get(2).is_some_and(|d| *d >= b'5');
-    let cents = format!("{int}{:0<2}", &frac[..frac.len().min(2)]);
-    let cents = if round_up { increment(&cents) } else { cents };
-    let (int, frac) = cents.split_at(cents.len() - 2);
-    let sign = if n.is_sign_negative() { "-" } else { "" };
-    format!("{sign}${}.{frac}", group_thousands(int.trim_start_matches('0')))
-}
+// Money goes through `output::format_usd`, which follows the locale (VE-3728).
 
 /// Add one to a string of decimal digits.
 fn increment(digits: &str) -> String {
@@ -67,20 +45,6 @@ fn increment(digits: &str) -> String {
         }
     }
     format!("1{}", String::from_utf8(out).expect("ASCII digits"))
-}
-
-fn group_thousands(int: &str) -> String {
-    if int.is_empty() {
-        return "0".to_string();
-    }
-    let mut grouped = String::new();
-    for (i, digit) in int.chars().enumerate() {
-        if i > 0 && (int.len() - i).is_multiple_of(3) {
-            grouped.push(',');
-        }
-        grouped.push(digit);
-    }
-    grouped
 }
 
 /// `Number.prototype.toFixed(2)`: the exact binary value rounded half up, so
@@ -100,11 +64,11 @@ fn to_fixed_2(n: f64) -> String {
     format!("{sign}{}.{frac}", if int.is_empty() { "0" } else { int })
 }
 
-/// The TS `fmtMoney`.
+/// The TS `fmtMoney`: USD in the user's locale (VE-3728).
 fn fmt_money(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) => dash(),
-        Some(Value::Number(n)) => format_usd(n.as_f64().unwrap_or_default()),
+        Some(Value::Number(n)) => format_usd(js_number_of(n)),
         Some(other) => js_string(other),
     }
 }
@@ -113,7 +77,7 @@ fn fmt_money(value: Option<&Value>) -> String {
 fn fmt_ratio(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) => dash(),
-        Some(Value::Number(n)) => to_fixed_2(n.as_f64().unwrap_or_default()),
+        Some(Value::Number(n)) => to_fixed_2(js_number_of(n)),
         Some(other) => js_string(other),
     }
 }
@@ -127,7 +91,7 @@ fn pad_end(text: &str, width: usize) -> String {
 /// `Object.keys(value)` for an object or array, in V8's order: array-index
 /// keys ascending, then the rest in insertion order.
 fn object_keys(value: &Value) -> Vec<String> {
-    let index = |key: &str| key.parse::<u32>().ok().filter(|n| *n < u32::MAX && n.to_string() == key);
+    let index = crate::output::array_index;
     match value {
         Value::Object(map) => {
             let mut indexed: Vec<(u32, &String)> = map.keys().filter_map(|k| index(k).map(|n| (n, k))).collect();
@@ -195,7 +159,7 @@ pub async fn methodologies_list(ctx: &Ctx, no_system: bool, json: bool, output: 
             cell(row.get("name")),
             cell(row.get("click_path_model")),
             if truthy(row.get("is_system")) { cyan("system") } else { "account".to_string() },
-            template(row.get("version")),
+            js_template(row.get("version")),
             time_ago_of(row.get("updated_at")),
         ]);
     }
@@ -224,7 +188,7 @@ pub async fn methodologies_get(ctx: &Ctx, methodology_id: &str, json: bool) -> R
 
 /// The `methodologies get` text view.
 pub fn render_methodology(row: &Value) -> String {
-    let t = |key: &str| template(row.get(key));
+    let t = |key: &str| js_template(row.get(key));
     let mut lines = vec![
         String::new(),
         format!("{} {}", bold(&t("name")), dim(&format!("({})", t("click_path_model")))),
@@ -245,7 +209,7 @@ pub fn render_methodology(row: &Value) -> String {
         lines.push(bold("  Ensemble weights:"));
         for key in keys {
             let weight = key_value(&weights, &key).filter(|w| !w.is_null()).cloned().unwrap_or(json!(0));
-            lines.push(format!("    {}  {}", pad_end(&key, 12), format_number_of(Some(&weight))));
+            lines.push(format!("    {}  {}", pad_end(&key, 12), format_number(Some(&weight))));
         }
     }
     lines.iter().map(|line| format!("{line}\n")).collect()
@@ -277,11 +241,11 @@ pub async fn rules_preview(ctx: &Ctx, from: String, to: String, limit: &str, jso
             cell_or(context("custom_label"), dash),
             cell(row.pointer("/resolved_methodology/name")),
             if row.get("via").and_then(Value::as_str) == Some("rule") { "rule".to_string() } else { dim("default") },
-            template(row.get("sample_count")),
+            js_template(row.get("sample_count")),
         ]);
     }
     println!("{grid}");
-    print_count(res.get("total_distinct_contexts").and_then(Value::as_u64).unwrap_or_default(), "distinct context");
+    print_count_of(res.get("total_distinct_contexts"), "distinct context");
     Ok(())
 }
 
@@ -342,7 +306,7 @@ pub async fn ltv_list(ctx: &Ctx, args: LtvListArgs) -> Result<()> {
         grid.add_row(vec![
             cell(row.get("cohort_period")),
             cell(row.get("segment_key")),
-            format_number_of(row.get("cohort_size")),
+            format_number(row.get("cohort_size")),
             fmt_money(realised("ltv_30d")),
             fmt_money(realised("ltv_90d")),
             fmt_money(realised("ltv_12m")),
@@ -351,7 +315,7 @@ pub async fn ltv_list(ctx: &Ctx, args: LtvListArgs) -> Result<()> {
         ]);
     }
     println!("{grid}");
-    print_count(res.pointer("/data/total_returned").and_then(Value::as_u64).unwrap_or_default(), "cohort");
+    print_count_of(res.pointer("/data/total_returned"), "cohort");
     Ok(())
 }
 
@@ -372,7 +336,7 @@ pub async fn ltv_cohort(ctx: &Ctx, period: &str, granularity: String, segment: S
 
 /// The `ltv cohort` text view.
 pub fn render_cohort(row: &Value) -> String {
-    let t = |key: &str| template(row.get(key));
+    let t = |key: &str| js_template(row.get(key));
     let curve = array_at(row, "/cumulative_curve");
     let mut lines = vec![
         String::new(),
@@ -382,16 +346,16 @@ pub fn render_cohort(row: &Value) -> String {
             dim(&format!("({}, segment={})", t("cohort_granularity"), t("segment_key")))
         ),
         String::new(),
-        format!("  Size:           {}", format_number_of(row.get("cohort_size"))),
-        format!("  Retention pts:  {}", format_number(Some(length_of(row.get("retention_matrix"))))),
-        format!("  Curve points:   {}", format_number(Some(length_of(row.get("cumulative_curve"))))),
+        format!("  Size:           {}", format_number(row.get("cohort_size"))),
+        format!("  Retention pts:  {}", to_locale_number(length_of(row.get("retention_matrix")))),
+        format!("  Curve points:   {}", to_locale_number(length_of(row.get("cumulative_curve")))),
     ];
     if let Some(last) = curve.last() {
         let or_zero = |key: &str| last.get(key).filter(|v| !v.is_null()).cloned().unwrap_or(json!(0));
         lines.push(format!(
             "  Cum revenue:    {} {}",
             fmt_money(Some(&or_zero("cumulative_gross_revenue"))),
-            dim(&format!("(t+{}d)", template(Some(&or_zero("period_offset_days")))))
+            dim(&format!("(t+{}d)", js_template(Some(&or_zero("period_offset_days")))))
         ));
         lines.push(format!("  After COGS:     {}", fmt_money(Some(&or_zero("cumulative_revenue_after_cogs")))));
     }
@@ -399,7 +363,7 @@ pub fn render_cohort(row: &Value) -> String {
         Some(prediction) => {
             lines.push(String::new());
             lines.push(bold("  Prediction:"));
-            lines.push(format!("    Method:       {}", template(prediction.get("method"))));
+            lines.push(format!("    Method:       {}", js_template(prediction.get("method"))));
             lines.push(format!("    LTV 30d:      {}", fmt_money(prediction.get("ltv_30d_predicted"))));
             lines.push(format!("    LTV 90d:      {}", fmt_money(prediction.get("ltv_90d_predicted"))));
             lines.push(format!("    LTV 12m:      {}", fmt_money(prediction.get("ltv_12m_predicted"))));
@@ -429,7 +393,7 @@ pub fn render_customer(customer_id: &str, res: &Value) -> String {
     let mut lines = vec![String::new(), bold(&format!("Customer {customer_id}"))];
     match res.get("cohort").filter(|c| js_truthy(c)) {
         Some(cohort) => {
-            let t = |key: &str| template(cohort.get(key));
+            let t = |key: &str| js_template(cohort.get(key));
             lines.push(String::new());
             lines.push(format!("  Acquired:        {}", t("acquisition_date")));
             lines.push(format!("  Channel:         {}", template_or(cohort.get("acquisition_channel"), dash)));
@@ -452,7 +416,7 @@ pub fn render_customer(customer_id: &str, res: &Value) -> String {
     lines.push(format!("    full:          {}", fmt_money(realised("ltv_full"))));
     lines.push(dim("    after-COGS variants in --json"));
     lines.push(String::new());
-    lines.push(format!("  Revenue points:  {}", format_number(Some(length_of(res.get("revenue"))))));
+    lines.push(format!("  Revenue points:  {}", to_locale_number(length_of(res.get("revenue")))));
     lines.iter().map(|line| format!("{line}\n")).collect()
 }
 
@@ -513,7 +477,7 @@ pub fn render_click_path(status: &Value) -> String {
         String::new(),
         format!("  Enabled:        {}", if truthy(status.get("enabled")) { green("yes") } else { red("no") }),
         format!("  Last computed:  {}", time_ago_of(status.get("lastComputedAt"))),
-        format!("  Sample rows:    {}", format_number(Some(length_of(status.get("sampleEstimates"))))),
+        format!("  Sample rows:    {}", to_locale_number(length_of(status.get("sampleEstimates")))),
     ];
     let readiness = status.get("readiness");
     let items = readiness.and_then(|r| r.get("readiness")).and_then(Value::as_array).filter(|items| !items.is_empty());
@@ -522,9 +486,9 @@ pub fn render_click_path(status: &Value) -> String {
         lines.push(bold("  Readiness:"));
         for item in items {
             let ok = truthy(item.get("ok"));
-            lines.push(format!("    {} {}", if ok { green("✓") } else { red("✗") }, template(item.get("label"))));
+            lines.push(format!("    {} {}", if ok { green("✓") } else { red("✗") }, js_template(item.get("label"))));
             if !ok && truthy(item.get("detail")) {
-                lines.push(format!("      {}", dim(&template(item.get("detail")))));
+                lines.push(format!("      {}", dim(&js_template(item.get("detail")))));
             }
         }
     } else if let Some(reason) = readiness.and_then(|r| r.get("reason")).filter(|r| js_truthy(r)) {

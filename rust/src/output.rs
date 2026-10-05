@@ -18,12 +18,17 @@ use serde_json::Value;
 
 use crate::client::ApiError;
 
+mod locale;
+mod usd_patterns;
+mod v8_json;
+mod ymd_patterns;
+
 /// JavaScript truthiness for a JSON value.
 pub fn js_truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
         Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+        Value::Number(n) => js_number_of(n) != 0.0,
         Value::String(s) => !s.is_empty(),
         _ => true,
     }
@@ -189,31 +194,180 @@ pub fn time_ago_at(value: Option<&str>, now: jiff::Timestamp) -> String {
     if days < 30 {
         return format!("{days}d ago");
     }
-    jiff::Timestamp::from_millisecond(then_ms)
-        .map(|then| then.to_zoned(jiff::tz::TimeZone::system()).strftime("%-m/%-d/%Y").to_string())
-        .unwrap_or_else(|_| "Invalid Date".to_string())
+    to_locale_date_string(then_ms)
 }
 
+/// `id.length > 12 ? id.slice(0, 8) + '...' : id`, in UTF-16 units like JavaScript.
 pub fn short_id(id: &str) -> String {
-    if id.chars().count() > 12 { format!("{}...", id.chars().take(8).collect::<String>()) } else { id.to_string() }
+    if js_length(id) > 12 { format!("{}...", js_slice(id, 8)) } else { id.to_string() }
 }
 
-/// `Number.prototype.toLocaleString()` in en-US: grouped thousands, at most
-/// three fraction digits.
-pub fn format_number(n: Option<f64>) -> String {
-    let Some(n) = n else { return dim("—") };
-    let rounded = format!("{:.3}", n.abs());
-    let (int, frac) = rounded.split_once('.').unwrap_or((&rounded, ""));
-    let frac = frac.trim_end_matches('0');
-    let mut grouped = String::new();
-    for (i, digit) in int.chars().enumerate() {
-        if i > 0 && (int.len() - i) % 3 == 0 {
-            grouped.push(',');
-        }
-        grouped.push(digit);
+/// A string's `length`: UTF-16 code units.
+pub fn js_length(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+
+/// `s.slice(0, end)` in UTF-16 units. A surrogate pair cut in half leaves a lone surrogate,
+/// which Node prints as U+FFFD.
+pub fn js_slice(s: &str, end: usize) -> String {
+    let units: Vec<u16> = s.encode_utf16().take(end).collect();
+    String::from_utf16_lossy(&units)
+}
+
+/// `formatNumber`: `n.toLocaleString()` in the user's locale (see [`locale`]), a dash for none.
+pub fn format_number(n: Option<&Value>) -> String {
+    match n.filter(|v| !v.is_null()) {
+        Some(value) => js_to_locale_string(value),
+        None => dim("—"),
     }
-    let sign = if n < 0.0 && (int != "0" || !frac.is_empty()) { "-" } else { "" };
-    if frac.is_empty() { format!("{sign}{grouped}") } else { format!("{sign}{grouped}.{frac}") }
+}
+
+/// `n.toLocaleString()` for a JavaScript number, in the user's locale.
+pub fn to_locale_number(n: f64) -> String {
+    locale::with_current(|format| format.number(n))
+}
+
+/// The measurement views' money format, `n.toLocaleString(undefined, { style: 'currency',
+/// currency: 'USD', maximumFractionDigits: 2 })`, in the user's locale.
+pub fn format_usd(n: f64) -> String {
+    locale::with_current(|format| format.usd(n))
+}
+
+/// `value.toLocaleString()`: numbers in the user's locale, strings as they are, arrays element by
+/// element joined with ",", objects as `[object Object]`.
+pub fn js_to_locale_string(value: &Value) -> String {
+    match value {
+        Value::Number(n) => to_locale_number(js_number_of(n)),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| if item.is_null() { String::new() } else { js_to_locale_string(item) })
+            .collect::<Vec<_>>()
+            .join(","),
+        other => js_string(other),
+    }
+}
+
+/// `${object.field}`: `undefined` when the field is missing, else `String(value)`.
+pub fn js_template(value: Option<&Value>) -> String {
+    value.map(js_string).unwrap_or_else(|| "undefined".to_string())
+}
+
+/// `a ?? b`.
+pub fn js_nullish<'a>(a: Option<&'a Value>, b: Option<&'a Value>) -> Option<&'a Value> {
+    a.filter(|v| !v.is_null()).or(b)
+}
+
+/// `items.join(sep)`: null elements are empty.
+pub fn js_join(items: &[Value], sep: &str) -> String {
+    items.iter().map(|item| if item.is_null() { String::new() } else { js_string(item) }).collect::<Vec<_>>().join(sep)
+}
+
+/// `colorStatus(status)` in a template: the known statuses coloured, anything else as is.
+pub fn js_color_status(value: Option<&Value>) -> String {
+    match value {
+        Some(Value::String(status)) => color_status(status),
+        other => js_template(other),
+    }
+}
+
+/// `if (value)`: the value as a string when truthy.
+pub fn js_if(value: Option<&Value>) -> Option<String> {
+    value.filter(|v| js_truthy(v)).map(js_string)
+}
+
+/// The failure counters: `value && value > 0 ? String(value) : …`.
+pub fn js_positive(value: Option<&Value>) -> Option<String> {
+    value.filter(|v| js_truthy(v) && js_greater_than(v, 0.0)).map(js_string)
+}
+
+/// `printLabel(label, colorStatus(value))`: no line when the status is null or missing.
+pub fn print_status_label(label: &str, value: Option<&Value>) {
+    if let Some(status) = value.filter(|v| !v.is_null()) {
+        println!("  {label}: {}", js_color_status(Some(status)));
+    }
+}
+
+/// The list footer, `printCount(res.meta?.pagination?.total ?? res.data.length, label)`.
+pub fn print_list_count(res: &Value, rows: usize, label: &str) {
+    println!("{}", dim(&list_count(res, rows, label)));
+}
+
+/// `printCount(count, label)` for a count the API sent, as it sent it.
+pub fn print_count_of(count: Option<&Value>, label: &str) {
+    println!("{}", dim(&count_text(count, label)));
+}
+
+fn list_count(res: &Value, rows: usize, label: &str) -> String {
+    let rows = Value::from(rows);
+    count_text(Some(res.pointer("/meta/pagination/total").filter(|v| !v.is_null()).unwrap_or(&rows)), label)
+}
+
+/// `${count} ${label}${count === 1 ? '' : 's'}`: the count as a template literal prints it (a
+/// missing one is `undefined`), singular only for the number 1 (the string "1" is plural).
+fn count_text(count: Option<&Value>, label: &str) -> String {
+    let plural = if matches!(count, Some(Value::Number(n)) if js_number_of(n) == 1.0) { "" } else { "s" };
+    format!("{} {label}{plural}", js_template(count))
+}
+
+/// JavaScript `ToNumber` (objects become NaN, arrays go through their string form).
+pub fn js_to_number(value: &Value) -> f64 {
+    match value {
+        Value::Null => 0.0,
+        Value::Bool(b) => f64::from(u8::from(*b)),
+        Value::Number(n) => js_number_of(n),
+        Value::String(s) => js_number(s),
+        Value::Array(_) => js_number(&js_string(value)),
+        Value::Object(_) => f64::NAN,
+    }
+}
+
+/// `value > n` for a number `n`.
+pub fn js_greater_than(value: &Value, n: f64) -> bool {
+    js_to_number(value) > n
+}
+
+/// `value + 1`: concatenation when the value is a string (or becomes one), else addition.
+pub fn js_plus_one(value: &Value) -> String {
+    match value {
+        Value::String(_) | Value::Array(_) | Value::Object(_) => format!("{}1", js_string(value)),
+        other => js_number_string(js_to_number(other) + 1.0),
+    }
+}
+
+/// `a === b` for JSON values: numbers by value, strings and booleans exactly, and arrays or
+/// objects never (they are different objects).
+pub fn js_strict_equals(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => js_number_of(x) == js_number_of(y),
+        (Value::String(x), Value::String(y)) => x == y,
+        (Value::Bool(x), Value::Bool(y)) => x == y,
+        (Value::Null, Value::Null) => true,
+        _ => false,
+    }
+}
+
+/// `new Date(ms).toLocaleDateString()` in the user's locale and time zone.
+pub fn to_locale_date_string(ms: i64) -> String {
+    locale::with_current(|format| format.date(ms, &jiff::tz::TimeZone::system()))
+}
+
+/// `new Date(ms).toLocaleTimeString()` in the user's locale and time zone.
+pub fn to_locale_time_string(ms: i64) -> String {
+    locale::with_current(|format| format.time(ms, &jiff::tz::TimeZone::system()))
+}
+
+/// JavaScript `parseInt(s, 10)`: leading whitespace, an optional sign, then as many decimal
+/// digits as there are. `None` (NaN) without a digit.
+pub fn js_parse_int(s: &str) -> Option<f64> {
+    let s = s.trim_start_matches(is_js_whitespace);
+    let (negative, rest) = match s.as_bytes().first() {
+        Some(b'-') => (true, &s[1..]),
+        Some(b'+') => (false, &s[1..]),
+        _ => (false, s),
+    };
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let n: f64 = rest[..digits].parse().ok()?;
+    Some(if negative { -n } else { n })
 }
 
 /// `Date.parse` as Node evaluates it (see `js_date`): milliseconds since the
@@ -335,6 +489,15 @@ impl serde_json::ser::Formatter for JsFormatter {
         if value <= JS_SAFE_INTEGER { write!(writer, "{value}") } else { self.write_f64(writer, value as f64) }
     }
 
+    /// Numbers parsed from text (an API response or a `--*-file`): through a double, as
+    /// `JSON.parse` then `JSON.stringify` did, so `1.0` is `1` and `1e400` is `null`.
+    fn write_number_str<W: ?Sized + Write>(&mut self, writer: &mut W, value: &str) -> std::io::Result<()> {
+        match value.parse::<f64>() {
+            Ok(n) if n.is_finite() => self.write_f64(writer, n),
+            _ => writer.write_all(b"null"),
+        }
+    }
+
     fn write_i64<W: ?Sized + Write>(&mut self, writer: &mut W, value: i64) -> std::io::Result<()> {
         if value.unsigned_abs() <= JS_SAFE_INTEGER {
             write!(writer, "{value}")
@@ -354,10 +517,7 @@ pub fn js_string(value: &Value) -> String {
     match value {
         Value::Null => "null".to_string(),
         Value::Bool(b) => b.to_string(),
-        Value::Number(n) => match n.as_f64() {
-            Some(f) if n.is_f64() && f.fract() == 0.0 && f.abs() < 1e21 => format!("{f:.0}"),
-            _ => n.to_string(),
-        },
+        Value::Number(n) => js_number_string(js_number_of(n)),
         Value::String(s) => s.clone(),
         Value::Array(items) => items
             .iter()
@@ -371,8 +531,89 @@ pub fn js_string(value: &Value) -> String {
     }
 }
 
+/// The number JavaScript's `JSON.parse` makes of a JSON number: the nearest double, ±Infinity
+/// beyond the range. Numbers keep the API's text (serde_json `arbitrary_precision`).
+pub fn js_number_of(n: &serde_json::Number) -> f64 {
+    n.as_str().parse().unwrap_or(f64::NAN)
+}
+
+/// JavaScript's property order, which `JSON.parse` and `JSON.stringify` keep:
+/// array-index keys ("0" to "4294967294") first in ascending order, then the
+/// rest in insertion order, at every level.
+pub fn js_key_order(map: serde_json::Map<String, Value>) -> serde_json::Map<String, Value> {
+    let (mut indexes, rest): (Vec<_>, Vec<_>) = map.into_iter().partition(|(key, _)| array_index(key).is_some());
+    indexes.sort_by_key(|(key, _)| array_index(key));
+    indexes.into_iter().chain(rest).map(|(key, value)| (key, js_key_order_value(value))).collect()
+}
+
+fn js_key_order_value(value: Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(js_key_order(map)),
+        Value::Array(items) => Value::Array(items.into_iter().map(js_key_order_value).collect()),
+        other => other,
+    }
+}
+
+/// A canonical array index: digits without a leading zero, below 2^32 - 1.
+pub fn array_index(key: &str) -> Option<u32> {
+    let canonical = !key.is_empty() && key.bytes().all(|b| b.is_ascii_digit()) && (key == "0" || !key.starts_with('0'));
+    canonical.then(|| key.parse::<u32>().ok()).flatten().filter(|n| *n < u32::MAX)
+}
+
+/// The TS client's `toCamelCaseDeep`: `_x` becomes `X` for x in a-z and 0-9, in every key; a
+/// key that maps onto an earlier one replaces its value in place, as object assignment does.
+pub fn camel_case_keys_deep(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (key, value) in map {
+                out.insert(snake_to_camel(key), camel_case_keys_deep(value));
+            }
+            Value::Object(js_key_order(out))
+        }
+        Value::Array(items) => Value::Array(items.iter().map(camel_case_keys_deep).collect()),
+        other => other.clone(),
+    }
+}
+
+fn snake_to_camel(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    let mut chars = key.chars().peekable();
+    while let Some(c) = chars.next() {
+        match chars.peek() {
+            Some(&next) if c == '_' && (next.is_ascii_lowercase() || next.is_ascii_digit()) => {
+                out.push(next.to_ascii_uppercase());
+                chars.next();
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// `JSON.parse(text)`: serde_json parses, keys take JavaScript's property order (array-index keys
+/// first, as the TS CLI printed and iterated them), and an error reads the way V8 words it.
+pub fn parse_json(text: &str) -> Result<Value, String> {
+    serde_json::from_str(text)
+        .map(js_key_order_value)
+        .map_err(|err| v8_json::parse_error(text).unwrap_or_else(|| err.to_string()))
+}
+
+/// The text `res.json()` parses: UTF-8 with a leading byte order mark dropped, invalid bytes as
+/// U+FFFD, as fetch decodes a body.
+pub fn fetch_body_text(body: &[u8]) -> std::borrow::Cow<'_, str> {
+    String::from_utf8_lossy(body.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(body))
+}
+
+/// `--json` output: pretty-printed with two spaces like `JSON.stringify(data, null, 2)`, and
+/// numbers exactly as the API sent them (decided 2026-10-05), which is what the TS CLI printed
+/// for anything a Node server sends.
+pub fn json_pretty(value: &Value) -> String {
+    serde_json::to_string_pretty(value).expect("JSON values always serialize")
+}
+
 pub fn print_json(value: &Value) {
-    println!("{}", serde_json::to_string_pretty(value).expect("JSON values always serialize"));
+    println!("{}", json_pretty(value));
 }
 
 /// `--output <field>`: one line per row, skipping rows where it's null/absent.
@@ -442,7 +683,8 @@ fn dim_err(s: &str) -> String {
 /// `Error: <message>` plus the request ID when the API gave one.
 pub fn format_error(err: &anyhow::Error) -> String {
     match err.downcast_ref::<ApiError>() {
-        Some(api) => match api.server_request_id.as_ref().or(api.request_id.as_ref()) {
+        // An empty X-Request-Id doesn't count: the CLI's own ID is shown instead.
+        Some(api) => match [&api.server_request_id, &api.request_id].into_iter().flatten().find(|id| !id.is_empty()) {
             Some(id) => format!("{}\n{}", api.message, dim_err(&format!("Request ID: {id}"))),
             None => api.message.clone(),
         },
@@ -707,11 +949,11 @@ mod tests {
 
     #[test]
     fn format_number_matches_en_us_to_locale_string() {
-        assert_eq!(format_number(Some(1234567.0)), "1,234,567");
-        assert_eq!(format_number(Some(0.0)), "0");
-        assert_eq!(format_number(Some(0.4)), "0.4");
-        assert_eq!(format_number(Some(1234.5678)), "1,234.568");
-        assert_eq!(format_number(Some(-1234.0)), "-1,234");
+        assert_eq!(format_number(Some(&json!(1234567.0))), "1,234,567");
+        assert_eq!(format_number(Some(&json!(0.0))), "0");
+        assert_eq!(format_number(Some(&json!(0.4))), "0.4");
+        assert_eq!(format_number(Some(&json!(1234.5678))), "1,234.568");
+        assert_eq!(format_number(Some(&json!(-1234.0))), "-1,234");
         assert!(format_number(None).contains('—'));
     }
 
@@ -936,5 +1178,208 @@ mod tests {
         ] {
             assert_eq!(selection_index(answer, 2), expected, "{answer:?}");
         }
+    }
+
+    #[test]
+    fn parse_int_matches_javascript() {
+        for (input, expected) in [
+            ("5", Some(5.0)),
+            ("  3abc", Some(3.0)),
+            ("+4", Some(4.0)),
+            (" -1", Some(-1.0)),
+            ("x3", None),
+            ("", None),
+            ("0x10", Some(0.0)),
+            ("1e3", Some(1.0)),
+            ("\u{663}", None),
+            ("4.9", Some(4.0)),
+            ("\u{a0}2", Some(2.0)),
+            ("99999999999999999999", Some(1e20)),
+        ] {
+            assert_eq!(js_parse_int(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn old_dates_and_numbers_use_the_locale() {
+        // Under `cargo test` the locale is en-US, whatever LANG is.
+        let old = time_ago_at(Some("2026-01-01T12:00:00Z"), at("2026-03-15T12:00:00Z"));
+        assert_eq!(old, to_locale_date_string(js_date_parse("2026-01-01T12:00:00Z").unwrap()));
+        // Half away from zero on the shortest digits, as Node's ICU does: 1.0005 is 1.001, not 1.
+        assert_eq!(format_number(Some(&json!(1.0005))), "1.001");
+        assert_eq!(format_number(Some(&json!(-0.0))), "-0");
+        assert_eq!(format_number(Some(&json!(-0.0001))), "-0");
+        assert_eq!(format_number(Some(&json!(-0.0005))), "-0.001");
+    }
+
+    /// A body as a Node server writes it (`JSON.stringify`) and what `node dist/cli.js … --json`
+    /// printed for it against a stub (VE-3728).
+    const NODE_BODY: &str = r#"{"data":{"accountId":"acct-alpha","a":0.000001,"b":1e+21,"c":1.5,"d":0,"e":9007199254740992,"f":1,"g":1e+21,"h":1e+21,"i":1e-7,"j":12345678901234567000,"k":100,"l":0,"m":1.5,"n":[100000000000000000000,2.5e-7,-1.5e+300]}}"#;
+    pub(crate) const TS_JSON_OUTPUT: &str = r#"{
+  "data": {
+    "accountId": "acct-alpha",
+    "a": 0.000001,
+    "b": 1e+21,
+    "c": 1.5,
+    "d": 0,
+    "e": 9007199254740992,
+    "f": 1,
+    "g": 1e+21,
+    "h": 1e+21,
+    "i": 1e-7,
+    "j": 12345678901234567000,
+    "k": 100,
+    "l": 0,
+    "m": 1.5,
+    "n": [
+      100000000000000000000,
+      2.5e-7,
+      -1.5e+300
+    ]
+  }
+}"#;
+
+    #[test]
+    fn parsed_json_keys_follow_javascript_property_order() {
+        // `JSON.parse` puts array-index keys first, ascending, at every level; the TS CLI printed
+        // and iterated them in that order.
+        let value =
+            parse_json(r#"{"b":1,"10":2,"a":3,"2":{"z":1,"1":2},"02":5,"4294967295":6,"4294967294":7}"#).unwrap();
+        let keys = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+        assert_eq!(keys(&value), ["2", "10", "4294967294", "b", "a", "02", "4294967295"]);
+        assert_eq!(keys(&value["2"]), ["1", "z"]);
+        assert_eq!(
+            json_pretty(&parse_json(r#"[{"y":1.0,"0":true}]"#).unwrap()),
+            "[\n  {\n    \"0\": true,\n    \"y\": 1.0\n  }\n]"
+        );
+    }
+
+    #[test]
+    fn json_output_keeps_numbers_as_the_api_sent_them() {
+        let body: Value = serde_json::from_str(NODE_BODY).unwrap();
+        assert_eq!(json_pretty(&body), TS_JSON_OUTPUT);
+        // Forms a Node server never writes print as sent too (decided 2026-10-05), except that
+        // serde_json writes integers and exponents canonically: -0 is 0 and 1E21 is 1e+21, as
+        // JSON.stringify writes them. TS printed 1, 9007199254740992 and 1e+21 for the others.
+        let raw: Value = serde_json::from_str(r#"{"a":1.0,"b":-0,"c":9007199254740993,"d":1E21}"#).unwrap();
+        assert_eq!(json_pretty(&raw), "{\n  \"a\": 1.0,\n  \"b\": 0,\n  \"c\": 9007199254740993,\n  \"d\": 1e+21\n}");
+        // Key order and number reads still work.
+        assert_eq!(body["data"].as_object().unwrap().keys().next().unwrap(), "accountId");
+        assert_eq!((body["data"]["k"].as_u64(), body["data"]["c"].as_f64()), (Some(100), Some(1.5)));
+    }
+
+    #[test]
+    fn js_string_reads_numbers_as_javascript_doubles() {
+        let raw: Value =
+            serde_json::from_str(r#"[1.0, -0, 9007199254740993, 1E21, 1e400, 0.000001, 1e-7, 12.50]"#).unwrap();
+        let strings: Vec<String> = raw.as_array().unwrap().iter().map(js_string).collect();
+        assert_eq!(strings, ["1", "0", "9007199254740992", "1e+21", "Infinity", "0.000001", "1e-7", "12.5"]);
+        assert!(!js_truthy(&raw[1]) && js_truthy(&raw[4]));
+    }
+
+    #[test]
+    fn request_bodies_write_numbers_like_json_stringify() {
+        // A config file goes through JSON.parse then JSON.stringify in the TS CLI.
+        let file: Value =
+            serde_json::from_str(r#"{"a":1.0,"b":-0,"c":9007199254740993,"d":1E21,"e":1e400,"f":[0.000001]}"#).unwrap();
+        assert_eq!(js_stringify(&file), r#"{"a":1,"b":0,"c":9007199254740992,"d":1e+21,"e":null,"f":[0.000001]}"#);
+    }
+
+    #[test]
+    fn camel_case_keys_like_the_ts_client() {
+        let value: Value =
+            serde_json::from_str(r#"{"frequency_value":1,"a__b":2,"x_1":3,"_leading":4,"trailing_":5,"UPPER_CASE":6,"nested":{"run_now_at":[{"f_g":1.0}]},"2":7}"#)
+                .unwrap();
+        assert_eq!(
+            js_stringify(&camel_case_keys_deep(&value)),
+            r#"{"2":7,"frequencyValue":1,"a_B":2,"x1":3,"Leading":4,"trailing_":5,"UPPER_CASE":6,"nested":{"runNowAt":[{"fG":1}]}}"#
+        );
+    }
+
+    #[test]
+    fn javascript_coercions_match_node() {
+        let cases: Vec<(Value, &str, bool, bool, &str)> = vec![
+            // value, `v + 1`, `v > 1`, `v > 0`, `v.toLocaleString()` (from Node)
+            (json!(5), "6", true, true, "5"),
+            (json!("5"), "51", true, true, "5"),
+            (json!("abc"), "abc1", false, false, "abc"),
+            (json!(""), "1", false, false, ""),
+            (json!(true), "2", false, true, "true"),
+            (json!(false), "1", false, false, "false"),
+            (json!(null), "1", false, false, ""),
+            (json!([3]), "31", true, true, "3"),
+            (json!([1, 2]), "1,21", false, false, "1,2"),
+            (json!({}), "[object Object]1", false, false, "[object Object]"),
+            (json!(2.5), "3.5", true, true, "2.5"),
+            (json!("0x10"), "0x101", true, true, "0x10"),
+            (json!(" 7 "), " 7 1", true, true, " 7 "),
+        ];
+        for (value, plus_one, gt_one, gt_zero, locale) in cases {
+            assert_eq!(js_plus_one(&value), plus_one, "{value} + 1");
+            assert_eq!(js_greater_than(&value, 1.0), gt_one, "{value} > 1");
+            assert_eq!(js_greater_than(&value, 0.0), gt_zero, "{value} > 0");
+            if !value.is_null() {
+                assert_eq!(js_to_locale_string(&value), locale, "{value}.toLocaleString()");
+            }
+        }
+        assert_eq!(js_to_locale_string(&json!([1234.5, null, "x", [5678]])), "1,234.5,,x,5,678");
+        assert_eq!(format_number(Some(&json!("1234"))), "1234");
+        assert_eq!(format_number(Some(&json!(1234.5))), "1,234.5");
+        assert!(format_number(Some(&Value::Null)).contains('—') && format_number(None).contains('—'));
+    }
+
+    #[test]
+    fn templates_joins_and_equality_follow_javascript() {
+        assert_eq!(js_template(None), "undefined");
+        assert_eq!(js_template(Some(&json!(null))), "null");
+        assert_eq!(js_template(Some(&json!(1.0))), "1");
+        assert_eq!(js_template(Some(&json!(false))), "false");
+        assert_eq!(js_template(Some(&json!(["a", null]))), "a,");
+        assert_eq!(js_template(Some(&json!({ "a": 1 }))), "[object Object]");
+        assert_eq!(
+            js_join(&[json!(1), json!(null), json!("a"), json!(2.5), json!([3, null])], ", "),
+            "1, , a, 2.5, 3,"
+        );
+        assert_eq!(js_nullish(Some(&json!(null)), Some(&json!("b"))), Some(&json!("b")));
+        assert_eq!(js_nullish(Some(&json!("")), Some(&json!("b"))), Some(&json!("")));
+        assert_eq!(js_nullish(None, None), None);
+        assert!(js_strict_equals(&json!(5), &json!(5.0)) && js_strict_equals(&json!(null), &json!(null)));
+        assert!(!js_strict_equals(&json!("5"), &json!(5)) && !js_strict_equals(&json!([1]), &json!([1])));
+        assert_eq!(js_color_status(Some(&json!("active"))), "active");
+        assert_eq!(js_color_status(None), "undefined");
+        assert_eq!(js_color_status(Some(&json!(null))), "null");
+    }
+
+    #[test]
+    fn list_footers_print_the_total_as_javascript_does() {
+        let footer = |meta: Value| list_count(&json!({ "data": [], "meta": meta }), 3, "app");
+        assert_eq!(footer(json!({ "pagination": { "total": 1 } })), "1 app");
+        assert_eq!(footer(json!({ "pagination": { "total": 1.0 } })), "1 app");
+        assert_eq!(footer(json!({ "pagination": { "total": "1" } })), "1 apps");
+        assert_eq!(footer(json!({ "pagination": { "total": 2.5 } })), "2.5 apps");
+        assert_eq!(footer(json!({ "pagination": { "total": 0 } })), "0 apps");
+        assert_eq!(footer(json!({ "pagination": { "total": "12" } })), "12 apps");
+        assert_eq!(footer(json!({ "pagination": { "total": null } })), "3 apps");
+        assert_eq!(footer(json!({ "pagination": [] })), "3 apps");
+        assert_eq!(footer(json!(null)), "3 apps");
+        assert_eq!(list_count(&json!({ "data": [{}] }), 1, "job"), "1 job");
+        // `printCount(res.total, 'metric')` and the like: the count as a template literal prints it.
+        assert_eq!(count_text(None, "metric"), "undefined metrics");
+        assert_eq!(count_text(Some(&json!(null)), "metric"), "null metrics");
+        assert_eq!(count_text(Some(&json!("5")), "metric"), "5 metrics");
+        assert_eq!(count_text(Some(&json!(2.5)), "cohort"), "2.5 cohorts");
+        assert_eq!(count_text(Some(&json!(1)), "cohort"), "1 cohort");
+    }
+
+    #[test]
+    fn short_ids_count_utf16_units_like_javascript() {
+        assert_eq!(short_id("ab\u{1f600}cdefghijklmnop"), "ab\u{1f600}cdef...");
+        // slice(0, 8) can split a surrogate pair; Node prints the lone half as U+FFFD.
+        assert_eq!(short_id("abcdefg\u{1f600}xyzw"), "abcdefg\u{fffd}...");
+        // Six emoji are 12 units, so unchanged; seven are cut after four.
+        assert_eq!(short_id(&"\u{1f600}".repeat(6)), "\u{1f600}".repeat(6));
+        assert_eq!(short_id(&"\u{1f600}".repeat(7)), format!("{}...", "\u{1f600}".repeat(4)));
+        assert_eq!(js_slice("ab\u{1f600}cd", 3), "ab\u{fffd}");
+        assert_eq!(js_length("ab\u{1f600}"), 4);
     }
 }

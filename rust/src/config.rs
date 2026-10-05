@@ -14,6 +14,8 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+use crate::output::js_key_order;
+
 pub const DEFAULT_BASE_URL: &str = "https://app2.vendodata.com";
 pub const STAGING_BASE_URL: &str = "https://stg.vendodata.com";
 
@@ -305,29 +307,6 @@ impl ConfigStore {
         }
         Ok(self.effective().base_url)
     }
-}
-
-/// JavaScript's property order, which `JSON.parse` and `JSON.stringify` keep:
-/// array-index keys ("0" to "4294967294") first in ascending order, then the
-/// rest in insertion order, at every level.
-fn js_key_order(map: Map<String, Value>) -> Map<String, Value> {
-    let (mut indexes, rest): (Vec<_>, Vec<_>) = map.into_iter().partition(|(key, _)| array_index(key).is_some());
-    indexes.sort_by_key(|(key, _)| array_index(key));
-    indexes.into_iter().chain(rest).map(|(key, value)| (key, js_key_order_value(value))).collect()
-}
-
-fn js_key_order_value(value: Value) -> Value {
-    match value {
-        Value::Object(map) => Value::Object(js_key_order(map)),
-        Value::Array(items) => Value::Array(items.into_iter().map(js_key_order_value).collect()),
-        other => other,
-    }
-}
-
-/// A canonical array index: digits without a leading zero, below 2^32 - 1.
-fn array_index(key: &str) -> Option<u32> {
-    let canonical = !key.is_empty() && key.bytes().all(|b| b.is_ascii_digit()) && (key == "0" || !key.starts_with('0'));
-    canonical.then(|| key.parse::<u32>().ok()).flatten().filter(|n| *n < u32::MAX)
 }
 
 pub fn mask_api_key(key: &str) -> String {

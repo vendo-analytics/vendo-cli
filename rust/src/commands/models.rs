@@ -9,10 +9,10 @@ use serde_json::Value;
 use crate::{
     client::payload,
     context::Ctx,
-    js_text::{cell, template, time_ago_of},
+    js_text::{cell, time_ago_of},
     output::{
-        OutputMode, bold, dim, green, js_string, js_truthy, print_count, print_field, print_json, red,
-        resolve_output_mode, run_action, short_id, table,
+        OutputMode, bold, dim, green, js_string, js_template, js_truthy, print_field, print_json, print_list_count,
+        red, resolve_output_mode, run_action, short_id, table,
     },
 };
 
@@ -60,13 +60,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
                 ]);
             }
             println!("{grid}");
-            // `meta?.pagination?.total ?? data.length`
-            let total = res
-                .pointer("/meta/pagination/total")
-                .filter(|total| !total.is_null())
-                .and_then(Value::as_u64)
-                .unwrap_or(rows.len() as u64);
-            print_count(total, "model");
+            print_list_count(&res, rows.len(), "model");
         }
     }
     Ok(())
@@ -85,7 +79,7 @@ pub async fn get(ctx: &Ctx, model_id: &str, json: bool) -> Result<()> {
 
 /// The `models get` text view (the TS action's `console.log` lines).
 pub fn render_model(model: &Value) -> String {
-    let t = |key: &str| template(model.get(key));
+    let t = |key: &str| js_template(model.get(key));
     let truthy = |key: &str| model.get(key).is_some_and(js_truthy);
     let mut lines = vec![
         String::new(),

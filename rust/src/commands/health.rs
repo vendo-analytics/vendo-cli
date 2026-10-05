@@ -16,7 +16,11 @@ use crate::{
     config::{EffectiveConfig, Source, mask_api_key},
     context::Ctx,
     identity::{Identity, IdentityError, fetch_identity},
-    output::{bold, dim, gray, green, print_json, print_success, red, run_action, table, time_ago, yellow},
+    jobs::Job,
+    output::{
+        bold, dim, gray, green, js_length, js_slice, js_string, js_template, js_truthy, print_json, print_success, red,
+        run_action, table, time_ago, yellow,
+    },
     update_check,
 };
 
@@ -92,13 +96,13 @@ pub async fn status(ctx: &Ctx, json: bool) -> Result<()> {
         println!("{}", bold("Recent Failures"));
         let mut failures = table(&["Job ID", "Type", "Connector", "Error", "Failed"]);
         for job in &failed_jobs {
-            let text = |key: &str| job.get(key).and_then(Value::as_str);
+            let text = |key: &str| Job(job).text(key);
             failures.add_row(vec![
-                dim(&text("id").unwrap_or_default().chars().take(8).collect::<String>()),
-                text("jobType").unwrap_or_default().to_string(),
-                text("connectorType").map(str::to_string).unwrap_or_else(|| dim("—")),
-                truncate(text("errorMessage").unwrap_or("—"), 40),
-                time_ago(text("finishedAt")),
+                dim(&js_slice(job.get("id").and_then(Value::as_str).unwrap_or_default(), 8)),
+                text("jobType").unwrap_or_default(),
+                text("connectorType").unwrap_or_else(|| dim("—")),
+                truncate_error(job.get("errorMessage")),
+                time_ago(job.get("finishedAt").and_then(Value::as_str)),
             ]);
         }
         println!("{failures}");
@@ -106,9 +110,9 @@ pub async fn status(ctx: &Ctx, json: bool) -> Result<()> {
 
     println!();
     println!("{}", bold("Next steps"));
-    match failed_jobs.first().and_then(|j| j.get("id")).and_then(Value::as_str) {
-        Some(id) => {
-            println!("  vendo jobs get {id}");
+    match failed_jobs.first().filter(|job| js_truthy(job)) {
+        Some(job) => {
+            println!("  vendo jobs get {}", js_template(job.get("id")));
             println!("  vendo jobs list --status failed");
             println!("  vendo doctor");
         }
@@ -121,8 +125,15 @@ pub async fn status(ctx: &Ctx, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() > max { format!("{}...", s.chars().take(max - 1).collect::<String>()) } else { s.to_string() }
+/// `truncate(job.errorMessage ?? '—', 40)`: strings longer than 40 UTF-16 units keep 39 and gain "...";
+/// anything else (a number, say) has no `length` and prints as it is.
+fn truncate_error(message: Option<&Value>) -> String {
+    const MAX: usize = 40;
+    match message.filter(|v| !v.is_null()) {
+        None => "—".to_string(),
+        Some(Value::String(s)) if js_length(s) > MAX => format!("{}...", js_slice(s, MAX - 1)),
+        Some(other) => js_string(other),
+    }
 }
 
 // ── doctor ─────────────────────────────────────────────────────────────────
@@ -554,9 +565,20 @@ mod tests {
     }
 
     #[test]
-    fn truncate_keeps_max_minus_one_then_ellipsis() {
-        assert_eq!(truncate("abcdef", 4), "abc...");
-        assert_eq!(truncate("abcd", 4), "abcd");
+    fn error_messages_are_truncated_in_utf16_units_like_the_ts_cli() {
+        // Expected values from Node: `truncate(m ?? '—', 40)` in src/commands/status.ts.
+        let x = |n: usize| "x".repeat(n);
+        let grin = |n: usize| "😀".repeat(n);
+        assert_eq!(truncate_error(Some(&json!(x(41)))), format!("{}...", x(39)));
+        assert_eq!(truncate_error(Some(&json!(x(40)))), x(40));
+        // 20 emoji are exactly 40 UTF-16 units; 21 are cut inside the 20th, which prints as U+FFFD.
+        assert_eq!(truncate_error(Some(&json!(grin(20)))), grin(20));
+        assert_eq!(truncate_error(Some(&json!(grin(21)))), format!("{}\u{fffd}...", grin(19)));
+        assert_eq!(truncate_error(Some(&json!("é".repeat(41)))), format!("{}...", "é".repeat(39)));
+        assert_eq!(truncate_error(None), "—");
+        assert_eq!(truncate_error(Some(&Value::Null)), "—");
+        assert_eq!(truncate_error(Some(&json!(0))), "0");
+        assert_eq!(truncate_error(Some(&json!(5))), "5");
     }
 
     #[test]

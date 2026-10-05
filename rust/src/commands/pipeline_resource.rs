@@ -10,7 +10,7 @@ use crate::{
     context::Ctx,
     jobs::Job,
     output::{
-        OutputMode, color_status, confirm, dim, js_iso_string, print_dry_run, print_json, print_single_field,
+        OutputMode, confirm, dim, js_color_status, js_iso_string, print_dry_run, print_json, print_single_field,
         print_success, resolve_output_mode, run_action, short_id, yellow,
     },
     watch::{self, ResourceKind, Terminal},
@@ -39,18 +39,18 @@ impl Resource {
     }
 }
 
-/// Read and parse a JSON file passed with `--config-file` and friends. Errors
-/// use Node's wording for the common cases, as the TS CLI printed them.
+/// Read and parse a JSON file passed with `--config-file` and friends, as the TS CLI's
+/// `JSON.parse(readFileSync(path, 'utf-8'))` did: invalid UTF-8 becomes U+FFFD, a byte order mark
+/// stays, and errors use Node's and V8's wording.
 pub fn read_json_file(path: &str) -> Result<Value> {
     read_json(path).map_err(|reason| anyhow!("Failed to read {path}: {reason}"))
 }
 
 /// `JSON.parse(readFileSync(path, 'utf-8'))`; the error is the reason Node
-/// gave, which each caller puts in its own message.
+/// gave (V8's `JSON.parse` wording), which each caller puts in its own message.
 pub fn read_json(path: &str) -> std::result::Result<Value, String> {
-    let raw = std::fs::read_to_string(path).map_err(|err| node_fs_error(&err, path))?;
-    serde_json::from_str(&raw)
-        .map_err(|err| if err.is_eof() { "Unexpected end of JSON input".to_string() } else { err.to_string() })
+    let bytes = std::fs::read(path).map_err(|err| node_fs_error(&err, path))?;
+    crate::output::parse_json(&String::from_utf8_lossy(&bytes))
 }
 
 /// Node's `readFileSync` message for the errors people actually hit.
@@ -160,7 +160,7 @@ pub async fn sync(
         details.push((
             "Active Job",
             match &active {
-                Some(job) => format!("{} ({})", short_id(&Job(job).id()), Job(job).status()),
+                Some(job) => format!("{} ({})", short_id(&Job(job).id()), Job(job).template("status")),
                 None => "none".to_string(),
             },
         ));
@@ -170,15 +170,13 @@ pub async fn sync(
 
     let existing = run_action("Checking for active jobs...", watch::active_job_for_resource(&client, kind, id)).await?;
     if let Some(job) = existing {
-        let (job_id, status) = (Job(&job).id(), Job(&job).status());
+        let job_id = Job(&job).id();
         match resolve_output_mode(opts.json, opts.output.as_deref()) {
-            OutputMode::Json => print_json(
-                &json!({ "data": { "jobId": job_id, "status": status, "message": "Sync already in progress" } }),
-            ),
+            OutputMode::Json => print_json(&already_in_progress(&job)),
             OutputMode::Field => print_single_field(&job, &field),
             OutputMode::Table => {
                 println!("{} for {} {}.", yellow("Sync already in progress"), resource.singular, short_id(id));
-                println!("  Job: {job_id} ({})", color_status(&status));
+                println!("  Job: {} ({})", Job(&job).template("id"), js_color_status(job.get("status")));
                 if watch {
                     let now = js_iso_string(jiff::Timestamp::now().as_millisecond());
                     watch::watch_triggered_resource_job(
@@ -205,7 +203,7 @@ pub async fn sync(
         OutputMode::Field => {
             // `{ id: jobId ?? resourceId, ...data }`: fields in the response win.
             let mut row = Map::new();
-            row.insert("id".into(), json!(job_id.clone().unwrap_or_else(|| id.to_string())));
+            row.insert("id".into(), data.get("jobId").filter(|v| !v.is_null()).cloned().unwrap_or_else(|| json!(id)));
             if let Some(obj) = data.as_object() {
                 for (k, v) in obj {
                     row.insert(k.clone(), v.clone());
@@ -231,6 +229,19 @@ pub async fn sync(
         }
     }
     Ok(())
+}
+
+/// `printJson({ data: { jobId: job.id, status: job.status, message } })`: the job's own values,
+/// left out when missing as `JSON.stringify` does with `undefined`.
+fn already_in_progress(job: &Value) -> Value {
+    let mut data = Map::new();
+    for (key, field) in [("jobId", "id"), ("status", "status")] {
+        if let Some(value) = job.get(field) {
+            data.insert(key.into(), value.clone());
+        }
+    }
+    data.insert("message".into(), json!("Sync already in progress"));
+    json!({ "data": data })
 }
 
 #[cfg(test)]
@@ -272,6 +283,24 @@ mod tests {
             read_json_file(empty).unwrap_err().to_string(),
             format!("Failed to read {empty}: Unexpected end of JSON input")
         );
+        // Other bad JSON reads like V8's JSON.parse, and readFileSync keeps a byte order mark.
+        let bad = dir.path().join("bad.json");
+        std::fs::write(&bad, "{a:1}").unwrap();
+        let bad = bad.to_str().unwrap();
+        assert_eq!(
+            read_json_file(bad).unwrap_err().to_string(),
+            format!("Failed to read {bad}: Expected property name or '}}' in JSON at position 1 (line 1 column 2)")
+        );
+        let bom = dir.path().join("bom.json");
+        std::fs::write(&bom, "\u{feff}{}").unwrap();
+        let bom = bom.to_str().unwrap();
+        assert_eq!(
+            read_json_file(bom).unwrap_err().to_string(),
+            format!("Failed to read {bom}: Unexpected token '\u{feff}', \"\u{feff}{{}}\" is not valid JSON")
+        );
+        let latin1 = dir.path().join("latin1.json");
+        std::fs::write(&latin1, b"{\"name\":\"caf\xe9\"}").unwrap();
+        assert_eq!(read_json_file(latin1.to_str().unwrap()).unwrap(), json!({ "name": "caf\u{fffd}" }));
         let ok = dir.path().join("ok.json");
         std::fs::write(&ok, r#"{"tasks":[1]}"#).unwrap();
         assert_eq!(read_json_file(ok.to_str().unwrap()).unwrap(), json!({ "tasks": [1] }));
@@ -287,5 +316,19 @@ mod tests {
         assert_eq!(SOURCE.title(), "Source");
         assert_eq!(INTEGRATION.title(), "Integration");
         assert_eq!(APP.title(), "App");
+    }
+
+    #[test]
+    fn an_active_job_is_reported_with_its_own_values() {
+        // `JSON.stringify` drops `undefined`: a job without a status has no `status` key.
+        assert_eq!(
+            crate::output::json_pretty(&already_in_progress(&json!({ "id": "job-77" }))),
+            "{\n  \"data\": {\n    \"jobId\": \"job-77\",\n    \"message\": \"Sync already in progress\"\n  }\n}"
+        );
+        let job: Value = serde_json::from_str(r#"{"id":null,"status":"running"}"#).unwrap();
+        assert_eq!(
+            already_in_progress(&job),
+            json!({ "data": { "jobId": null, "status": "running", "message": "Sync already in progress" } })
+        );
     }
 }

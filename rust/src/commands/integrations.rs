@@ -9,7 +9,8 @@ use crate::{
     context::Ctx,
     jobs::{Job, format_job_progress},
     output::{
-        OutputMode, bold, color_status, dim, js_string, js_truthy, print_count, print_field, print_json, print_label,
+        OutputMode, bold, camel_case_keys_deep, color_status, dim, js_color_status, js_if, js_positive, js_stringify,
+        js_template, js_truthy, print_field, print_json, print_label, print_list_count, print_status_label,
         print_success, red, resolve_output_mode, run_action, short_id, table, time_ago,
     },
     source_refresh::{Tone, resolve_refresh_window, summarize},
@@ -76,8 +77,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
         ]);
     }
     println!("{grid}");
-    let total = res.pointer("/meta/pagination/total").and_then(Value::as_u64).unwrap_or(rows.len() as u64);
-    print_count(total, "integration");
+    print_list_count(&res, rows.len(), "integration");
     Ok(())
 }
 
@@ -96,57 +96,71 @@ pub async fn get(ctx: &Ctx, integration_id: &str, json: bool) -> Result<()> {
         )
     })
     .await?;
-    let int = payload(&res);
-    let t = |key: &str| text(int, key);
-    let data_type = t("dataType").unwrap_or_default();
-    println!();
-    println!(
-        "{} {}",
-        bold(&format!(
-            "{} → {}",
-            t("sourceAppName").unwrap_or_else(|| "—".into()),
-            t("destinationAppName").unwrap_or_else(|| "—".into())
-        )),
-        dim(&format!("({data_type})"))
-    );
-    println!();
-    println!("  ID:            {}", t("id").unwrap_or_default());
-    println!(
-        "  Source App:    {} {}",
-        t("sourceAppName").unwrap_or_else(|| dim("—")),
-        dim(&t("sourceAppId").unwrap_or_default())
-    );
-    println!(
-        "  Dest App:     {} {}",
-        t("destinationAppName").unwrap_or_else(|| dim("—")),
-        dim(&t("destinationAppId").unwrap_or_default())
-    );
-    println!("  Data Type:    {data_type}");
-    println!("  State:        {}", color_status(&t("state").unwrap_or_default()));
-    println!("  Status:       {}", color_status(&t("status").unwrap_or_default()));
-    println!("  Progress:     {}", format_job_progress(active.as_ref().map(Job)));
-    println!("  Last Sync:    {}", time_ago(t("lastSyncAt").as_deref()));
-    println!("  Created:      {}", time_ago(t("createdAt").as_deref()));
-    if let Some(schedule) = int.get("schedule").filter(|s| js_truthy(s)) {
-        println!("  Schedule:     {schedule}");
-    }
-    if let Some(error) = t("lastError").filter(|s| !s.is_empty()) {
-        println!("  Error:        {}", red(&error));
-    }
-    if let Some(n) = int.get("consecutiveFailures").and_then(Value::as_f64).filter(|n| *n > 0.0) {
-        println!("  Failures:     {} consecutive", red(&js_string(&json!(n))));
-    }
-    if let Some(job) = t("latestJobId").filter(|s| !s.is_empty()) {
-        println!("  Latest Job:   {}", dim(&job));
+    for line in integration_lines(payload(&res), active.as_ref()) {
+        println!("{line}");
     }
     Ok(())
+}
+
+/// The `integrations get` view, with the TS CLI's `${…}` rendering of missing (`undefined`) and null fields.
+fn integration_lines(int: &Value, active: Option<&Value>) -> Vec<String> {
+    let t = |key: &str| text(int, key);
+    let field = |key: &str| int.get(key);
+    let data_type = js_template(field("dataType"));
+    let mut lines = vec![
+        String::new(),
+        format!(
+            "{} {}",
+            bold(&format!(
+                "{} → {}",
+                t("sourceAppName").unwrap_or_else(|| "—".into()),
+                t("destinationAppName").unwrap_or_else(|| "—".into())
+            )),
+            dim(&format!("({data_type})"))
+        ),
+        String::new(),
+        format!("  ID:            {}", js_template(field("id"))),
+        format!(
+            "  Source App:    {} {}",
+            t("sourceAppName").unwrap_or_else(|| dim("—")),
+            dim(&t("sourceAppId").unwrap_or_default())
+        ),
+        format!(
+            "  Dest App:     {} {}",
+            t("destinationAppName").unwrap_or_else(|| dim("—")),
+            dim(&js_template(field("destinationAppId")))
+        ),
+        format!("  Data Type:    {data_type}"),
+        format!("  State:        {}", js_color_status(field("state"))),
+        format!("  Status:       {}", js_color_status(field("status"))),
+        format!("  Progress:     {}", format_job_progress(active.map(Job))),
+        format!("  Last Sync:    {}", time_ago(t("lastSyncAt").as_deref())),
+        format!("  Created:      {}", time_ago(t("createdAt").as_deref())),
+    ];
+    lines.extend(schedule_line(int));
+    if let Some(error) = js_if(field("lastError")) {
+        lines.push(format!("  Error:        {}", red(&error)));
+    }
+    if let Some(n) = js_positive(field("consecutiveFailures")) {
+        lines.push(format!("  Failures:     {} consecutive", red(&n)));
+    }
+    if let Some(job) = js_if(field("latestJobId")) {
+        lines.push(format!("  Latest Job:   {}", dim(&job)));
+    }
+    lines
+}
+
+/// `JSON.stringify(int.schedule)` after the TS client camelCased the response, when truthy.
+fn schedule_line(int: &Value) -> Option<String> {
+    let schedule = int.get("schedule").filter(|s| js_truthy(s))?;
+    Some(format!("  Schedule:     {}", js_stringify(&camel_case_keys_deep(schedule))))
 }
 
 pub fn dry_run_fields(int: &Value) -> Vec<(&'static str, String)> {
     vec![
         ("Source", text(int, "sourceAppName").unwrap_or_else(|| "—".into())),
         ("Destination", text(int, "destinationAppName").unwrap_or_else(|| "—".into())),
-        ("Data Type", text(int, "dataType").unwrap_or_else(|| "undefined".into())),
+        ("Data Type", js_template(int.get("dataType"))),
     ]
 }
 
@@ -232,17 +246,17 @@ pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
         return Ok(());
     }
     let int = payload(&res);
-    if int.is_null() {
+    if !js_truthy(int) {
         print_success("Integration created.");
         return Ok(());
     }
     if mode == OutputMode::Field {
-        println!("{}", text(int, "id").unwrap_or_default());
+        println!("{}", js_template(int.get("id")));
         return Ok(());
     }
     print_success(&format!("Integration {} created.", short_id(&text(int, "id").unwrap_or_default())));
     print_label("Data type", int.get("dataType"));
-    print_label("State", Some(&json!(color_status(&text(int, "state").unwrap_or_default()))));
+    print_status_label("State", int.get("state"));
     Ok(())
 }
 
@@ -287,4 +301,71 @@ pub async fn update(ctx: &Ctx, integration_id: &str, args: UpdateArgs) -> Result
         OutputMode::Table => print_success(&format!("Integration {} updated.", short_id(integration_id))),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_schedule_row_prints_camel_case_keys_like_ts() {
+        let int = json!({ "schedule": { "frequency_value": 1.0, "frequency_unit": "days", "run_now": false } });
+        assert_eq!(
+            schedule_line(&int).as_deref(),
+            Some(r#"  Schedule:     {"frequencyValue":1,"frequencyUnit":"days","runNow":false}"#)
+        );
+        assert_eq!(schedule_line(&json!({ "schedule": null })), None);
+        assert_eq!(schedule_line(&json!({ "schedule": "" })), None);
+        assert_eq!(schedule_line(&json!({})), None);
+    }
+
+    #[test]
+    fn get_prints_missing_and_null_fields_like_the_ts_cli() {
+        // Expected lines from the TS CLI 0.3.1 run against a local stub with the same body (VE-3728).
+        let int = json!({
+            "id": "int-1", "dataType": null, "destinationAppId": null, "state": null, "status": 7, "lastError": "",
+            "consecutiveFailures": true, "latestJobId": 0, "schedule": { "frequency_value": 3 },
+        });
+        assert_eq!(
+            integration_lines(&int, None),
+            [
+                "",
+                "— → — (null)",
+                "",
+                "  ID:            int-1",
+                "  Source App:    — ",
+                "  Dest App:     — null",
+                "  Data Type:    null",
+                "  State:        null",
+                "  Status:       7",
+                "  Progress:     —",
+                "  Last Sync:    —",
+                "  Created:      —",
+                "  Schedule:     {\"frequencyValue\":3}",
+                "  Failures:     true consecutive",
+            ]
+        );
+        let int = json!({ "id": "int-2", "lastError": "x", "consecutiveFailures": "4", "latestJobId": "j-1", "sourceAppName": "S" });
+        assert_eq!(
+            integration_lines(&int, None),
+            [
+                "",
+                "S → — (undefined)",
+                "",
+                "  ID:            int-2",
+                "  Source App:    S ",
+                "  Dest App:     — undefined",
+                "  Data Type:    undefined",
+                "  State:        undefined",
+                "  Status:       undefined",
+                "  Progress:     —",
+                "  Last Sync:    —",
+                "  Created:      —",
+                "  Error:        x",
+                "  Failures:     4 consecutive",
+                "  Latest Job:   j-1",
+            ]
+        );
+        assert_eq!(dry_run_fields(&json!({ "dataType": null }))[2], ("Data Type", "null".to_string()));
+    }
 }

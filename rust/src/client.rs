@@ -11,6 +11,8 @@
 
 use std::time::{Duration, Instant};
 
+use crate::output::{fetch_body_text, js_parse_int, parse_json, to_locale_time_string};
+
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -201,7 +203,12 @@ impl Client {
         };
 
         let status = res.status();
-        let status_text = status.canonical_reason().unwrap_or("").to_string();
+        // fetch's statusText is the server's reason phrase; hyper keeps it only when it isn't
+        // the canonical one.
+        let status_text = match res.extensions().get::<hyper::ext::ReasonPhrase>() {
+            Some(reason) => String::from_utf8_lossy(reason.as_bytes()).into_owned(),
+            None => status.canonical_reason().unwrap_or("").to_string(),
+        };
         let server_request_id = res.headers().get("x-request-id").and_then(|v| v.to_str().ok()).map(str::to_string);
         let duration_ms = started.elapsed().as_millis() as i64;
         self.debug_line(
@@ -226,7 +233,7 @@ impl Client {
         let body = res.bytes().await.map_err(|err| client_error(error_chain(&err), 0, None))?;
 
         if !status.is_success() {
-            let parsed: Option<Value> = serde_json::from_slice(&body).ok();
+            let parsed: Option<Value> = parse_json(&fetch_body_text(&body)).ok();
             let Some(parsed) = parsed else {
                 self.debug_line(
                     "response_error",
@@ -283,8 +290,21 @@ impl Client {
             });
         }
 
-        serde_json::from_slice(&body)
-            .map_err(|err| client_error(format!("Unexpected response from {url}: {err}"), 0, None))
+        // A 2xx body that isn't JSON: `res.json()` threw V8's SyntaxError, which the TS client
+        // logged as request_failed and reported as is.
+        parse_json(&fetch_body_text(&body)).map_err(|message| {
+            self.debug_line(
+                "request_failed",
+                &[
+                    ("method", Field::Str(method.as_str())),
+                    ("url", Field::Str(url.as_str())),
+                    ("requestId", Field::Str(&request_id)),
+                    ("durationMs", Field::Num(started.elapsed().as_millis() as i64)),
+                    ("error", Field::Str(&message)),
+                ],
+            );
+            client_error(message, 0, None)
+        })
     }
 
     fn route(&self, path: &str) -> Result<(String, Option<String>), ApiError> {
@@ -348,18 +368,26 @@ pub fn friendly_http_error(status: u16, fallback: Option<&str>) -> String {
     }
 }
 
+/// The TS client's warning when `X-RateLimit-Remaining` drops below 5: both headers read with
+/// `parseInt`, the reset time printed with `toLocaleTimeString()`.
 pub fn rate_limit_warning(headers: &reqwest::header::HeaderMap) -> Option<String> {
-    let remaining: i64 = headers.get("x-ratelimit-remaining")?.to_str().ok()?.parse().ok()?;
-    if remaining >= 5 {
+    let header = |name: &str| {
+        let values: Vec<String> =
+            headers.get_all(name).iter().map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned()).collect();
+        (!values.is_empty()).then(|| values.join(", ")).filter(|v| !v.is_empty())
+    };
+    let remaining = header("x-ratelimit-remaining")?;
+    if !js_parse_int(&remaining).is_some_and(|n| n < 5.0) {
         return None;
     }
-    let reset = headers
-        .get("x-ratelimit-reset")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<i64>().ok())
-        .and_then(|secs| jiff::Timestamp::from_second(secs).ok())
-        .map(|ts| ts.to_zoned(jiff::tz::TimeZone::system()).strftime("%-I:%M:%S %p").to_string())
-        .unwrap_or_else(|| "soon".to_string());
+    let reset = match header("x-ratelimit-reset") {
+        None => "soon".to_string(),
+        // `new Date(NaN)`, or past ±8.64e15 ms, is an Invalid Date.
+        Some(raw) => match js_parse_int(&raw).map(|secs| secs * 1000.0) {
+            Some(ms) if ms.abs() <= 8.64e15 => to_locale_time_string(ms as i64),
+            _ => "Invalid Date".to_string(),
+        },
+    };
     Some(format!("Warning: Rate limit low ({remaining} remaining, resets {reset})"))
 }
 
@@ -618,6 +646,38 @@ mod tests {
     }
 
     #[test]
+    fn rate_limit_headers_are_read_with_parse_int() {
+        let warning = |remaining: &str, reset: Option<&str>| {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert("x-ratelimit-remaining", remaining.parse().unwrap());
+            if let Some(reset) = reset {
+                headers.insert("x-ratelimit-reset", reset.parse().unwrap());
+            }
+            rate_limit_warning(&headers)
+        };
+        // `parseInt(remaining, 10) < 5`, and the header is printed as sent.
+        assert_eq!(warning("  3abc", None).as_deref(), Some("Warning: Rate limit low (  3abc remaining, resets soon)"));
+        assert_eq!(warning("-1", Some("")).as_deref(), Some("Warning: Rate limit low (-1 remaining, resets soon)"));
+        assert_eq!(warning("4.9", None).as_deref(), Some("Warning: Rate limit low (4.9 remaining, resets soon)"));
+        assert_eq!(warning("x3", None), None);
+        assert_eq!(warning("1e3", None).as_deref(), Some("Warning: Rate limit low (1e3 remaining, resets soon)"));
+        // The reset time through `new Date(parseInt(reset, 10) * 1000).toLocaleTimeString()`.
+        assert_eq!(
+            warning("0", Some("abc")).as_deref(),
+            Some("Warning: Rate limit low (0 remaining, resets Invalid Date)")
+        );
+        assert_eq!(
+            warning("0", Some("9999999999999")).as_deref(),
+            Some("Warning: Rate limit low (0 remaining, resets Invalid Date)")
+        );
+        let expected = crate::output::to_locale_time_string(1_700_000_000_000);
+        assert_eq!(
+            warning("0", Some("1700000000.9")),
+            Some(format!("Warning: Rate limit low (0 remaining, resets {expected})"))
+        );
+    }
+
+    #[test]
     fn rate_limit_warning_only_below_five() {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("x-ratelimit-remaining", "3".parse().unwrap());
@@ -763,5 +823,70 @@ mod tests {
             .get("/me", &[])
             .await
             .unwrap();
+    }
+
+    async fn ok_body(body: &'static [u8]) -> Result<Value, ApiError> {
+        let server = MockServer::start().await;
+        Mock::given(path("/api/v1/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/html"))
+            .mount(&server)
+            .await;
+        client(&server).get("/me", &[]).await
+    }
+
+    #[tokio::test]
+    async fn a_2xx_body_that_is_not_json_fails_with_v8s_message() {
+        let err = ok_body(b"<html>").await.unwrap_err();
+        assert_eq!(err.message, r#"Unexpected token '<', "<html>" is not valid JSON"#);
+        assert_eq!((err.status, err.request_id, err.status_text), (0, None, None));
+        assert_eq!(ok_body(b"").await.unwrap_err().message, "Unexpected end of JSON input");
+        assert_eq!(
+            ok_body(b"{\"data\": [1, 2}").await.unwrap_err().message,
+            "Expected ',' or ']' after array element in JSON at position 14 (line 1 column 15)"
+        );
+        // fetch's res.json() drops a byte order mark and decodes invalid UTF-8 as U+FFFD.
+        assert_eq!(ok_body(b"\xef\xbb\xbf{\"data\":1}").await.unwrap(), json!({ "data": 1 }));
+        assert_eq!(ok_body(b"{\"data\":\"\xff\"}").await.unwrap(), json!({ "data": "\u{fffd}" }));
+    }
+
+    /// A one-shot HTTP server that answers with `head` (status line and headers) and `body`.
+    async fn raw_server(head: &'static str, body: &'static str) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = socket.read(&mut buf).await;
+            let response = format!("{head}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn the_servers_reason_phrase_is_the_status_text() {
+        for (head, message, status_text) in [
+            ("HTTP/1.1 502 Proxy Error", "HTTP 502: Proxy Error", "Proxy Error"),
+            ("HTTP/1.1 502 Bad Gateway", "HTTP 502: Bad Gateway", "Bad Gateway"),
+            ("HTTP/1.1 503 ", "HTTP 503", ""),
+            ("HTTP/1.1 599 Custom", "HTTP 599: Custom", "Custom"),
+        ] {
+            let base = raw_server(head, "<html>").await;
+            let err = Client::new("k".into(), base, Some("a".into()), false).get("/me", &[]).await.unwrap_err();
+            assert_eq!((err.message.as_str(), err.status_text.as_deref()), (message, Some(status_text)), "{head}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_empty_server_request_id_falls_back_to_the_cli_id() {
+        let base = raw_server(
+            "HTTP/1.1 400 Bad Request\r\nX-Request-Id: \r\nContent-Type: application/json",
+            r#"{"error":{"message":"nope"}}"#,
+        )
+        .await;
+        let err = Client::new("k".into(), base, Some("a".into()), false).get("/me", &[]).await.unwrap_err();
+        let shown = crate::output::format_error(&anyhow::Error::new(err.clone()));
+        assert_eq!(shown, format!("nope\nRequest ID: {}", err.request_id.unwrap()));
     }
 }

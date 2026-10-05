@@ -47,8 +47,9 @@ impl Sandbox {
 
     fn command(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_vendo"));
-        cmd.args(args).env("HOME", self.home.path()).stdin(Stdio::null());
-        for var in ["VENDO_API_KEY", "VENDO_API_URL", "VENDO_ACCOUNT_ID", "VENDO_DEBUG"] {
+        // Dates and numbers follow the locale (VE-3728): pin it, and the time zone.
+        cmd.args(args).env("HOME", self.home.path()).env("LANG", "C").env("TZ", "UTC").stdin(Stdio::null());
+        for var in ["VENDO_API_KEY", "VENDO_API_URL", "VENDO_ACCOUNT_ID", "VENDO_DEBUG", "LC_ALL", "LC_MESSAGES"] {
             cmd.env_remove(var);
         }
         cmd
@@ -1227,6 +1228,20 @@ async fn dictionary_list_counts_the_rows_when_the_server_sends_no_total() {
 }
 
 #[tokio::test]
+async fn dictionary_list_prints_the_total_as_javascript_does() {
+    // `printCount(res.meta?.pagination?.total ?? res.data.length, type)`: the total as a template
+    // literal prints it, singular only for the number 1 (what the TS CLI printed for each).
+    for (total, footer) in [(json!("1"), "1 events"), (json!(1), "1 event"), (json!(2.5), "2.5 events")] {
+        let server = MockServer::start().await;
+        let body = json!({ "data": [event_item()], "meta": { "pagination": { "total": total } } });
+        serve(&server, "GET", DICTIONARY, 200, body).await;
+        let sandbox = Sandbox::new(&server.uri());
+        let out = cells(ok_output(&sandbox.run(&["dictionary", "list"])).as_bytes());
+        assert_eq!(out.last().cloned(), Some(vec![footer.to_string()]), "total {total}");
+    }
+}
+
+#[tokio::test]
 async fn dictionary_get_prints_every_field_of_the_definition() {
     let server = MockServer::start().await;
     let column = column_item();
@@ -1327,4 +1342,52 @@ async fn dictionary_get_reports_an_entry_the_server_does_not_have() {
     for id in ["event:half", "event:other"] {
         assert_eq!(ok_output(&sandbox.run(&["dictionary", "get", id])), format!("\nNo dictionary entry for {id}\n"));
     }
+}
+
+#[tokio::test]
+async fn dates_and_row_counts_follow_lang_like_node() {
+    let server = MockServer::start().await;
+    let job = json!({
+        "id": "j-1", "status": "completed", "jobType": "import", "connectorType": "stripe",
+        "startedAt": "2026-01-05T09:07:03Z", "finishedAt": "2026-01-05T10:07:03Z",
+        "rowsProcessed": 1234567.891, "rowsWritten": 1234567,
+    });
+    Mock::given(path("/api/v1/accounts/acct-alpha/jobs/j-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": job })))
+        .mount(&server)
+        .await;
+    let sandbox = Sandbox::new(&server.uri());
+    // What `node dist/cli.js jobs get j-1` prints under each LANG with TZ=Australia/Sydney.
+    for (lang, started, read, written) in [
+        ("C", "1/5/2026", "1,234,567.891", "1,234,567"),
+        ("en_AU.UTF-8", "05/01/2026", "1,234,567.891", "1,234,567"),
+        ("de_DE.UTF-8", "5.1.2026", "1.234.567,891", "1.234.567"),
+        ("ja_JP.UTF-8", "2026/1/5", "1,234,567.891", "1,234,567"),
+    ] {
+        let out =
+            sandbox.command(&["jobs", "get", "j-1"]).env("LANG", lang).env("TZ", "Australia/Sydney").output().unwrap();
+        let stdout = text(&out.stdout);
+        assert!(stdout.contains(&format!("  Started:       {started}\n")), "{lang}: {stdout}");
+        assert!(stdout.contains(&format!("  Rows Read:     {read}\n")), "{lang}: {stdout}");
+        assert!(stdout.contains(&format!("  Rows Written:  {written}\n")), "{lang}: {stdout}");
+    }
+    // LC_ALL wins over LANG, as in Node.
+    let out = sandbox.command(&["jobs", "get", "j-1"]).env("LANG", "de_DE.UTF-8").env("LC_ALL", "C").output().unwrap();
+    assert!(text(&out.stdout).contains("  Rows Read:     1,234,567.891\n"));
+}
+
+#[tokio::test]
+async fn json_output_matches_the_ts_cli_byte_for_byte() {
+    // A body written the way the Node API writes it (`JSON.stringify`), with numbers serde_json
+    // used to reformat: 0.000001 (was 1e-6) and 1e20 (was 1e+20).
+    let body = r#"{"data":{"id":"j-1","a":0.000001,"b":1e+21,"c":1.5,"d":0,"e":9007199254740992,"f":12345678901234567000,"g":[100000000000000000000,2.5e-7]}}"#;
+    let server = MockServer::start().await;
+    Mock::given(path("/api/v1/accounts/acct-alpha/jobs/j-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+        .mount(&server)
+        .await;
+    let out = Sandbox::new(&server.uri()).run(&["jobs", "get", "j-1", "--json"]);
+    // `node dist/cli.js jobs get j-1 --json` against the same stub.
+    let ts = "{\n  \"data\": {\n    \"id\": \"j-1\",\n    \"a\": 0.000001,\n    \"b\": 1e+21,\n    \"c\": 1.5,\n    \"d\": 0,\n    \"e\": 9007199254740992,\n    \"f\": 12345678901234567000,\n    \"g\": [\n      100000000000000000000,\n      2.5e-7\n    ]\n  }\n}\n";
+    assert_eq!(text(&out.stdout), ts);
 }

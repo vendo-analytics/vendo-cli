@@ -15,8 +15,9 @@ use crate::{
     context::Ctx,
     jobs::Job,
     output::{
-        OutputMode, bold, color_status, dim, js_truthy, print_count, print_field, print_json, print_label,
-        print_success, red, resolve_output_mode, run_action, short_id, table, time_ago, yellow,
+        OutputMode, bold, color_status, dim, js_color_status, js_greater_than, js_if, js_join, js_template, js_truthy,
+        print_field, print_json, print_label, print_list_count, print_status_label, print_success, red,
+        resolve_output_mode, run_action, short_id, table, time_ago, yellow,
     },
 };
 
@@ -117,20 +118,20 @@ fn capability_label(permissions: &[String]) -> String {
 fn role_label(app: &Value) -> String {
     match app.get("roles") {
         Some(Value::Array(roles)) if roles.is_empty() => "—".into(),
-        Some(Value::Array(roles)) => roles.iter().map(crate::output::js_string).collect::<Vec<_>>().join(", "),
+        Some(Value::Array(roles)) => js_join(roles, ", "),
         // Older servers don't send roles: derive from permissions.
         _ => capability_label(&strings(app, "permissions")),
     }
 }
 
 fn access_status_label(app: &Value) -> String {
-    if text(app, "state").as_deref() == Some("inactive") {
+    if app.get("state").and_then(Value::as_str) == Some("inactive") {
         return dim("paused");
     }
-    match text(app, "accessStatus").filter(|s| !s.is_empty()) {
+    match app.get("accessStatus").filter(|s| js_truthy(s)) {
         None => dim("not checked"),
-        Some(s) if s == "auth_expired" => red("reconnect required"),
-        Some(s) => color_status(&s),
+        Some(Value::String(s)) if s == "auth_expired" => red("reconnect required"),
+        status => js_color_status(status),
     }
 }
 
@@ -184,8 +185,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
                 ]);
             }
             println!("{grid}");
-            let total = res.pointer("/meta/pagination/total").and_then(Value::as_u64).unwrap_or(rows.len() as u64);
-            print_count(total, "app");
+            print_list_count(&res, rows.len(), "app");
         }
     }
     Ok(())
@@ -257,21 +257,14 @@ pub async fn diagnose(ctx: &Ctx, json: bool) -> Result<()> {
     let describe = |app: &Value| {
         format!(
             "{} {}",
-            text(app, "displayName").unwrap_or_default(),
-            dim(&format!(
-                "({}, {})",
-                short_id(&text(app, "id").unwrap_or_default()),
-                text(app, "appType").unwrap_or_default()
-            ))
+            js_template(app.get("displayName")),
+            dim(&format!("({}, {})", short_id(&text(app, "id").unwrap_or_default()), js_template(app.get("appType"))))
         )
     };
     if !broken.is_empty() {
         println!("{}", bold("\nBroken access:"));
         for app in &broken {
-            let reason = text(app, "accessStatusReason")
-                .filter(|s| !s.is_empty())
-                .map(|r| dim(&format!(": {r}")))
-                .unwrap_or_default();
+            let reason = js_if(app.get("accessStatusReason")).map(|r| dim(&format!(": {r}"))).unwrap_or_default();
             println!("  {} {} — {}{reason}", red("✗"), describe(app), access_status_label(app));
         }
     }
@@ -292,38 +285,54 @@ pub async fn get(ctx: &Ctx, app_id: &str, json: bool) -> Result<()> {
         print_json(&res);
         return Ok(());
     }
-    let app = payload(&res);
-    let t = |key: &str| text(app, key);
-    let permissions = strings(app, "permissions");
-    println!();
-    println!(
-        "{} {}",
-        bold(&t("displayName").unwrap_or_default()),
-        dim(&format!("({})", t("appType").unwrap_or_default()))
-    );
-    println!();
-    println!("  ID:          {}", t("id").unwrap_or_default());
-    println!("  Type:        {}", t("appType").unwrap_or_default());
-    println!("  Capability:  {}", role_label(app));
-    println!("  Permissions: {}", if permissions.is_empty() { "—".to_string() } else { permissions.join(", ") });
-    println!("  State:       {}", color_status(&t("state").unwrap_or_default()));
-    let checked = t("accessStatusCheckedAt")
-        .filter(|s| !s.is_empty())
-        .map(|at| dim(&format!(" (checked {})", time_ago(Some(&at)))))
-        .unwrap_or_default();
-    println!("  Status:      {}{checked}", access_status_label(app));
-    if let Some(reason) = t("accessStatusReason").filter(|s| !s.is_empty()) {
-        println!("  Reason:      {}", red(&reason));
-    }
-    println!("  Last Sync:   {}", time_ago(t("lastSyncAt").as_deref()));
-    println!("  Created:     {}", time_ago(t("createdAt").as_deref()));
-    if let Some(error) = t("errorMessage").filter(|s| !s.is_empty()) {
-        println!("  Error:       {}", red(&error));
-    }
-    if let Some(n) = app.get("consecutiveFailureCount").and_then(Value::as_f64).filter(|n| *n > 0.0) {
-        println!("  Failures:    {} consecutive", red(&crate::output::js_string(&json!(n))));
+    for line in app_lines(payload(&res)) {
+        println!("{line}");
     }
     Ok(())
+}
+
+/// The `apps get` view, with the TS CLI's `${…}` rendering of missing (`undefined`) and null fields.
+fn app_lines(app: &Value) -> Vec<String> {
+    let field = |key: &str| app.get(key);
+    let t = |key: &str| text(app, key);
+    // `(app.permissions ?? []).join(', ') || '—'`
+    let permissions = match field("permissions") {
+        Some(Value::Array(items)) => js_join(items, ", "),
+        _ => String::new(),
+    };
+    let mut lines = vec![
+        String::new(),
+        format!(
+            "{} {}",
+            bold(&js_template(field("displayName"))),
+            dim(&format!("({})", js_template(field("appType"))))
+        ),
+        String::new(),
+        format!("  ID:          {}", js_template(field("id"))),
+        format!("  Type:        {}", js_template(field("appType"))),
+        format!("  Capability:  {}", role_label(app)),
+        format!("  Permissions: {}", if permissions.is_empty() { "—".to_string() } else { permissions }),
+        format!("  State:       {}", js_color_status(field("state"))),
+    ];
+    let checked = js_if(field("accessStatusCheckedAt"))
+        .map(|at| dim(&format!(" (checked {})", time_ago(Some(&at)))))
+        .unwrap_or_default();
+    lines.push(format!("  Status:      {}{checked}", access_status_label(app)));
+    if let Some(reason) = js_if(field("accessStatusReason")) {
+        lines.push(format!("  Reason:      {}", red(&reason)));
+    }
+    lines.push(format!("  Last Sync:   {}", time_ago(t("lastSyncAt").as_deref())));
+    lines.push(format!("  Created:     {}", time_ago(t("createdAt").as_deref())));
+    if let Some(error) = js_if(field("errorMessage")) {
+        lines.push(format!("  Error:       {}", red(&error)));
+    }
+    // `typeof count === 'number' && count > 0`: a count sent as a string is not shown.
+    if let Some(count) =
+        field("consecutiveFailureCount").filter(|v| matches!(v, Value::Number(_)) && js_greater_than(v, 0.0))
+    {
+        lines.push(format!("  Failures:    {} consecutive", red(&crate::output::js_string(count))));
+    }
+    lines
 }
 
 // ── create / update ────────────────────────────────────────────────────────
@@ -385,22 +394,22 @@ pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
         return Ok(());
     }
     let app = payload(&res);
-    if app.is_null() {
+    if !js_truthy(app) {
         print_success("App created.");
         return Ok(());
     }
     if mode == OutputMode::Field {
-        println!("{}", text(app, "id").unwrap_or_default());
+        println!("{}", js_template(app.get("id")));
         return Ok(());
     }
     print_success(&format!(
         "App {} ({}) created.",
-        bold(&text(app, "displayName").unwrap_or_default()),
+        bold(&js_template(app.get("displayName"))),
         short_id(&text(app, "id").unwrap_or_default())
     ));
     print_label("Type", app.get("appType"));
     print_label("Capability", Some(&json!(role_label(app))));
-    print_label("State", Some(&json!(color_status(&text(app, "state").unwrap_or_default()))));
+    print_status_label("State", app.get("state"));
     Ok(())
 }
 
@@ -950,5 +959,52 @@ mod tests {
     #[tokio::test]
     async fn no_client_means_the_local_map() {
         assert_eq!(resolve_permissions_for_roles(None, "t", &["source".into()]).await.unwrap(), ["performance_data"]);
+    }
+
+    #[test]
+    fn get_prints_missing_and_null_fields_like_the_ts_cli() {
+        // Expected lines from the TS CLI 0.3.1 run against a local stub with the same body (VE-3728).
+        let app = json!({
+            "id": "app-1", "displayName": null, "permissions": [null, "x"], "roles": ["source", null], "state": null,
+            "accessStatus": 0, "accessStatusReason": 0, "accessStatusCheckedAt": "", "errorMessage": false,
+            "consecutiveFailureCount": "3",
+        });
+        assert_eq!(
+            app_lines(&app),
+            [
+                "",
+                "null (undefined)",
+                "",
+                "  ID:          app-1",
+                "  Type:        undefined",
+                "  Capability:  source, ",
+                "  Permissions: , x",
+                "  State:       null",
+                "  Status:      not checked",
+                "  Last Sync:   —",
+                "  Created:     —",
+            ]
+        );
+        let app = json!({
+            "id": "app-3", "displayName": 7, "appType": null, "state": 5, "accessStatus": 9, "roles": [],
+            "consecutiveFailureCount": 1.5e300, "accessStatusReason": "", "errorMessage": 0,
+        });
+        assert_eq!(
+            app_lines(&app),
+            [
+                "",
+                "7 (null)",
+                "",
+                "  ID:          app-3",
+                "  Type:        null",
+                "  Capability:  —",
+                "  Permissions: —",
+                "  State:       5",
+                "  Status:      9",
+                "  Last Sync:   —",
+                "  Created:     —",
+                "  Failures:    1.5e+300 consecutive",
+            ]
+        );
     }
 }
