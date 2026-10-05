@@ -35,8 +35,8 @@ color_fns!(bold => bold, dim => dimmed, green => green, red => red, yellow => ye
 pub fn color_status(status: &str) -> String {
     match status {
         "active" | "completed" => green(status),
-        "running" | "pending" => blue(status),
-        "paused" | "inactive" | "cancelled" => gray(status),
+        "running" | "pending" | "queued" => blue(status),
+        "paused" | "inactive" | "cancelled" | "canceled" => gray(status),
         "errored" | "failed" => red(status),
         "warning" => yellow(status),
         _ => status.to_string(),
@@ -370,6 +370,8 @@ mod tests {
             "paused",
             "inactive",
             "cancelled",
+            "canceled",
+            "queued",
             "errored",
             "failed",
             "warning",

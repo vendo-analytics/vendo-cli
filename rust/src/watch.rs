@@ -14,8 +14,8 @@ use tokio::time::Instant;
 use crate::{
     client::{ApiError, Client, payload},
     jobs::{
-        Job, completed_job_summary, format_job_duration, format_job_progress, is_terminal, job_detail_lines,
-        job_error_lines,
+        ACTIVE_JOB_STATUSES, Job, completed_job_summary, format_job_duration, format_job_progress, is_terminal,
+        job_detail_lines, job_error_lines,
     },
     output::{color_status, dim, short_id, stdout_is_tty, table, time_ago, yellow},
 };
@@ -115,7 +115,7 @@ pub async fn active_jobs(
     integration_id: Option<&str>,
 ) -> Result<Vec<Value>, ApiError> {
     api.jobs(vec![
-        ("status", Some("running,pending".into())),
+        ("status", Some(ACTIVE_JOB_STATUSES.into())),
         ("limit", Some(limit.to_string())),
         ("sort", Some("created_at:desc".into())),
         ("source_id", source_id.map(str::to_string)),
@@ -339,8 +339,9 @@ pub fn render_active_jobs_snapshot(
                 ]);
             }
             lines.push(grid.to_string());
-            let count = |status: &str| jobs.iter().filter(|j| Job(j).status() == status).count();
-            lines.push(dim(&format!("{} running, {} pending", count("running"), count("pending"))));
+            let count =
+                |statuses: &[&str]| jobs.iter().filter(|j| statuses.contains(&Job(j).status().as_str())).count();
+            lines.push(dim(&format!("{} running, {} pending", count(&["running"]), count(&["pending", "queued"]))));
         }
     }
     if let Some(message) = poll_error {
@@ -480,6 +481,27 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn tail_stops_on_canceled_and_warning() {
+        for (status, line) in [("canceled", "Job j1 canceled."), ("warning", "Job j1 warning.")] {
+            let api = FakeApi::new(vec![], vec![Ok(job("j1", status))]);
+            let mut screen = Recorder::default();
+            tail_job(&api, &mut screen, "j1", TICK, MAX_WAIT).await.unwrap();
+            assert_eq!(screen.out.last().map(String::as_str), Some(line), "{status}");
+            assert_eq!(screen.snapshots.len(), 1, "{status} must end on the first poll");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn watch_asks_for_queued_jobs_and_counts_them_as_pending() {
+        let api = FakeApi::new(vec![Ok(vec![job("j1", "queued"), job("j2", "running")])], vec![]);
+        let mut screen = Recorder::default();
+        let scope = WatchScope { source_id: None, integration_id: None };
+        watch_active_jobs(&api, &mut screen, TICK, &scope, tokio::time::sleep(Duration::from_secs(1))).await.unwrap();
+        assert!(api.queries.borrow()[0].contains(&("status", Some("running,pending,queued".into()))));
+        assert!(screen.snapshots[0].ends_with("1 running, 1 pending"), "{}", screen.snapshots[0]);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn tail_times_out_after_the_ceiling() {
         let api = FakeApi::new(vec![], vec![Ok(job("550e8400-e29b-41d4-a716-446655440000", "running"))]);
         let mut screen = Recorder::default();
@@ -516,7 +538,7 @@ mod tests {
         assert!(screen.snapshots[2].contains("No running or pending jobs."));
         assert_eq!(screen.out, ["", "Stopped watching."]);
         let first = &api.queries.borrow()[0];
-        assert!(first.contains(&("status", Some("running,pending".into()))));
+        assert!(first.contains(&("status", Some("running,pending,queued".into()))));
         assert!(first.contains(&("limit", Some("20".into()))));
         assert!(first.contains(&("source_id", Some("src-1".into()))));
     }
