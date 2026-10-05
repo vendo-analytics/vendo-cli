@@ -260,8 +260,10 @@ function pipelineScenario() {
   }
   step('apps pause', (cli) => ['apps', 'pause', app[cli]], { must: true });
   step('apps get (paused)', (cli) => ['apps', 'get', app[cli]]);
-  // A paused webhook app can't be resumed today (VE-3701); both CLIs must report it the same way.
-  step('apps resume --json', (cli) => ['apps', 'resume', app[cli], '--json'], { json: true });
+  // A webhook app resumes with no provider check (VE-3701). Pause it again for
+  // the paused-app refusal under sources below.
+  step('apps resume --json', (cli) => ['apps', 'resume', app[cli], '--json'], { json: true, must: true });
+  step('apps pause (again)', (cli) => ['apps', 'pause', app[cli]], { must: true });
   step('apps pause --output id', (cli) => ['apps', 'pause', fieldApp[cli], '--output', 'id'], { must: true });
   step('apps resume', (cli) => ['apps', 'resume', fieldApp[cli]]);
   step('apps diagnose', () => ['apps', 'diagnose']);
@@ -282,18 +284,27 @@ function pipelineScenario() {
     { must: true },
   );
   const fieldSource = idsFrom(res, (r) => r.stdout.trim());
-  // Faster than a 24-hour plan allows: a 500 today (VE-3702); both CLIs must report it the same way.
-  step('sources create (frequency under the plan minimum)', (cli) => ['sources', 'create', '--app', sourceApp[cli], '--sync-type', 'webhook', '--frequency', '1', '--output', 'id']);
+  // A webhook source has no schedule, so create ignores the frequency and skips
+  // the plan check (VE-3703). The plan refusal (VE-3702) needs a batch source.
+  res = step(
+    'sources create --frequency (ignored for a webhook source)',
+    (cli) => ['sources', 'create', '--app', sourceApp[cli], '--sync-type', 'webhook', '--frequency', '1', '--output', 'id'],
+    { must: true },
+  );
+  const ignoredFrequencySource = idsFrom(res, (r) => r.stdout.trim());
   step('sources create (sync type does not match the app)', (cli) => ['sources', 'create', '--app', sourceApp[cli], '--sync-type', 'shopify']);
   step('sources create (paused app)', (cli) => ['sources', 'create', '--app', app[cli], '--sync-type', 'webhook']);
   step('sources list --app', (cli) => ['sources', 'list', '--app', sourceApp[cli]]);
   step('sources list --app --json', (cli) => ['sources', 'list', '--app', sourceApp[cli], '--json'], { json: true, keyCasing: true });
   step('sources get', (cli) => ['sources', 'get', source[cli]]);
   step('sources get --json', (cli) => ['sources', 'get', source[cli], '--json'], { json: true, keyCasing: true });
-  step('sources update --json', (cli) => ['sources', 'update', source[cli], '--frequency', '2', '--unit', 'days', '--json'], { json: true, keyCasing: true, must: true });
+  step('sources update --json', (cli) => ['sources', 'update', source[cli], '--import-tasks', 'events', '--json'], { json: true, keyCasing: true, must: true });
   step('sources update --import-tasks', (cli) => ['sources', 'update', source[cli], '--import-tasks', 'events']);
+  // A webhook source refuses a schedule with a 400 (VE-3761).
+  step('sources update --frequency (webhook source)', (cli) => ['sources', 'update', source[cli], '--frequency', '2', '--unit', 'days']);
+  step('sources update --frequency --json (webhook source)', (cli) => ['sources', 'update', source[cli], '--frequency', '2', '--unit', 'days', '--json'], { json: true });
   step('sources update (no flags)', (cli) => ['sources', 'update', source[cli]]);
-  // `sources create` already started an initial sync, so compare job counts around the dry run.
+  // A dry run must start no job, so compare job counts around it.
   const jobCount = (cli) => getJson(cli, ['jobs', 'list', '--source', source[cli], '--limit', '100'])?.data?.length;
   const jobsBefore = Object.fromEntries(CLIS.map((cli) => [cli, jobCount(cli)]));
   step('sources sync --dry-run', (cli) => ['sources', 'sync', source[cli], '--dry-run']);
@@ -301,7 +312,7 @@ function pipelineScenario() {
     const after = jobCount(cli);
     check(`sources sync --dry-run started no ${label(cli)} job`, after !== undefined && after === jobsBefore[cli], `${jobsBefore[cli]} jobs before, ${after} after`);
   }
-  // Webhook sources can't sync today (VE-3703: 500), so this compares the refusal, not a watched job.
+  // A webhook source has no import, so sync is refused with a 400 (VE-3703): this compares the refusal, not a watched job.
   step('sources sync --watch', (cli) => ['sources', 'sync', source[cli], '--watch']);
   step('sources sync --json', (cli) => ['sources', 'sync', fieldSource[cli], '--json'], { json: true, keyCasing: true });
   step('sources pause --dry-run', (cli) => ['sources', 'pause', source[cli], '--dry-run']);
@@ -338,6 +349,8 @@ function pipelineScenario() {
   }
   step('sources delete --yes --json', (cli) => ['sources', 'delete', source[cli], '--yes', '--json'], { json: true, keyCasing: true });
   step('sources delete --yes', (cli) => ['sources', 'delete', fieldSource[cli], '--yes']);
+  // The app delete below needs no active source left (VE-3739).
+  step('sources delete --yes --output id', (cli) => ['sources', 'delete', ignoredFrequencySource[cli], '--yes', '--output', 'id']);
   step('sources get (deleted)', (cli) => ['sources', 'get', source[cli]]);
 
   step('apps delete --dry-run', (cli) => ['apps', 'delete', app[cli], '--dry-run']);
