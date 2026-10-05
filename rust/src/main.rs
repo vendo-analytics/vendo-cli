@@ -25,6 +25,7 @@ mod client;
 mod commands;
 mod config;
 mod context;
+mod dictionary;
 mod identity;
 mod jobs;
 mod js_date;
@@ -40,12 +41,13 @@ use std::process::ExitCode;
 
 use crate::{
     cli::{
-        AppsCommand, CatalogCommand, Command, ConfigCommand, IntegrationsCommand, Invocation, JobsCommand, LtvCommand,
-        MeasurementCommand, MethodologiesCommand, MetricsCommand, ModelsCommand, ProfileCommand, RulesCommand,
-        SignalsCommand, SourcesCommand,
+        AppsCommand, CatalogCommand, Command, ConfigCommand, DictionaryCommand, IntegrationsCommand, Invocation,
+        JobsCommand, LtvCommand, MeasurementCommand, MethodologiesCommand, MetricsCommand, ModelsCommand,
+        ProfileCommand, RulesCommand, SignalsCommand, SourcesCommand,
     },
     commands::{
-        account, apps, catalog, health, integrations, jobs as jobs_cmd, login, measurement, metrics, models,
+        account, apps, catalog, dictionary as dictionary_cmd, health, integrations, jobs as jobs_cmd, login,
+        measurement, metrics, models,
         pipeline_resource::{self as resource, ActionOpts},
         sources,
     },
@@ -288,6 +290,19 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             CatalogCommand::Get { app_type, json } => catalog::get(ctx, &app_type, json).await.map(|_| ok),
             CatalogCommand::CredentialSchema { app_type, json } => {
                 catalog::credential_schema(ctx, &app_type, json).await.map(|_| ok)
+            }
+        },
+        Command::Dictionary { command } => match command {
+            DictionaryCommand::List { subject_type, query, limit, offset, json, output } => {
+                let args = dictionary_cmd::PageArgs { subject_type, query, limit, offset, json, output };
+                dictionary_cmd::page(ctx, "Fetching dictionary...", args).await.map(|_| ok)
+            }
+            DictionaryCommand::Search { query, subject_type, limit, offset, json, output } => {
+                let args = dictionary_cmd::PageArgs { subject_type, query: Some(query), limit, offset, json, output };
+                dictionary_cmd::page(ctx, "Searching dictionary...", args).await.map(|_| ok)
+            }
+            DictionaryCommand::Get { subject_id, json } => {
+                dictionary_cmd::get(ctx, &subject_id, json).await.map(|_| ok)
             }
         },
         Command::Metrics { command } => match command {

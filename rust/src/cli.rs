@@ -173,6 +173,11 @@ pub enum Command {
         #[command(subcommand)]
         command: CatalogCommand,
     },
+    /// Browse the data dictionary catalog
+    Dictionary {
+        #[command(subcommand)]
+        command: DictionaryCommand,
+    },
     /// Manage custom metrics in the Metrics Library
     Metrics {
         #[command(subcommand)]
@@ -850,6 +855,66 @@ pub enum CatalogCommand {
 }
 
 #[derive(Subcommand)]
+pub enum DictionaryCommand {
+    /// List catalog definitions (events by default)
+    #[command(
+        after_help = "Examples:\n  $ vendo dictionary list\n  $ vendo dictionary list --type event --query checkout\n  $ vendo dictionary list --type prop -q email --json\n  $ vendo dictionary list --output subjectId"
+    )]
+    List {
+        #[arg(long = "type", value_name = "type", default_value = "event", help = crate::dictionary::type_help())]
+        subject_type: String,
+        /// Text search across subject ID, name and description
+        #[arg(short, long, value_name = "text")]
+        query: Option<String>,
+        /// Number of results
+        #[arg(long, value_name = "n", default_value = "20")]
+        limit: String,
+        /// Pagination offset
+        #[arg(long, value_name = "n", default_value = "0")]
+        offset: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+        /// Print a single field per row (e.g. subjectId, displayName)
+        #[arg(long, value_name = "field")]
+        output: Option<String>,
+    },
+    /// Search one subject type by text in subject ID, name and description
+    #[command(
+        after_help = "Examples:\n  $ vendo dictionary search checkout\n  $ vendo dictionary search email --type prop --json"
+    )]
+    Search {
+        #[arg(value_name = "query")]
+        query: String,
+        #[arg(long = "type", value_name = "type", default_value = "event", help = crate::dictionary::type_help())]
+        subject_type: String,
+        /// Number of results
+        #[arg(long, value_name = "n", default_value = "20")]
+        limit: String,
+        /// Pagination offset
+        #[arg(long, value_name = "n", default_value = "0")]
+        offset: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+        /// Print a single field per row (e.g. subjectId, displayName)
+        #[arg(long, value_name = "field")]
+        output: Option<String>,
+    },
+    /// Look up one catalog definition by the subject ID from list or search, or an alias such as event:<name>
+    #[command(
+        after_help = "Examples:\n  $ vendo dictionary get <subjectId>\n  $ vendo dictionary get event:checkout_completed\n  $ vendo dictionary get event:checkout_completed --json"
+    )]
+    Get {
+        #[arg(value_name = "subjectId")]
+        subject_id: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum MetricsCommand {
     /// List all custom metrics
     #[command(
@@ -1432,6 +1497,46 @@ mod tests {
         let cli = parse(&["vendo", "metrics", "delete", "m1", "-y"]).unwrap();
         let Command::Metrics { command: MetricsCommand::Delete { yes, json, .. } } = cli.command else { panic!() };
         assert!(yes && !json);
+    }
+
+    #[test]
+    fn dictionary_lists_events_by_default_and_takes_a_short_query_flag() {
+        // Port of the TS dictionary-command test.
+        let cli = parse(&["vendo", "dictionary", "list", "-q", "email"]).unwrap();
+        let Command::Dictionary { command: DictionaryCommand::List { subject_type, query, limit, offset, .. } } =
+            cli.command
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (subject_type.as_str(), query.as_deref(), limit.as_str(), offset.as_str()),
+            ("event", Some("email"), "20", "0")
+        );
+        let cli = parse(&["vendo", "dictionary", "search", "checkout", "--type", "prop"]).unwrap();
+        let Command::Dictionary { command: DictionaryCommand::Search { query, subject_type, .. } } = cli.command else {
+            panic!()
+        };
+        assert_eq!((query.as_str(), subject_type.as_str()), ("checkout", "prop"));
+        assert!(
+            parse(&["vendo", "dictionary", "search", "x", "-q", "y"]).is_err(),
+            "search takes its query as an argument"
+        );
+        let cli = parse(&["vendo", "dictionary", "get", "event:checkout_completed", "--json"]).unwrap();
+        let Command::Dictionary { command: DictionaryCommand::Get { subject_id, json } } = cli.command else {
+            panic!()
+        };
+        assert_eq!((subject_id.as_str(), json), ("event:checkout_completed", true));
+        assert!(parse(&["vendo", "specs", "list"]).is_err(), "specs is gone (VE-2545)");
+    }
+
+    #[test]
+    fn the_type_help_names_every_subject_type_the_server_accepts() {
+        let help = command().find_subcommand("dictionary").unwrap().find_subcommand("list").unwrap().clone();
+        let arg = help.get_arguments().find(|a| a.get_id() == "subject_type").unwrap();
+        assert_eq!(
+            arg.get_help().map(|h| h.to_string()).as_deref(),
+            Some("Filter by subject type (event, prop, group, column, metric, model, audience)")
+        );
     }
 
     #[test]

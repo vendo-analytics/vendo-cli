@@ -26,7 +26,7 @@ const ACCOUNT_SCOPED_PREFIXES: &[&str] = &[
     "/triggers",
     "/costs",
     "/events",
-    "/specs",
+    "/dictionary",
     "/pulse",
     "/bigquery",
 ];
@@ -509,12 +509,14 @@ mod tests {
         Mock::given(path("/api/v1/apps/oauth-session/s1")).respond_with(ok()).expect(1).mount(&server).await;
         Mock::given(path("/api/v1/accounts/acct-123/apps")).respond_with(ok()).expect(1).mount(&server).await;
         Mock::given(path("/api/v1/accounts/acct-123/jobs")).respond_with(ok()).expect(1).mount(&server).await;
-        Mock::given(path("/api/v1/accounts/acct-123/specs"))
+        Mock::given(path("/api/v1/accounts/acct-123/dictionary/lookup"))
             .and(header("X-Account-Id", "acct-123"))
             .respond_with(ok())
             .expect(1)
             .mount(&server)
             .await;
+        // `specs` is gone (VE-2545): no longer an account-scoped route.
+        Mock::given(path("/api/v1/specs")).respond_with(ok()).expect(1).mount(&server).await;
         Mock::given(path("/api/v1/me"))
             .and(header("X-Account-Id", "acct-123"))
             .respond_with(ok())
@@ -530,6 +532,7 @@ mod tests {
             "/apps/oauth-session/s1",
             "/apps",
             "/jobs",
+            "/dictionary/lookup",
             "/specs",
             "/me",
         ] {

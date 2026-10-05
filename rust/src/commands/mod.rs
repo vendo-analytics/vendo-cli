@@ -3,6 +3,7 @@
 pub mod account;
 pub mod apps;
 pub mod catalog;
+pub mod dictionary;
 pub mod health;
 pub mod integrations;
 pub mod jobs;
