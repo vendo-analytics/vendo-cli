@@ -136,6 +136,16 @@
       "command": "integrations get",
       "variant": "json",
       "reason": "Nested keys print verbatim (Yalcin, 2026-10-05): integration config and schedule come from the API in snake_case; the TS client camelCased them."
+    },
+    {
+      "command": "models list",
+      "variant": "json",
+      "reason": "Nested keys print verbatim (Yalcin, 2026-10-05; VE-3668): a model's outputConfig, schedule, columns and definition come from the API as stored, in snake_case (on staging: outputConfig.table_name, write_mode, all_columns, case_expression, view_case_expression, semantic_data_type, semantic_output, canonical.case_expressions); the TS client camelCased them. Top-level keys are camelCase from the API and unchanged."
+    },
+    {
+      "command": "models get",
+      "variant": "json",
+      "reason": "Nested keys print verbatim (Yalcin, 2026-10-05; VE-3668): as for `models list`, plus definition keys (on staging: definition.output_schema); the TS client camelCased them."
     }
   ]
 }
