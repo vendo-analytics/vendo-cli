@@ -11,7 +11,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::output::{js_parse_int, to_locale_time_string};
+use crate::output::{fetch_body_text, js_parse_int, parse_json, to_locale_time_string};
 
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -228,7 +228,7 @@ impl Client {
         let body = res.bytes().await.map_err(|err| client_error(error_chain(&err), 0, None))?;
 
         if !status.is_success() {
-            let parsed: Option<Value> = serde_json::from_slice(&body).ok();
+            let parsed: Option<Value> = parse_json(&fetch_body_text(&body)).ok();
             let Some(parsed) = parsed else {
                 self.debug_line(
                     "response_error",
@@ -285,8 +285,21 @@ impl Client {
             });
         }
 
-        serde_json::from_slice(&body)
-            .map_err(|err| client_error(format!("Unexpected response from {url}: {err}"), 0, None))
+        // A 2xx body that isn't JSON: `res.json()` threw V8's SyntaxError, which the TS client
+        // logged as request_failed and reported as is.
+        parse_json(&fetch_body_text(&body)).map_err(|message| {
+            self.debug_line(
+                "request_failed",
+                &[
+                    ("method", Field::Str(method.as_str())),
+                    ("url", Field::Str(url.as_str())),
+                    ("requestId", Field::Str(&request_id)),
+                    ("durationMs", Field::Num(started.elapsed().as_millis() as i64)),
+                    ("error", Field::Str(&message)),
+                ],
+            );
+            client_error(message, 0, None)
+        })
     }
 
     fn route(&self, path: &str) -> Result<(String, Option<String>), ApiError> {
@@ -805,5 +818,29 @@ mod tests {
             .get("/me", &[])
             .await
             .unwrap();
+    }
+
+    async fn ok_body(body: &'static [u8]) -> Result<Value, ApiError> {
+        let server = MockServer::start().await;
+        Mock::given(path("/api/v1/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/html"))
+            .mount(&server)
+            .await;
+        client(&server).get("/me", &[]).await
+    }
+
+    #[tokio::test]
+    async fn a_2xx_body_that_is_not_json_fails_with_v8s_message() {
+        let err = ok_body(b"<html>").await.unwrap_err();
+        assert_eq!(err.message, r#"Unexpected token '<', "<html>" is not valid JSON"#);
+        assert_eq!((err.status, err.request_id, err.status_text), (0, None, None));
+        assert_eq!(ok_body(b"").await.unwrap_err().message, "Unexpected end of JSON input");
+        assert_eq!(
+            ok_body(b"{\"data\": [1, 2}").await.unwrap_err().message,
+            "Expected ',' or ']' after array element in JSON at position 14 (line 1 column 15)"
+        );
+        // fetch's res.json() drops a byte order mark and decodes invalid UTF-8 as U+FFFD.
+        assert_eq!(ok_body(b"\xef\xbb\xbf{\"data\":1}").await.unwrap(), json!({ "data": 1 }));
+        assert_eq!(ok_body(b"{\"data\":\"\xff\"}").await.unwrap(), json!({ "data": "\u{fffd}" }));
     }
 }

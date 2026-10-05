@@ -1,0 +1,522 @@
+{
+ "node": "v24.16.0",
+ "v8": "13.6.233.17-node.49",
+ "cases": [
+  [
+   "",
+   "Unexpected end of JSON input"
+  ],
+  [
+   " ",
+   "Unexpected end of JSON input"
+  ],
+  [
+   "\n",
+   "Unexpected end of JSON input"
+  ],
+  [
+   "\t\r\n ",
+   "Unexpected end of JSON input"
+  ],
+  [
+   "<",
+   "Unexpected token '<', \"<\" is not valid JSON"
+  ],
+  [
+   "<html>",
+   "Unexpected token '<', \"<html>\" is not valid JSON"
+  ],
+  [
+   "<!DOCTYPE html><html><body>Bad gateway</body></html>",
+   "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"
+  ],
+  [
+   "OK",
+   "Unexpected token 'O', \"OK\" is not valid JSON"
+  ],
+  [
+   "ok",
+   "Unexpected token 'o', \"ok\" is not valid JSON"
+  ],
+  [
+   "x",
+   "Unexpected token 'x', \"x\" is not valid JSON"
+  ],
+  [
+   "abcdefghij",
+   "Unexpected token 'a', \"abcdefghij\" is not valid JSON"
+  ],
+  [
+   "abcdefghijk",
+   "Unexpected token 'a', \"abcdefghijk\" is not valid JSON"
+  ],
+  [
+   "01234567890123456789",
+   "Unexpected number in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "Internal Server Error",
+   "Unexpected token 'I', \"Internal S\"... is not valid JSON"
+  ],
+  [
+   "<?xml version=\"1.0\"?><error>Gateway Timeout</error>",
+   "Unexpected token '<', \"<?xml vers\"... is not valid JSON"
+  ],
+  [
+   "Bad Gateway: upstream connect error or disconnect",
+   "Unexpected token 'B', \"Bad Gatewa\"... is not valid JSON"
+  ],
+  [
+   "{",
+   "Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "{\"a\"",
+   "Expected ':' after property name in JSON at position 4 (line 1 column 5)"
+  ],
+  [
+   "{\"a\":",
+   "Unexpected end of JSON input"
+  ],
+  [
+   "{\"a\":1",
+   "Expected ',' or '}' after property value in JSON at position 6 (line 1 column 7)"
+  ],
+  [
+   "{\"a\":1,",
+   "Expected double-quoted property name in JSON at position 7 (line 1 column 8)"
+  ],
+  [
+   "{\"a\":1,}",
+   "Expected double-quoted property name in JSON at position 7 (line 1 column 8)"
+  ],
+  [
+   "[",
+   "Unexpected end of JSON input"
+  ],
+  [
+   "[1",
+   "Expected ',' or ']' after array element in JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "[1,",
+   "Unexpected end of JSON input"
+  ],
+  [
+   "[1,]",
+   "Unexpected token ']', \"[1,]\" is not valid JSON"
+  ],
+  [
+   "[1 2]",
+   "Expected ',' or ']' after array element in JSON at position 3 (line 1 column 4)"
+  ],
+  [
+   "{\"a\" 1}",
+   "Expected ':' after property name in JSON at position 5 (line 1 column 6)"
+  ],
+  [
+   "{a:1}",
+   "Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "{'a':1}",
+   "Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "{\"a\":1}x",
+   "Unexpected non-whitespace character after JSON at position 7 (line 1 column 8)"
+  ],
+  [
+   "{\"a\":1} {}",
+   "Unexpected non-whitespace character after JSON at position 8 (line 1 column 9)"
+  ],
+  [
+   "{\"a\":1}}",
+   "Unexpected non-whitespace character after JSON at position 7 (line 1 column 8)"
+  ],
+  [
+   "]",
+   "Unexpected token ']', \"]\" is not valid JSON"
+  ],
+  [
+   "}",
+   "Unexpected token '}', \"}\" is not valid JSON"
+  ],
+  [
+   ",",
+   "Unexpected token ',', \",\" is not valid JSON"
+  ],
+  [
+   ":",
+   "Unexpected token ':', \":\" is not valid JSON"
+  ],
+  [
+   "{,}",
+   "Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "{\"a\",}",
+   "Expected ':' after property name in JSON at position 4 (line 1 column 5)"
+  ],
+  [
+   "[,1]",
+   "Unexpected token ',', \"[,1]\" is not valid JSON"
+  ],
+  [
+   "[[\"a\" \"b\"]]",
+   "Expected ',' or ']' after array element in JSON at position 6 (line 1 column 7)"
+  ],
+  [
+   "{\"a\":1 \"b\":2}",
+   "Expected ',' or '}' after property value in JSON at position 7 (line 1 column 8)"
+  ],
+  [
+   "{\"a\":1,\"b\"}",
+   "Expected ':' after property name in JSON at position 10 (line 1 column 11)"
+  ],
+  [
+   "{\"data\": [1, 2, 3}",
+   "Expected ',' or ']' after array element in JSON at position 17 (line 1 column 18)"
+  ],
+  [
+   "{\"a\":{\"b\":[{\"c\":}]}}",
+   "Unexpected token '}', \"{\"a\":{\"b\":[{\"c\":}]}}\" is not valid JSON"
+  ],
+  [
+   "[[[[[[[[[[[[]]]]]]]]]]",
+   "Expected ',' or ']' after array element in JSON at position 22 (line 1 column 23)"
+  ],
+  [
+   "\"abc",
+   "Unterminated string in JSON at position 4 (line 1 column 5)"
+  ],
+  [
+   "\"unterminated string that is long",
+   "Unterminated string in JSON at position 33 (line 1 column 34)"
+  ],
+  [
+   "\"a\\x\"",
+   "Bad escaped character in JSON at position 3 (line 1 column 4)"
+  ],
+  [
+   "\"a\\u12\"",
+   "Bad Unicode escape in JSON at position 6 (line 1 column 7)"
+  ],
+  [
+   "\"\\u00zz\"",
+   "Bad Unicode escape in JSON at position 5 (line 1 column 6)"
+  ],
+  [
+   "\"\\uZZZZ\"",
+   "Bad Unicode escape in JSON at position 3 (line 1 column 4)"
+  ],
+  [
+   "\"\\u12",
+   "Bad Unicode escape in JSON at position 5 (line 1 column 6)"
+  ],
+  [
+   "\"\\",
+   "Unexpected end of JSON input"
+  ],
+  [
+   "\"a\nb\"",
+   "Bad control character in string literal in JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "\"\t\"",
+   "Bad control character in string literal in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "\"\u0001\"",
+   "Bad control character in string literal in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "\"\\/\"",
+   null
+  ],
+  [
+   "{\"\\u0041\":1,",
+   "Expected double-quoted property name in JSON at position 12 (line 1 column 13)"
+  ],
+  [
+   "{\"a\":\"\\ud800\"}",
+   null
+  ],
+  [
+   "[\"\\ud83d\\ude00\"]",
+   null
+  ],
+  [
+   "{\"k\":\"v\"x}",
+   "Expected ',' or '}' after property value in JSON at position 8 (line 1 column 9)"
+  ],
+  [
+   "-",
+   "No number after minus sign in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "-a",
+   "No number after minus sign in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "1.",
+   "Unterminated fractional number in JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "1.e5",
+   "Unterminated fractional number in JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "1e",
+   "Exponent part is missing a number in JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "1e+",
+   "Exponent part is missing a number in JSON at position 3 (line 1 column 4)"
+  ],
+  [
+   "01",
+   "Unexpected number in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "00",
+   "Unexpected number in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "+1",
+   "Unexpected token '+', \"+1\" is not valid JSON"
+  ],
+  [
+   ".5",
+   "Unexpected token '.', \".5\" is not valid JSON"
+  ],
+  [
+   "[-]",
+   "No number after minus sign in JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "[1e]",
+   "Exponent part is missing a number in JSON at position 3 (line 1 column 4)"
+  ],
+  [
+   "{\"a\":01}",
+   "Unexpected number in JSON at position 6 (line 1 column 7)"
+  ],
+  [
+   "123abc",
+   "Unexpected non-whitespace character after JSON at position 3 (line 1 column 4)"
+  ],
+  [
+   "-0x1",
+   "Unexpected non-whitespace character after JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "{\"a\":-}",
+   "No number after minus sign in JSON at position 6 (line 1 column 7)"
+  ],
+  [
+   "1234567890123",
+   null
+  ],
+  [
+   "-0",
+   null
+  ],
+  [
+   "0.0e-0",
+   null
+  ],
+  [
+   "1E+2",
+   null
+  ],
+  [
+   "1234567890.5",
+   null
+  ],
+  [
+   "1234567890e2",
+   null
+  ],
+  [
+   "12345678901.",
+   "Unterminated fractional number in JSON at position 12 (line 1 column 13)"
+  ],
+  [
+   "-1234567890123.5e",
+   "Exponent part is missing a number in JSON at position 17 (line 1 column 18)"
+  ],
+  [
+   "0e",
+   "Exponent part is missing a number in JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "0.",
+   "Unterminated fractional number in JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "-0.",
+   "Unterminated fractional number in JSON at position 3 (line 1 column 4)"
+  ],
+  [
+   "-00",
+   "Unexpected number in JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "0-1",
+   "Unexpected non-whitespace character after JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "[1.5e+]",
+   "Exponent part is missing a number in JSON at position 6 (line 1 column 7)"
+  ],
+  [
+   "[12345678901234567890]",
+   null
+  ],
+  [
+   "tru",
+   "Unexpected end of JSON input"
+  ],
+  [
+   "true x",
+   "Unexpected non-whitespace character after JSON at position 5 (line 1 column 6)"
+  ],
+  [
+   "nul",
+   "Unexpected end of JSON input"
+  ],
+  [
+   "nulls",
+   "Unexpected non-whitespace character after JSON at position 4 (line 1 column 5)"
+  ],
+  [
+   "fals",
+   "Unexpected end of JSON input"
+  ],
+  [
+   "falsey",
+   "Unexpected non-whitespace character after JSON at position 5 (line 1 column 6)"
+  ],
+  [
+   "tr1",
+   "Unexpected number in JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "tr\"x\"",
+   "Unexpected string in JSON at position 2 (line 1 column 3)"
+  ],
+  [
+   "t\"",
+   "Unexpected string in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "nu,",
+   "Unexpected token ',', \"nu,\" is not valid JSON"
+  ],
+  [
+   "{\"a\":tru}",
+   "Unexpected token '}', \"{\"a\":tru}\" is not valid JSON"
+  ],
+  [
+   "[nul]",
+   "Unexpected token ']', \"[nul]\" is not valid JSON"
+  ],
+  [
+   "NaN",
+   "\"NaN\" is not valid JSON"
+  ],
+  [
+   "Infinity",
+   "\"Infinity\" is not valid JSON"
+  ],
+  [
+   "undefined",
+   "\"undefined\" is not valid JSON"
+  ],
+  [
+   "[object Object]",
+   "\"[object Object]\" is not valid JSON"
+  ],
+  [
+   "-Infinity",
+   "No number after minus sign in JSON at position 1 (line 1 column 2)"
+  ],
+  [
+   "null",
+   null
+  ],
+  [
+   "true",
+   null
+  ],
+  [
+   "é",
+   "Unexpected token 'é', \"é\" is not valid JSON"
+  ],
+  [
+   "é{",
+   "Unexpected token 'é', \"é{\" is not valid JSON"
+  ],
+  [
+   "{\"x\":\"é\"} é",
+   "Unexpected non-whitespace character after JSON at position 10 (line 1 column 11)"
+  ],
+  [
+   "[\"😀\", x]",
+   "Unexpected token 'x', \"[\"😀\", x]\" is not valid JSON"
+  ],
+  [
+   "﻿{}",
+   "Unexpected token '﻿', \"﻿{}\" is not valid JSON"
+  ],
+  [
+   "{\"a\":1}\u0000",
+   "Unexpected non-whitespace character after JSON at position 7 (line 1 column 8)"
+  ],
+  [
+   "[\n1,\n2\n,]",
+   "Unexpected token ']', \"[\n1,\n2\n,]\" is not valid JSON"
+  ],
+  [
+   "{\n  \"a\": 1,\n  \"b\": [\n    1,\n  ]\n}",
+   "Unexpected token ']', ...\"\n    1,\n  ]\n}\" is not valid JSON"
+  ],
+  [
+   "{\r\n\"a\":1,\r\n}",
+   "Expected double-quoted property name in JSON at position 11 (line 3 column 1)"
+  ],
+  [
+   "{\r\"a\":1,\r}",
+   "Expected double-quoted property name in JSON at position 9 (line 3 column 1)"
+  ],
+  [
+   "[1,\r\n\r\n2,\n\rx]",
+   "Unexpected token 'x', \"[1,\r\n\r\n2,\n\rx]\" is not valid JSON"
+  ],
+  [
+   "{\"key\": \"value\", \"other\": undefined}",
+   "Unexpected token 'u', ...\" \"other\": undefined}\" is not valid JSON"
+  ],
+  [
+   "{\"a\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\", \"b\": nope, \"c\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "Unexpected token 'o', ...\"x\", \"b\": nope, \"c\": \"... is not valid JSON"
+  ],
+  [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+   "Unexpected token 'x', \"[xxxxxxxxxx\"... is not valid JSON"
+  ],
+  [
+   "{\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\":1,}",
+   "Expected double-quoted property name in JSON at position 36 (line 1 column 37)"
+  ],
+  [
+   "[\"éééééééééééé\", x, \"ééééééééééé\"]",
+   "Unexpected token 'x', ...\"ééééééé\", x, \"éééééé\"... is not valid JSON"
+  ],
+  [
+   "{\"emoji\":\"😀😀😀\", x}",
+   "Expected double-quoted property name in JSON at position 19 (line 1 column 20)"
+  ]
+ ]
+}

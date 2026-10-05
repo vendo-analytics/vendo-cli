@@ -19,6 +19,7 @@ use serde_json::Value;
 use crate::client::ApiError;
 
 mod locale;
+mod v8_json;
 mod ymd_patterns;
 
 /// JavaScript truthiness for a JSON value.
@@ -450,6 +451,17 @@ fn snake_to_camel(key: &str) -> String {
         }
     }
     out
+}
+
+/// `JSON.parse(text)`: serde_json parses, and an error reads the way V8 words it.
+pub fn parse_json(text: &str) -> Result<Value, String> {
+    serde_json::from_str(text).map_err(|err| v8_json::parse_error(text).unwrap_or_else(|| err.to_string()))
+}
+
+/// The text `res.json()` parses: UTF-8 with a leading byte order mark dropped, invalid bytes as
+/// U+FFFD, as fetch decodes a body.
+pub fn fetch_body_text(body: &[u8]) -> std::borrow::Cow<'_, str> {
+    String::from_utf8_lossy(body.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(body))
 }
 
 /// `--json` output: pretty-printed with two spaces like `JSON.stringify(data, null, 2)`, and

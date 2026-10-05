@@ -39,18 +39,18 @@ impl Resource {
     }
 }
 
-/// Read and parse a JSON file passed with `--config-file` and friends. Errors
-/// use Node's wording for the common cases, as the TS CLI printed them.
+/// Read and parse a JSON file passed with `--config-file` and friends, as the TS CLI's
+/// `JSON.parse(readFileSync(path, 'utf-8'))` did: invalid UTF-8 becomes U+FFFD, a byte order mark
+/// stays, and errors use Node's and V8's wording.
 pub fn read_json_file(path: &str) -> Result<Value> {
     read_json(path).map_err(|reason| anyhow!("Failed to read {path}: {reason}"))
 }
 
 /// `JSON.parse(readFileSync(path, 'utf-8'))`; the error is the reason Node
-/// gave, which each caller puts in its own message.
+/// gave (V8's `JSON.parse` wording), which each caller puts in its own message.
 pub fn read_json(path: &str) -> std::result::Result<Value, String> {
-    let raw = std::fs::read_to_string(path).map_err(|err| node_fs_error(&err, path))?;
-    serde_json::from_str(&raw)
-        .map_err(|err| if err.is_eof() { "Unexpected end of JSON input".to_string() } else { err.to_string() })
+    let bytes = std::fs::read(path).map_err(|err| node_fs_error(&err, path))?;
+    crate::output::parse_json(&String::from_utf8_lossy(&bytes))
 }
 
 /// Node's `readFileSync` message for the errors people actually hit.
@@ -272,6 +272,24 @@ mod tests {
             read_json_file(empty).unwrap_err().to_string(),
             format!("Failed to read {empty}: Unexpected end of JSON input")
         );
+        // Other bad JSON reads like V8's JSON.parse, and readFileSync keeps a byte order mark.
+        let bad = dir.path().join("bad.json");
+        std::fs::write(&bad, "{a:1}").unwrap();
+        let bad = bad.to_str().unwrap();
+        assert_eq!(
+            read_json_file(bad).unwrap_err().to_string(),
+            format!("Failed to read {bad}: Expected property name or '}}' in JSON at position 1 (line 1 column 2)")
+        );
+        let bom = dir.path().join("bom.json");
+        std::fs::write(&bom, "\u{feff}{}").unwrap();
+        let bom = bom.to_str().unwrap();
+        assert_eq!(
+            read_json_file(bom).unwrap_err().to_string(),
+            format!("Failed to read {bom}: Unexpected token '\u{feff}', \"\u{feff}{{}}\" is not valid JSON")
+        );
+        let latin1 = dir.path().join("latin1.json");
+        std::fs::write(&latin1, b"{\"name\":\"caf\xe9\"}").unwrap();
+        assert_eq!(read_json_file(latin1.to_str().unwrap()).unwrap(), json!({ "name": "caf\u{fffd}" }));
         let ok = dir.path().join("ok.json");
         std::fs::write(&ok, r#"{"tasks":[1]}"#).unwrap();
         assert_eq!(read_json_file(ok.to_str().unwrap()).unwrap(), json!({ "tasks": [1] }));
