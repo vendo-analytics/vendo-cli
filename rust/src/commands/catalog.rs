@@ -44,7 +44,7 @@ pub async fn list(
                 grid.add_row(vec![cyan(&t("appType")), t("displayName"), t("category"), roles(item), self_serve(item)]);
             }
             println!("{grid}");
-            print_count(rows.len() as u64, "integration type");
+            print_count(rows.len() as u64, "platform");
         }
     }
     Ok(())

@@ -1,23 +1,21 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Delete an integration (soft delete)
+Resume a paused destination
 
-Usage: vendo integrations delete [OPTIONS] <integrationId>
+Usage: vendo destinations resume [OPTIONS] <destinationId>
 
 Arguments:
-  <integrationId>  
+  <destinationId>  
 
 Options:
       --json            Output raw JSON
       --profile <name>  Use a specific account profile
       --debug           Enable verbose request diagnostics
-  -y, --yes             Skip confirmation prompt
       --dry-run         Preview the action without executing
       --output <field>  Print a single field (e.g. id)
   -h, --help            Print help
 
 Examples:
-  $ vendo integrations delete <integrationId>
-  $ vendo int delete <integrationId> --yes
-  $ vendo integrations delete <integrationId> --dry-run
+  $ vendo destinations resume <destinationId>
+  $ vendo destinations resume <destinationId> --dry-run

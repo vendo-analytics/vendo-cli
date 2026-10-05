@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-$ vendo integrations get c0000002-0000-4000-8000-000000000002
+$ vendo destinations get c0000002-0000-4000-8000-000000000002
 exit: 0
 --- stdout ---
 

@@ -1,12 +1,12 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Update an integration
+Update a destination
 
-Usage: vendo integrations update [OPTIONS] <integrationId>
+Usage: vendo destinations update [OPTIONS] <destinationId>
 
 Arguments:
-  <integrationId>  
+  <destinationId>  
 
 Options:
       --config-file <path>    Replace config from a JSON file
@@ -20,5 +20,5 @@ Options:
   -h, --help                  Print help
 
 Examples:
-  $ vendo int update <integrationId> --frequency 6 --unit hours
-  $ vendo int update <integrationId> --config-file new-tasks.json
+  $ vendo destinations update <destinationId> --frequency 6 --unit hours
+  $ vendo destinations update <destinationId> --config-file new-tasks.json

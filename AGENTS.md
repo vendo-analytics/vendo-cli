@@ -42,6 +42,10 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `rust/tests/snapshots/output/`. Any change to them fails `cargo test`. After a deliberate change run
   `INSTA_UPDATE=always cargo test --test cli` from `rust/` (it also deletes stale snapshots), review
   `git diff rust/tests/snapshots` and commit the snapshots with the change.
+- Customer words follow vendo-web-v2's glossary (`apps/web/CONTEXT.md`; VE-3828, CLI 1.1): `vendo destinations`
+  (hidden aliases `integrations`, `int`), "app" not "app connection", "platform" not "integration type". Flag names
+  (`jobs … --integration <integrationId>`), API paths, JSON fields, `--json` output and code identifiers keep the
+  API's "integration"; renaming a flag needs Yalcin's approval.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

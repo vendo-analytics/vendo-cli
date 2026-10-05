@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-$ vendo integrations list --json
+$ vendo destinations list --json
 exit: 0
 --- stdout ---
 {

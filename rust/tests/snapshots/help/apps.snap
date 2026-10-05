@@ -1,19 +1,19 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Manage app connections
+Manage apps
 
 Usage: vendo apps [OPTIONS] <COMMAND>
 
 Commands:
-  list      List all app connections
-  diagnose  Show app connections that need attention
+  list      List all apps
+  diagnose  Show apps that need attention
   get       Get app details
-  pause     Pause an app connection
-  resume    Resume a paused app connection
-  delete    Delete an app connection (soft delete)
-  create    Create a new app connection
-  update    Update an app connection
+  pause     Pause an app
+  resume    Resume a paused app
+  delete    Delete an app (soft delete)
+  create    Create a new app
+  update    Update an app
   help      Print this message or the help of the given subcommand(s)
 
 Options:

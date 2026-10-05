@@ -1,8 +1,0 @@
----
-source: tests/cli/snapshots.rs
----
-$ vendo integrations sync c0000001-0000-4000-8000-000000000001
-exit: 0
---- stdout ---
-Sync already in progress for integration c0000001....
-  Job: b0000002-0000-4000-8000-000000000002 (queued)

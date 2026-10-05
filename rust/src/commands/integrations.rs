@@ -1,4 +1,6 @@
-//! `vendo integrations …` / `vendo int …` (port of `src/commands/integrations.ts`).
+//! `vendo destinations …` (port of `src/commands/integrations.ts`). Customers call the API's
+//! integrations destinations (vendo-web-v2 glossary); `integrations` and `int` stay as hidden
+//! aliases, and JSON field names and API paths keep the API's name (VE-3828).
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value, json};
@@ -42,7 +44,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
     ];
     let mode = resolve_output_mode(args.json, args.output.as_deref());
     if mode != OutputMode::Table {
-        let res = run_action("Fetching integrations...", client.get("/integrations", &query)).await?;
+        let res = run_action("Fetching destinations...", client.get("/integrations", &query)).await?;
         match mode {
             OutputMode::Json => print_json(&res),
             _ => print_field(
@@ -52,7 +54,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
         }
         return Ok(());
     }
-    let (res, active) = run_action("Fetching integrations...", async {
+    let (res, active) = run_action("Fetching destinations...", async {
         tokio::try_join!(client.get("/integrations", &query), watch::active_jobs(&client, 100, None, None))
     })
     .await?;
@@ -77,7 +79,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
         ]);
     }
     println!("{grid}");
-    print_list_count(&res, rows.len(), "integration");
+    print_list_count(&res, rows.len(), "destination");
     Ok(())
 }
 
@@ -85,11 +87,11 @@ pub async fn get(ctx: &Ctx, integration_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
     let path = format!("/integrations/{integration_id}");
     if json {
-        let res = run_action("Fetching integration...", client.get(&path, &[])).await?;
+        let res = run_action("Fetching destination...", client.get(&path, &[])).await?;
         print_json(&res);
         return Ok(());
     }
-    let (res, active) = run_action("Fetching integration...", async {
+    let (res, active) = run_action("Fetching destination...", async {
         tokio::try_join!(
             client.get(&path, &[]),
             watch::active_job_for_resource(&client, ResourceKind::Integration, integration_id)
@@ -102,7 +104,7 @@ pub async fn get(ctx: &Ctx, integration_id: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// The `integrations get` view, with the TS CLI's `${…}` rendering of missing (`undefined`) and null fields.
+/// The `destinations get` view, with the TS CLI's `${…}` rendering of missing (`undefined`) and null fields.
 fn integration_lines(int: &Value, active: Option<&Value>) -> Vec<String> {
     let t = |key: &str| text(int, key);
     let field = |key: &str| int.get(key);
@@ -239,7 +241,7 @@ pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
     body.insert("schedule".into(), schedule);
 
     let client = ctx.client()?;
-    let res = run_action("Creating integration...", client.post("/integrations", Some(Value::Object(body)))).await?;
+    let res = run_action("Creating destination...", client.post("/integrations", Some(Value::Object(body)))).await?;
     let mode = resolve_output_mode(args.json, args.output.as_deref());
     if mode == OutputMode::Json {
         print_json(&res);
@@ -247,14 +249,14 @@ pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
     }
     let int = payload(&res);
     if !js_truthy(int) {
-        print_success("Integration created.");
+        print_success("Destination created.");
         return Ok(());
     }
     if mode == OutputMode::Field {
         println!("{}", js_template(int.get("id")));
         return Ok(());
     }
-    print_success(&format!("Integration {} created.", short_id(&text(int, "id").unwrap_or_default())));
+    print_success(&format!("Destination {} created.", short_id(&text(int, "id").unwrap_or_default())));
     print_label("Data type", int.get("dataType"));
     print_status_label("State", int.get("state"));
     Ok(())
@@ -291,14 +293,14 @@ pub async fn update(ctx: &Ctx, integration_id: &str, args: UpdateArgs) -> Result
     }
     let client = ctx.client()?;
     let res = run_action(
-        "Updating integration...",
+        "Updating destination...",
         client.patch(&format!("/integrations/{integration_id}"), Value::Object(body)),
     )
     .await?;
     match resolve_output_mode(args.json, args.output.as_deref()) {
         OutputMode::Json => print_json(&res),
         OutputMode::Field => println!("{integration_id}"),
-        OutputMode::Table => print_success(&format!("Integration {} updated.", short_id(integration_id))),
+        OutputMode::Table => print_success(&format!("Destination {} updated.", short_id(integration_id))),
     }
     Ok(())
 }

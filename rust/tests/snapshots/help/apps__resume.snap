@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Resume a paused app connection
+Resume a paused app
 
 Usage: vendo apps resume [OPTIONS] <appId>
 

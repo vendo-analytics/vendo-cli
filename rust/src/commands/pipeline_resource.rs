@@ -1,4 +1,4 @@
-//! The lifecycle sources and integrations (and apps, for pause/resume/delete)
+//! The lifecycle sources and destinations (and apps, for pause/resume/delete)
 //! share: pause, resume, soft delete and the idempotent `sync` with `--watch`
 //! (port of `src/commands/pipeline-resource.ts`).
 
@@ -26,7 +26,8 @@ pub struct Resource {
 
 pub const APP: Resource = Resource { singular: "app", api_path: "/apps" };
 pub const SOURCE: Resource = Resource { singular: "source", api_path: "/sources" };
-pub const INTEGRATION: Resource = Resource { singular: "integration", api_path: "/integrations" };
+/// The API's integrations, which customers call destinations (vendo-web-v2 glossary, VE-3828).
+pub const INTEGRATION: Resource = Resource { singular: "destination", api_path: "/integrations" };
 
 impl Resource {
     fn kind(self) -> ResourceKind {
@@ -225,7 +226,7 @@ pub async fn sync(
                 )
                 .await?;
             } else {
-                println!("{}", dim(&format!("Use 'vendo jobs list --{} {id}' to monitor.", resource.singular)));
+                println!("{}", dim(&format!("Use 'vendo jobs list --{} {id}' to monitor.", kind.jobs_flag())));
             }
         }
     }
@@ -315,7 +316,7 @@ mod tests {
     #[test]
     fn titles_capitalise_the_noun() {
         assert_eq!(SOURCE.title(), "Source");
-        assert_eq!(INTEGRATION.title(), "Integration");
+        assert_eq!(INTEGRATION.title(), "Destination");
         assert_eq!(APP.title(), "App");
     }
 

@@ -1,12 +1,12 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Pause an integration
+Pause a destination
 
-Usage: vendo integrations pause [OPTIONS] <integrationId>
+Usage: vendo destinations pause [OPTIONS] <destinationId>
 
 Arguments:
-  <integrationId>  
+  <destinationId>  
 
 Options:
       --json            Output raw JSON
@@ -17,5 +17,5 @@ Options:
   -h, --help            Print help
 
 Examples:
-  $ vendo integrations pause <integrationId>
-  $ vendo int pause <integrationId> --dry-run
+  $ vendo destinations pause <destinationId>
+  $ vendo destinations pause <destinationId> --dry-run

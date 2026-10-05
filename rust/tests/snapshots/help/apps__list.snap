@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-List all app connections
+List all apps
 
 Usage: vendo apps list [OPTIONS]
 

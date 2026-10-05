@@ -1459,11 +1459,11 @@ fn confirming_commands() -> Vec<(Vec<&'static str>, String, String)> {
         (vec!["apps", "delete", ID], format!("This deletes app {ID}."), format!("DELETE {v1}/apps/{ID}")),
         (vec!["sources", "delete", ID], format!("This deletes source {ID}."), format!("DELETE {v1}/sources/{ID}")),
         (
-            vec!["integrations", "delete", ID],
-            format!("This deletes integration {ID}."),
+            vec!["destinations", "delete", ID],
+            format!("This deletes destination {ID}."),
             format!("DELETE {v1}/connections/{ID}"),
         ),
-        (vec!["int", "delete", ID], format!("This deletes integration {ID}."), format!("DELETE {v1}/connections/{ID}")),
+        (vec!["int", "delete", ID], format!("This deletes destination {ID}."), format!("DELETE {v1}/connections/{ID}")),
         (vec!["jobs", "cancel", ID], format!("This cancels job {ID}."), format!("POST {v1}/jobs/{ID}/cancel")),
         (
             vec!["metrics", "delete", ID],
@@ -1506,7 +1506,7 @@ async fn a_dry_run_needs_no_yes() {
     for (args, printed) in [
         (["apps", "delete", ID, "--dry-run"], "[dry-run] Would delete app 550e8400...\n"),
         (["sources", "delete", ID, "--dry-run"], "[dry-run] Would delete source 550e8400...\n"),
-        (["int", "delete", ID, "--dry-run"], "[dry-run] Would delete integration 550e8400...\n"),
+        (["destinations", "delete", ID, "--dry-run"], "[dry-run] Would delete destination 550e8400...\n"),
         (["jobs", "cancel", ID, "--dry-run"], "[dry-run] Would cancel job 550e8400...\n"),
     ] {
         assert_eq!(ok_output(&sandbox.run(&args)), printed);
@@ -1608,7 +1608,7 @@ async fn on_a_terminal_the_question_is_unchanged() {
     for (args, question, after) in [
         (&["apps", "delete", ID][..], "Delete app 550e8400...? (y/N) ", ""),
         (&["sources", "delete", ID, "--json"], "Delete source 550e8400...? (y/N) ", ""),
-        (&["int", "delete", ID], "Delete integration 550e8400...? (y/N) ", ""),
+        (&["destinations", "delete", ID], "Delete destination 550e8400...? (y/N) ", ""),
         (&["jobs", "cancel", ID], "Cancel job 550e8400...? (y/N) ", ""),
         (
             &["metrics", "delete", ID, "--json"],

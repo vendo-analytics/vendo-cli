@@ -1,9 +1,9 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Create a new integration (source → destination pipeline)
+Create a new destination (source → destination pipeline)
 
-Usage: vendo integrations create [OPTIONS] --dest-app <appId> --data-type <type> --config-file <path>
+Usage: vendo destinations create [OPTIONS] --dest-app <appId> --data-type <type> --config-file <path>
 
 Options:
       --dest-app <appId>      Destination app ID (must have destination role)
@@ -21,5 +21,5 @@ Options:
   -h, --help                  Print help
 
 Examples:
-  $ vendo int create --dest-app <onesignal-app-id> --data-type events --config-file tasks.json
-  $ vendo int create --source-app <bq-id> --dest-app <os-id> --data-type user_properties --config-file tasks.json --run-now
+  $ vendo destinations create --dest-app <onesignal-app-id> --data-type events --config-file tasks.json
+  $ vendo destinations create --source-app <bq-id> --dest-app <os-id> --data-type user_properties --config-file tasks.json --run-now

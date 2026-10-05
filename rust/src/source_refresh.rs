@@ -1,4 +1,4 @@
-//! `vendo integrations refresh-source` helpers (port of `src/source-refresh.ts`,
+//! `vendo destinations refresh-source` helpers (port of `src/source-refresh.ts`,
 //! VE-1565): the availability window and the summary of the API's answer.
 
 use anyhow::{Result, bail};

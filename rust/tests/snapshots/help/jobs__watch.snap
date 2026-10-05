@@ -10,7 +10,7 @@ Options:
       --profile <name>               Use a specific account profile
       --debug                        Enable verbose request diagnostics
       --source <sourceId>            Filter by source ID
-      --integration <integrationId>  Filter by integration ID
+      --integration <integrationId>  Filter by destination ID
   -h, --help                         Print help
 
 Examples:

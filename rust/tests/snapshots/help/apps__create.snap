@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Create a new app connection
+Create a new app
 
 Usage: vendo apps create [OPTIONS] --type <appType> --name <displayName>
 
@@ -9,7 +9,7 @@ Options:
       --profile <name>             Use a specific account profile
       --type <appType>             App type (e.g. google_ads, onesignal). See: vendo catalog list
       --debug                      Enable verbose request diagnostics
-      --name <displayName>         Human-readable name for this connection
+      --name <displayName>         Human-readable name for this app
       --role <role>                Comma-separated capability: source, destination (derives default permissions) [default: source]
       --permissions <permissions>  Comma-separated granular permissions (e.g. performance_data,send_conversions). Overrides --role.
       --credentials-file <path>    Path to a JSON file with the credential payload

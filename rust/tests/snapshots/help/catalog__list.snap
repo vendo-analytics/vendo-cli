@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-List all available integration types
+List all available platforms
 
 Usage: vendo catalog list [OPTIONS]
 

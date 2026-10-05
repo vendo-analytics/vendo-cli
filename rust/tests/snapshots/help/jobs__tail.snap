@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Tail a single job or the latest job for a source/integration
+Tail a single job or the latest job for a source/destination
 
 Usage: vendo jobs tail [OPTIONS] [jobId]
 
@@ -12,8 +12,8 @@ Options:
       --profile <name>               Use a specific account profile
       --source <sourceId>            Tail the latest job for a source
       --debug                        Enable verbose request diagnostics
-      --integration <integrationId>  Tail the latest job for an integration
-      --next                         Wait for the next new job when tailing a source or integration
+      --integration <integrationId>  Tail the latest job for a destination
+      --next                         Wait for the next new job when tailing a source or destination
       --interval <seconds>           Polling interval in seconds [default: 3]
   -h, --help                         Print help
 

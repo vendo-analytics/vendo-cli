@@ -32,6 +32,15 @@ impl ResourceKind {
     pub fn label(self) -> &'static str {
         match self {
             ResourceKind::Source => "source",
+            ResourceKind::Integration => "destination",
+        }
+    }
+
+    /// The `vendo jobs` flag for this kind. Flags keep the API's name; only the prose
+    /// says destination (VE-3828).
+    pub fn jobs_flag(self) -> &'static str {
+        match self {
+            ResourceKind::Source => "source",
             ResourceKind::Integration => "integration",
         }
     }
@@ -250,7 +259,7 @@ pub struct NextJob {
     pub skip_job_id: Option<String>,
 }
 
-/// Wait for the latest (or next) job of a source/integration, then tail it.
+/// Wait for the latest (or next) job of a source/destination, then tail it.
 pub async fn watch_job(
     api: &impl JobApi,
     screen: &mut impl Screen,
@@ -285,8 +294,9 @@ pub async fn watch_job(
     }
     spinner.finish_and_clear();
     screen.out(&dim(&format!(
-        "Timed out waiting for {} {label} job. Use `vendo jobs list --{label} {resource_id}` to check status.",
-        if waiting_for_next { "the next" } else { "a" }
+        "Timed out waiting for {} {label} job. Use `vendo jobs list --{} {resource_id}` to check status.",
+        if waiting_for_next { "the next" } else { "a" },
+        kind.jobs_flag()
     )));
     Ok(())
 }
@@ -352,7 +362,7 @@ pub fn render_active_jobs_snapshot(
     let given = |id: &Option<String>| id.clone().filter(|id| !id.is_empty());
     let scope_label = match (given(&scope.source_id), given(&scope.integration_id)) {
         (Some(source), _) => format!("source {source} "),
-        (None, Some(integration)) => format!("integration {integration} "),
+        (None, Some(integration)) => format!("destination {integration} "),
         (None, None) => String::new(),
     };
     let mut lines = vec![
@@ -625,7 +635,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             screen.out,
-            ["Timed out waiting for a integration job. Use `vendo jobs list --integration i-1` to check status."]
+            ["Timed out waiting for a destination job. Use `vendo jobs list --integration i-1` to check status."]
         );
     }
 
@@ -649,7 +659,7 @@ mod tests {
             render_active_jobs_snapshot(Some(&[]), 5, &scope, None).lines().next().unwrap().to_string()
         };
         assert!(header(Some(""), None).starts_with("Watching jobs..."));
-        assert!(header(Some(""), Some("i-1")).starts_with("Watching integration i-1 jobs..."));
+        assert!(header(Some(""), Some("i-1")).starts_with("Watching destination i-1 jobs..."));
         assert!(header(None, Some("")).starts_with("Watching jobs..."));
     }
 

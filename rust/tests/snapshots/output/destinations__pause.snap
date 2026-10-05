@@ -1,0 +1,7 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations pause c0000002-0000-4000-8000-000000000002
+exit: 0
+--- stdout ---
+Done: Destination c0000002... paused.

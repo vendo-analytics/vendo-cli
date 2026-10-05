@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Delete an app connection (soft delete)
+Delete an app (soft delete)
 
 Usage: vendo apps delete [OPTIONS] <appId>
 

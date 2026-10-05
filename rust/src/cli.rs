@@ -150,7 +150,7 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Manage app connections
+    /// Manage apps
     Apps {
         #[command(subcommand)]
         command: AppsCommand,
@@ -160,8 +160,10 @@ pub enum Command {
         #[command(subcommand)]
         command: SourcesCommand,
     },
-    /// Manage data export integrations
-    #[command(visible_alias = "int")]
+    /// Manage data export destinations
+    // "Destination" is the customer word (vendo-web-v2 glossary); the API and the code say integration.
+    // The old names stay as hidden aliases so existing scripts keep working (VE-3828).
+    #[command(name = "destinations", aliases = ["integrations", "int"])]
     Integrations {
         #[command(subcommand)]
         command: IntegrationsCommand,
@@ -171,7 +173,7 @@ pub enum Command {
         #[command(subcommand)]
         command: JobsCommand,
     },
-    /// Browse available integration types
+    /// Browse available platforms
     Catalog {
         #[command(subcommand)]
         command: CatalogCommand,
@@ -296,7 +298,7 @@ pub enum ProfileCommand {
 
 #[derive(Subcommand)]
 pub enum AppsCommand {
-    /// List all app connections
+    /// List all apps
     #[command(
         after_help = "Examples:\n  $ vendo apps list\n  $ vendo apps list --role source\n  $ vendo apps list --output id"
     )]
@@ -323,7 +325,7 @@ pub enum AppsCommand {
         #[arg(long, value_name = "field")]
         output: Option<String>,
     },
-    /// Show app connections that need attention
+    /// Show apps that need attention
     #[command(after_help = "Examples:\n  $ vendo apps diagnose\n  $ vendo apps diagnose --json")]
     Diagnose {
         /// Output raw JSON
@@ -339,7 +341,7 @@ pub enum AppsCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Pause an app connection
+    /// Pause an app
     #[command(after_help = "Examples:\n  $ vendo apps pause <appId>\n  $ vendo apps pause <appId> --dry-run")]
     Pause {
         #[arg(value_name = "appId")]
@@ -354,7 +356,7 @@ pub enum AppsCommand {
         #[arg(long, value_name = "field")]
         output: Option<String>,
     },
-    /// Resume a paused app connection
+    /// Resume a paused app
     #[command(after_help = "Examples:\n  $ vendo apps resume <appId>\n  $ vendo apps resume <appId> --dry-run")]
     Resume {
         #[arg(value_name = "appId")]
@@ -369,7 +371,7 @@ pub enum AppsCommand {
         #[arg(long, value_name = "field")]
         output: Option<String>,
     },
-    /// Delete an app connection (soft delete)
+    /// Delete an app (soft delete)
     #[command(
         after_help = "Examples:\n  $ vendo apps delete <appId>\n  $ vendo apps delete <appId> --yes\n  $ vendo apps delete <appId> --dry-run"
     )]
@@ -389,7 +391,7 @@ pub enum AppsCommand {
         #[arg(long, value_name = "field")]
         output: Option<String>,
     },
-    /// Create a new app connection
+    /// Create a new app
     #[command(
         after_help = "Examples:\n  $ vendo apps create --type onesignal --name \"OneSignal Prod\" --role destination --credentials-file onesignal.json\n  $ vendo apps create --type bigquery --name \"Analytics BQ\" --role source --credentials-file bq-sa.json"
     )]
@@ -397,7 +399,7 @@ pub enum AppsCommand {
         /// App type (e.g. google_ads, onesignal). See: vendo catalog list
         #[arg(long = "type", value_name = "appType", required = true)]
         app_type: String,
-        /// Human-readable name for this connection
+        /// Human-readable name for this app
         #[arg(long, value_name = "displayName", required = true)]
         name: String,
         /// Comma-separated capability: source, destination (derives default permissions)
@@ -423,7 +425,7 @@ pub enum AppsCommand {
         #[arg(long, value_name = "field")]
         output: Option<String>,
     },
-    /// Update an app connection
+    /// Update an app
     #[command(
         after_help = "Examples:\n  $ vendo apps update <appId> --name \"New name\"\n  $ vendo apps update <appId> --credentials-file rotated.json"
     )]
@@ -570,7 +572,7 @@ pub enum SourcesCommand {
         after_help = "Examples:\n  $ vendo sources create --app <appId> --sync-type google_ads\n  $ vendo sources create --app <appId> --sync-type shopify --import-tasks orders,customers --run-now"
     )]
     Create {
-        /// App connection ID (must have source role)
+        /// App ID (must have source role)
         #[arg(long, value_name = "appId", required = true)]
         app: String,
         /// Connector type (e.g. google_ads)
@@ -628,9 +630,9 @@ pub enum SourcesCommand {
 
 #[derive(Subcommand)]
 pub enum IntegrationsCommand {
-    /// List all integrations
+    /// List all destinations
     #[command(
-        after_help = "Examples:\n  $ vendo integrations list\n  $ vendo int list --state active\n  $ vendo integrations list --output id"
+        after_help = "Examples:\n  $ vendo destinations list\n  $ vendo destinations list --state active\n  $ vendo destinations list --output id"
     )]
     List {
         /// Filter by state (active, inactive)
@@ -655,12 +657,12 @@ pub enum IntegrationsCommand {
         #[arg(long, value_name = "field")]
         output: Option<String>,
     },
-    /// Get integration details
+    /// Get destination details
     #[command(
-        after_help = "Examples:\n  $ vendo integrations get <integrationId>\n  $ vendo int get <integrationId> --json"
+        after_help = "Examples:\n  $ vendo destinations get <destinationId>\n  $ vendo destinations get <destinationId> --json"
     )]
     Get {
-        #[arg(value_name = "integrationId")]
+        #[arg(value_name = "destinationId")]
         id: String,
         /// Output raw JSON
         #[arg(long)]
@@ -668,10 +670,10 @@ pub enum IntegrationsCommand {
     },
     /// Trigger a manual sync
     #[command(
-        after_help = "Examples:\n  $ vendo integrations sync <integrationId>\n  $ vendo int sync <integrationId> --watch\n  $ vendo integrations sync <integrationId> --dry-run"
+        after_help = "Examples:\n  $ vendo destinations sync <destinationId>\n  $ vendo destinations sync <destinationId> --watch\n  $ vendo destinations sync <destinationId> --dry-run"
     )]
     Sync {
-        #[arg(value_name = "integrationId")]
+        #[arg(value_name = "destinationId")]
         id: String,
         /// Output raw JSON
         #[arg(long)]
@@ -688,10 +690,10 @@ pub enum IntegrationsCommand {
     },
     /// Check source-data availability for a window and trigger top-up imports for missing ranges
     #[command(
-        after_help = "Examples:\n  $ vendo integrations refresh-source <integrationId>\n  $ vendo int refresh-source <integrationId> --from 2026-06-29 --to 2026-07-02\n  $ vendo integrations refresh-source <integrationId> --json"
+        after_help = "Examples:\n  $ vendo destinations refresh-source <destinationId>\n  $ vendo destinations refresh-source <destinationId> --from 2026-06-29 --to 2026-07-02\n  $ vendo destinations refresh-source <destinationId> --json"
     )]
     RefreshSource {
-        #[arg(value_name = "integrationId")]
+        #[arg(value_name = "destinationId")]
         id: String,
         /// Window start — ISO datetime or YYYY-MM-DD (default: 7 days before --to)
         #[arg(long, value_name = "date")]
@@ -703,12 +705,12 @@ pub enum IntegrationsCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Pause an integration
+    /// Pause a destination
     #[command(
-        after_help = "Examples:\n  $ vendo integrations pause <integrationId>\n  $ vendo int pause <integrationId> --dry-run"
+        after_help = "Examples:\n  $ vendo destinations pause <destinationId>\n  $ vendo destinations pause <destinationId> --dry-run"
     )]
     Pause {
-        #[arg(value_name = "integrationId")]
+        #[arg(value_name = "destinationId")]
         id: String,
         /// Output raw JSON
         #[arg(long)]
@@ -720,12 +722,12 @@ pub enum IntegrationsCommand {
         #[arg(long, value_name = "field")]
         output: Option<String>,
     },
-    /// Resume a paused integration
+    /// Resume a paused destination
     #[command(
-        after_help = "Examples:\n  $ vendo integrations resume <integrationId>\n  $ vendo integrations resume <integrationId> --dry-run"
+        after_help = "Examples:\n  $ vendo destinations resume <destinationId>\n  $ vendo destinations resume <destinationId> --dry-run"
     )]
     Resume {
-        #[arg(value_name = "integrationId")]
+        #[arg(value_name = "destinationId")]
         id: String,
         /// Output raw JSON
         #[arg(long)]
@@ -737,12 +739,12 @@ pub enum IntegrationsCommand {
         #[arg(long, value_name = "field")]
         output: Option<String>,
     },
-    /// Delete an integration (soft delete)
+    /// Delete a destination (soft delete)
     #[command(
-        after_help = "Examples:\n  $ vendo integrations delete <integrationId>\n  $ vendo int delete <integrationId> --yes\n  $ vendo integrations delete <integrationId> --dry-run"
+        after_help = "Examples:\n  $ vendo destinations delete <destinationId>\n  $ vendo destinations delete <destinationId> --yes\n  $ vendo destinations delete <destinationId> --dry-run"
     )]
     Delete {
-        #[arg(value_name = "integrationId")]
+        #[arg(value_name = "destinationId")]
         id: String,
         /// Output raw JSON
         #[arg(long)]
@@ -757,9 +759,9 @@ pub enum IntegrationsCommand {
         #[arg(long, value_name = "field")]
         output: Option<String>,
     },
-    /// Create a new integration (source → destination pipeline)
+    /// Create a new destination (source → destination pipeline)
     #[command(
-        after_help = "Examples:\n  $ vendo int create --dest-app <onesignal-app-id> --data-type events --config-file tasks.json\n  $ vendo int create --source-app <bq-id> --dest-app <os-id> --data-type user_properties --config-file tasks.json --run-now"
+        after_help = "Examples:\n  $ vendo destinations create --dest-app <onesignal-app-id> --data-type events --config-file tasks.json\n  $ vendo destinations create --source-app <bq-id> --dest-app <os-id> --data-type user_properties --config-file tasks.json --run-now"
     )]
     Create {
         /// Destination app ID (must have destination role)
@@ -793,12 +795,12 @@ pub enum IntegrationsCommand {
         #[arg(long, value_name = "field")]
         output: Option<String>,
     },
-    /// Update an integration
+    /// Update a destination
     #[command(
-        after_help = "Examples:\n  $ vendo int update <integrationId> --frequency 6 --unit hours\n  $ vendo int update <integrationId> --config-file new-tasks.json"
+        after_help = "Examples:\n  $ vendo destinations update <destinationId> --frequency 6 --unit hours\n  $ vendo destinations update <destinationId> --config-file new-tasks.json"
     )]
     Update {
-        #[arg(value_name = "integrationId")]
+        #[arg(value_name = "destinationId")]
         id: String,
         /// Replace config from a JSON file
         #[arg(long, value_name = "path")]
@@ -823,7 +825,7 @@ pub enum IntegrationsCommand {
 
 #[derive(Subcommand)]
 pub enum CatalogCommand {
-    /// List all available integration types
+    /// List all available platforms
     #[command(
         after_help = "Examples:\n  $ vendo catalog list\n  $ vendo catalog list --role source\n  $ vendo catalog list --output appType"
     )]
@@ -841,7 +843,7 @@ pub enum CatalogCommand {
         #[arg(long, value_name = "field")]
         output: Option<String>,
     },
-    /// Get details for a specific integration type
+    /// Get details for a specific platform
     #[command(after_help = "Examples:\n  $ vendo catalog get shopify\n  $ vendo catalog get bigquery --json")]
     Get {
         #[arg(value_name = "appType")]
@@ -1248,7 +1250,7 @@ pub enum JobsCommand {
         /// Filter by source ID
         #[arg(long, value_name = "sourceId")]
         source: Option<String>,
-        /// Filter by integration ID
+        /// Filter by destination ID
         #[arg(long, value_name = "integrationId")]
         integration: Option<String>,
         /// Number of results
@@ -1304,11 +1306,11 @@ pub enum JobsCommand {
         /// Filter by source ID
         #[arg(long, value_name = "sourceId")]
         source: Option<String>,
-        /// Filter by integration ID
+        /// Filter by destination ID
         #[arg(long, value_name = "integrationId")]
         integration: Option<String>,
     },
-    /// Tail a single job or the latest job for a source/integration
+    /// Tail a single job or the latest job for a source/destination
     #[command(
         after_help = "Examples:\n  $ vendo jobs tail <jobId>\n  $ vendo jobs tail --source <sourceId>\n  $ vendo jobs tail --source <sourceId> --next\n  $ vendo jobs tail --integration <integrationId>"
     )]
@@ -1318,10 +1320,10 @@ pub enum JobsCommand {
         /// Tail the latest job for a source
         #[arg(long, value_name = "sourceId")]
         source: Option<String>,
-        /// Tail the latest job for an integration
+        /// Tail the latest job for a destination
         #[arg(long, value_name = "integrationId")]
         integration: Option<String>,
-        /// Wait for the next new job when tailing a source or integration
+        /// Wait for the next new job when tailing a source or destination
         #[arg(long)]
         next: bool,
         /// Polling interval in seconds

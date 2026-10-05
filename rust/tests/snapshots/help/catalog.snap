@@ -1,13 +1,13 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Browse available integration types
+Browse available platforms
 
 Usage: vendo catalog [OPTIONS] <COMMAND>
 
 Commands:
-  list               List all available integration types
-  get                Get details for a specific integration type
+  list               List all available platforms
+  get                Get details for a specific platform
   credential-schema  Print the credential fields required to create an app of this type
   help               Print this message or the help of the given subcommand(s)
 

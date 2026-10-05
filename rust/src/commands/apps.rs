@@ -194,7 +194,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
 pub async fn diagnose(ctx: &Ctx, json: bool) -> Result<()> {
     let client = ctx.client()?;
     let page = [("limit", Some("100".to_string()))];
-    let (apps, sources, integrations) = run_action("Diagnosing app connections...", async {
+    let (apps, sources, integrations) = run_action("Diagnosing apps...", async {
         tokio::try_join!(client.get("/apps", &page), client.get("/sources", &page), client.get("/integrations", &page))
     })
     .await?;
@@ -251,7 +251,7 @@ pub async fn diagnose(ctx: &Ctx, json: bool) -> Result<()> {
         println!("{}", dim("Note: diagnosis covers the first 100 apps — larger accounts may have more."));
     }
     if broken.is_empty() && orphaned.is_empty() {
-        print_success("No app connections need attention.");
+        print_success("No apps need attention.");
         return Ok(());
     }
     let describe = |app: &Value| {

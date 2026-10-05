@@ -16,6 +16,6 @@ export job (bigquery)
   Duration:      1h
   Rows Read:     1,234,567
   Rows Written:  1,234,567
-  Integration:   c0000001-0000-4000-8000-000000000001
+  Destination:   c0000001-0000-4000-8000-000000000001
   Execution:     full
   Finished:      1/5/2026

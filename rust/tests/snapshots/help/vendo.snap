@@ -13,11 +13,11 @@ Commands:
   profile       Manage account profiles
   status        Account health overview
   whoami        Show the current authenticated account
-  apps          Manage app connections
+  apps          Manage apps
   sources       Manage data sources
-  integrations  Manage data export integrations [alias: int]
+  destinations  Manage data export destinations
   jobs          Monitor sync jobs
-  catalog       Browse available integration types
+  catalog       Browse available platforms
   dictionary    Browse the data dictionary catalog
   metrics       Manage custom metrics in the Metrics Library
   models        Manage data models

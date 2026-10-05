@@ -80,7 +80,7 @@ pub async fn status(ctx: &Ctx, json: bool) -> Result<()> {
         red(&count(&sources, &field_is("integrationStatus", "errored"))),
     ]);
     summary.add_row(vec![
-        bold("Integrations"),
+        bold("Destinations"),
         integrations.len().to_string(),
         green(&count(&integrations, &field_is("state", "active"))),
         gray(&count(&integrations, &field_is("status", "paused"))),

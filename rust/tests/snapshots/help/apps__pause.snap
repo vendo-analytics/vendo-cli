@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Pause an app connection
+Pause an app
 
 Usage: vendo apps pause [OPTIONS] <appId>
 

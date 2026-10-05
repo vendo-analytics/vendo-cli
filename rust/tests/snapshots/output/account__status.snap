@@ -8,7 +8,7 @@ exit: 0
                Total  Active  Paused  Errored 
  Apps          3      2       1       0       
  Sources       2      2       0       1       
- Integrations  2      1       1       0       
+ Destinations  2      1       1       0       
 
 Recent Failures
  Job ID    Type    Connector   Error                                       Failed   

@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Show app connections that need attention
+Show apps that need attention
 
 Usage: vendo apps diagnose [OPTIONS]
 

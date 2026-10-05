@@ -113,6 +113,19 @@ fn subcommands(screen: &str) -> Vec<String> {
         .collect()
 }
 
+/// The first word the CLI no longer uses for its own objects, if `screen` has one. The customer
+/// words follow vendo-web-v2's glossary (`apps/web/CONTEXT.md`, VE-3828): destination, not
+/// integration; app, not app connection; platform, not integration type. `int` was the
+/// destinations group's visible alias. The `jobs` flag `--integration <integrationId>` keeps
+/// its name: flags were not renamed.
+fn retired_word(screen: &str) -> Option<&'static str> {
+    let lower = screen.replace("--integration <integrationId>", "").to_lowercase();
+    if let Some(word) = ["integration", "app connection"].into_iter().find(|word| lower.contains(word)) {
+        return Some(word);
+    }
+    lower.split(|c: char| !c.is_ascii_alphanumeric()).any(|word| word == "int").then_some("int")
+}
+
 /// Records `vendo <path> --help` and, depth first in help order, every
 /// command it lists. Returns the number of screens.
 fn record_help(sandbox: &Sandbox, recorder: &mut Recorder, path: &[String]) -> usize {
@@ -121,6 +134,7 @@ fn record_help(sandbox: &Sandbox, recorder: &mut Recorder, path: &[String]) -> u
     let out = sandbox.run(&args);
     let screen = text(&out.stdout);
     assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), String::new()), "vendo {}", args.join(" "));
+    assert_eq!(retired_word(&screen), None, "vendo {} uses a retired word", args.join(" "));
     // `help/vendo.snap` for the root, `help/measurement__ltv__list.snap` for `vendo measurement ltv list`.
     recorder.check(&if path.is_empty() { "vendo".to_string() } else { path.join("__") }, &screen);
     let mut count = 1;
@@ -141,6 +155,38 @@ fn every_help_screen_matches_its_snapshot() {
 }
 
 #[test]
+fn the_old_destinations_names_print_the_same_help() {
+    // `integrations` and `int` are hidden aliases of `destinations` (VE-3828).
+    let sandbox = Sandbox::new(CLOSED);
+    let help = |group: &str, sub: Option<&str>| {
+        let args: Vec<&str> = [Some(group), sub, Some("--help")].into_iter().flatten().collect();
+        let out = sandbox.run(&args);
+        (out.status.code(), out.stdout, out.stderr)
+    };
+    let subs = subcommands(&text(&help("destinations", None).1));
+    assert!(subs.len() >= 9, "{subs:?}");
+    for sub in [None].into_iter().chain(subs.iter().map(|s| Some(s.as_str()))) {
+        let expected = help("destinations", sub);
+        assert_eq!(expected.0, Some(0));
+        for old in ["integrations", "int"] {
+            assert!(help(old, sub) == expected, "vendo {old} {} --help", sub.unwrap_or_default());
+        }
+    }
+    let root = text(&sandbox.run(&["--help"]).stdout);
+    assert!(subcommands(&root).contains(&"destinations".to_string()));
+    assert_eq!(retired_word(&root), None);
+}
+
+#[test]
+fn retired_words_are_found_in_help_text() {
+    assert_eq!(retired_word("  integrations  Manage data export integrations [alias: int]"), Some("integration"));
+    assert_eq!(retired_word("List all app connections"), Some("app connection"));
+    assert_eq!(retired_word("  int  Manage data export destinations"), Some("int"));
+    assert_eq!(retired_word("--limit <n>  Number of results (internal, print)"), None);
+    assert_eq!(retired_word("      --integration <integrationId>  Filter by destination ID"), None);
+}
+
+#[test]
 fn the_help_walk_reads_clap_command_lists() {
     let screen = "About\n\nUsage: vendo x <COMMAND>\n\nCommands:\n  list          List things [alias: ls]\n  get-one       Get one\n                that wraps\n  help          Print this message\n\nOptions:\n  -h, --help  Print help\n";
     assert_eq!(subcommands(screen), ["list", "get-one"]);
@@ -148,6 +194,25 @@ fn the_help_walk_reads_clap_command_lists() {
 }
 
 // ── command output ──────────────────────────────────────────────────────────
+
+/// The groups of `output/`, one test each. A Session's recorder only owns its
+/// own group's files, so a renamed or removed group would leave its snapshots
+/// behind unnoticed; [`every_output_snapshot_has_a_group`] catches them.
+const OUTPUT_GROUPS: [&str; 10] =
+    ["account", "apps", "catalog", "destinations", "dictionary", "jobs", "measurement", "metrics", "models", "sources"];
+
+#[test]
+fn every_output_snapshot_has_a_group() {
+    let dir = Path::new(SNAPSHOTS).join("output");
+    let orphans: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|file| file.ends_with(".snap"))
+        .filter(|file| !OUTPUT_GROUPS.iter().any(|group| file.starts_with(&format!("{group}__"))))
+        .collect();
+    assert!(orphans.is_empty(), "snapshots in {} that no test records (delete them): {orphans:?}", dir.display());
+}
 
 /// A sandbox whose profiles point at a stub serving the synthetic account,
 /// recording into `output/<group>__<name>.snap`.
@@ -161,6 +226,7 @@ struct Session {
 
 impl Session {
     async fn start(group: &'static str) -> (MockServer, Session) {
+        assert!(OUTPUT_GROUPS.contains(&group), "add {group} to OUTPUT_GROUPS");
         let server = MockServer::start().await;
         let sandbox = Sandbox::new(&server.uri());
         let home = sandbox.home.path().to_path_buf();
@@ -202,6 +268,12 @@ impl Session {
 
     fn record(&mut self, name: &str, args: &[&str]) {
         self.record_with(name, args, |_| {});
+    }
+
+    /// Run `vendo <args>`: exit code, stdout and stderr, as printed.
+    fn output(&self, args: &[&str]) -> (Option<i32>, Vec<u8>, Vec<u8>) {
+        let out = self.sandbox.command(args).output().unwrap();
+        (out.status.code(), out.stdout, out.stderr)
     }
 
     /// Run `vendo <args>` and check exit code, stdout and stderr against `output/<group>__<name>.snap`.
@@ -461,7 +533,7 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
     )
     .await;
 
-    // ── integrations (the API's connections) ──
+    // ── destinations (the API's integrations, routed to /connections) ──
     let orders = json!({
         "id": INT_ORDERS, "accountId": "acct-alpha", "sourceAppId": APP_SHOP, "sourceAppName": "Demo Shop",
         "sourceAppType": "shopify", "destinationAppId": APP_WAREHOUSE, "destinationAppName": "Demo Warehouse",
@@ -784,25 +856,47 @@ async fn sources_output() {
 }
 
 #[tokio::test]
-async fn integrations_output() {
-    let (_server, mut s) = Session::start("integrations").await;
-    s.record("list", &["integrations", "list"]);
-    s.record("list_json", &["integrations", "list", "--json"]);
-    s.record("get", &["integrations", "get", INT_ORDERS]);
-    s.record("get_json", &["integrations", "get", INT_ORDERS, "--json"]);
-    s.record("get_paused", &["integrations", "get", INT_ADS]);
+async fn destinations_output() {
+    let (_server, mut s) = Session::start("destinations").await;
+    s.record("list", &["destinations", "list"]);
+    s.record("list_json", &["destinations", "list", "--json"]);
+    s.record("get", &["destinations", "get", INT_ORDERS]);
+    s.record("get_json", &["destinations", "get", INT_ORDERS, "--json"]);
+    s.record("get_paused", &["destinations", "get", INT_ADS]);
 
     let config = s.file("export-config.json", r#"{"tasks":[{"table":"orders"}]}"#);
-    let create = ["integrations", "create", "--dest-app", APP_WAREHOUSE, "--source-app", APP_SHOP];
+    let create = ["destinations", "create", "--dest-app", APP_WAREHOUSE, "--source-app", APP_SHOP];
     s.record("create", &[&create[..], &["--data-type", "orders", "--config-file", config.as_str()][..]].concat());
-    s.record("update", &["integrations", "update", INT_ORDERS, "--frequency", "12", "--unit", "hours"]);
-    s.record("sync", &["integrations", "sync", INT_ADS]);
-    s.record("sync_in_progress", &["integrations", "sync", INT_ORDERS]);
-    let refresh = ["integrations", "refresh-source", INT_ORDERS];
+    s.record("update", &["destinations", "update", INT_ORDERS, "--frequency", "12", "--unit", "hours"]);
+    s.record("sync", &["destinations", "sync", INT_ADS]);
+    s.record("sync_in_progress", &["destinations", "sync", INT_ORDERS]);
+    let refresh = ["destinations", "refresh-source", INT_ORDERS];
     s.record("refresh_source", &[&refresh[..], &["--from", "2026-01-01", "--to", "2026-01-08"][..]].concat());
-    s.record("pause", &["integrations", "pause", INT_ADS]);
-    s.record("resume", &["integrations", "resume", INT_ADS]);
-    s.record("delete", &["integrations", "delete", INT_ADS, "--yes"]);
+    s.record("pause", &["destinations", "pause", INT_ADS]);
+    s.record("resume", &["destinations", "resume", INT_ADS]);
+    s.record("delete", &["destinations", "delete", INT_ADS, "--yes"]);
+
+    // `integrations` and `int` are hidden aliases (VE-3828): the same exit code, stdout and stderr, byte for byte.
+    let create = [&create[1..], &["--data-type", "orders", "--config-file", config.as_str()][..]].concat();
+    let commands: [&[&str]; 7] = [
+        &["list"],
+        &["get", INT_ORDERS],
+        &create,
+        &["update", INT_ORDERS, "--frequency", "12", "--unit", "hours"],
+        &["sync", INT_ADS],
+        &["pause", INT_ADS],
+        &["delete", INT_ADS, "--yes"],
+    ];
+    for command in commands {
+        for json in [&[][..], &["--json"]] {
+            let args = |group: &'static str| [&[group][..], command, json].concat();
+            let expected = s.output(&args("destinations"));
+            assert_eq!(expected.0, Some(0), "vendo destinations {}", args("destinations")[1..].join(" "));
+            for old in ["integrations", "int"] {
+                assert!(s.output(&args(old)) == expected, "vendo {} differs", args(old).join(" "));
+            }
+        }
+    }
     s.finish();
 }
 

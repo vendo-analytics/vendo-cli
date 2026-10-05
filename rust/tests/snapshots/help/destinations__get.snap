@@ -1,12 +1,12 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Get integration details
+Get destination details
 
-Usage: vendo integrations get [OPTIONS] <integrationId>
+Usage: vendo destinations get [OPTIONS] <destinationId>
 
 Arguments:
-  <integrationId>  
+  <destinationId>  
 
 Options:
       --json            Output raw JSON
@@ -15,5 +15,5 @@ Options:
   -h, --help            Print help
 
 Examples:
-  $ vendo integrations get <integrationId>
-  $ vendo int get <integrationId> --json
+  $ vendo destinations get <destinationId>
+  $ vendo destinations get <destinationId> --json

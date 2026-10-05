@@ -1,9 +1,9 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-List all integrations
+List all destinations
 
-Usage: vendo integrations list [OPTIONS]
+Usage: vendo destinations list [OPTIONS]
 
 Options:
       --profile <name>   Use a specific account profile
@@ -18,6 +18,6 @@ Options:
   -h, --help             Print help
 
 Examples:
-  $ vendo integrations list
-  $ vendo int list --state active
-  $ vendo integrations list --output id
+  $ vendo destinations list
+  $ vendo destinations list --state active
+  $ vendo destinations list --output id

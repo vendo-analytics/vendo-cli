@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-$ vendo integrations refresh-source c0000001-0000-4000-8000-000000000001 --from 2026-01-01 --to 2026-01-08
+$ vendo destinations refresh-source c0000001-0000-4000-8000-000000000001 --from 2026-01-01 --to 2026-01-08
 exit: 0
 --- stdout ---
 Done: Triggered 1 import job(s) for missing data.

@@ -1,0 +1,7 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations update c0000001-0000-4000-8000-000000000001 --frequency 12 --unit hours
+exit: 0
+--- stdout ---
+Done: Destination c0000001... updated.

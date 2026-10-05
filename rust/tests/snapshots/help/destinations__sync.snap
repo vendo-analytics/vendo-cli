@@ -3,10 +3,10 @@ source: tests/cli/snapshots.rs
 ---
 Trigger a manual sync
 
-Usage: vendo integrations sync [OPTIONS] <integrationId>
+Usage: vendo destinations sync [OPTIONS] <destinationId>
 
 Arguments:
-  <integrationId>  
+  <destinationId>  
 
 Options:
       --json            Output raw JSON
@@ -18,6 +18,6 @@ Options:
   -h, --help            Print help
 
 Examples:
-  $ vendo integrations sync <integrationId>
-  $ vendo int sync <integrationId> --watch
-  $ vendo integrations sync <integrationId> --dry-run
+  $ vendo destinations sync <destinationId>
+  $ vendo destinations sync <destinationId> --watch
+  $ vendo destinations sync <destinationId> --dry-run

@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Get details for a specific integration type
+Get details for a specific platform
 
 Usage: vendo catalog get [OPTIONS] <appType>
 

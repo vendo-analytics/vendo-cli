@@ -1,7 +1,0 @@
----
-source: tests/cli/snapshots.rs
----
-$ vendo integrations delete c0000002-0000-4000-8000-000000000002 --yes
-exit: 0
---- stdout ---
-Done: Integration c0000002... deleted.

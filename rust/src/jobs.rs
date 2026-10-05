@@ -154,7 +154,7 @@ pub fn job_detail_lines(job: Job) -> Vec<String> {
         lines.push(format!("  Source:        {}", dim(&source)));
     }
     if let Some(integration) = job.truthy("integrationId") {
-        lines.push(format!("  Integration:   {}", dim(&integration)));
+        lines.push(format!("  Destination:   {}", dim(&integration)));
     }
     if let Some(execution) = job.truthy("executionType") {
         lines.push(format!("  Execution:     {execution}"));
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(lines[0], "  ID:            job-1");
         assert_eq!(lines[3], "  Type:          import");
         assert!(lines.iter().any(|l| l == "  Source:        src-1"));
-        assert!(!lines.iter().any(|l| l.contains("Integration:")));
+        assert!(!lines.iter().any(|l| l.contains("Destination:")));
         assert!(lines.iter().any(|l| l == "  Trigger:       schedule"));
         assert_eq!(lines.last().unwrap(), "  Chunk:         3 of 3");
     }
@@ -335,7 +335,7 @@ mod tests {
         assert!(lines.iter().any(|l| l == "  Trigger:       5"), "{lines:?}");
         assert!(
             !lines.iter().any(|l| l.starts_with("  Source:")
-                || l.starts_with("  Integration:")
+                || l.starts_with("  Destination:")
                 || l.starts_with("  Parent Job:"))
         );
     }

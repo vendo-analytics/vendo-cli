@@ -6,7 +6,7 @@ Create a new data source
 Usage: vendo sources create [OPTIONS] --app <appId> --sync-type <syncType>
 
 Options:
-      --app <appId>           App connection ID (must have source role)
+      --app <appId>           App ID (must have source role)
       --profile <name>        Use a specific account profile
       --debug                 Enable verbose request diagnostics
       --sync-type <syncType>  Connector type (e.g. google_ads)

@@ -1,7 +1,0 @@
----
-source: tests/cli/snapshots.rs
----
-$ vendo integrations pause c0000002-0000-4000-8000-000000000002
-exit: 0
---- stdout ---
-Done: Integration c0000002... paused.

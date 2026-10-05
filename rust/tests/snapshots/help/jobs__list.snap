@@ -11,7 +11,7 @@ Options:
       --debug                        Enable verbose request diagnostics
       --type <type>                  Filter by job type (import, export)
       --source <sourceId>            Filter by source ID
-      --integration <integrationId>  Filter by integration ID
+      --integration <integrationId>  Filter by destination ID
       --limit <n>                    Number of results [default: 20]
       --offset <n>                   Pagination offset [default: 0]
       --json                         Output raw JSON
