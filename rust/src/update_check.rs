@@ -5,6 +5,8 @@
 use std::{fs, path::Path, time::Duration};
 
 use owo_colors::{OwoColorize, Stream};
+
+use crate::output::paint;
 use serde::{Deserialize, Serialize};
 
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -42,8 +44,8 @@ pub fn normalize_release_version(tag: &str) -> String {
 pub fn notice(latest: &str) -> String {
     format!(
         "{} {}\n",
-        format!("Update available: {CURRENT_VERSION} → {latest}").if_supports_color(Stream::Stderr, |t| t.yellow()),
-        format!("— run `{INSTALL_COMMAND}` to update").if_supports_color(Stream::Stderr, |t| t.dimmed()),
+        paint(&format!("Update available: {CURRENT_VERSION} → {latest}"), Stream::Stderr, |t| t.yellow().to_string()),
+        paint(&format!("— run `{INSTALL_COMMAND}` to update"), Stream::Stderr, |t| t.dimmed().to_string()),
     )
 }
 

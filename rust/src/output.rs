@@ -18,14 +18,25 @@ use serde_json::Value;
 
 use crate::client::ApiError;
 
+/// Whether stdout is a terminal. Never in unit tests: what they assert must
+/// not depend on the terminal that runs `cargo test` (VE-3727).
 pub fn stdout_is_tty() -> bool {
-    std::io::stdout().is_terminal()
+    !cfg!(test) && std::io::stdout().is_terminal()
+}
+
+/// Style `s` for `stream` when owo-colors says that stream takes colour.
+/// Never in unit tests, for the same reason as [`stdout_is_tty`].
+pub fn paint(s: &str, stream: Stream, style: impl Fn(&str) -> String) -> String {
+    if cfg!(test) {
+        return s.to_string();
+    }
+    s.if_supports_color(stream, |t| style(t)).to_string()
 }
 
 macro_rules! color_fns {
     ($($name:ident => $method:ident),* $(,)?) => {
         $(pub fn $name(s: &str) -> String {
-            s.if_supports_color(Stream::Stdout, |t| t.$method()).to_string()
+            paint(s, Stream::Stdout, |t| t.$method().to_string())
         })*
     };
 }
@@ -49,9 +60,7 @@ pub fn table(headers: &[&str]) -> Table {
     let mut table = Table::new();
     if stdout_is_tty() {
         table.load_style(presets::UTF8_FULL);
-        table.set_header(
-            headers.iter().map(|h| h.if_supports_color(Stream::Stdout, |t| t.cyan().bold().to_string()).to_string()),
-        );
+        table.set_header(headers.iter().map(|h| paint(h, Stream::Stdout, |t| t.cyan().bold().to_string())));
     } else {
         table.load_style(presets::NOTHING);
         table.set_header(headers.to_vec());
@@ -282,11 +291,11 @@ pub fn print_dry_run(action: &str, resource_type: &str, resource_id: &str, detai
 }
 
 fn red_err(s: &str) -> String {
-    s.if_supports_color(Stream::Stderr, |t| t.red()).to_string()
+    paint(s, Stream::Stderr, |t| t.red().to_string())
 }
 
 fn dim_err(s: &str) -> String {
-    s.if_supports_color(Stream::Stderr, |t| t.dimmed()).to_string()
+    paint(s, Stream::Stderr, |t| t.dimmed().to_string())
 }
 
 /// `Error: <message>` plus the request ID when the API gave one.
