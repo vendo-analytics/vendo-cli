@@ -112,13 +112,14 @@ pub async fn state_action(ctx: &Ctx, resource: Resource, id: &str, action: &str,
     Ok(())
 }
 
-/// Soft delete, with a confirmation prompt unless `--yes` or `--json`.
+/// Soft delete, after a confirmation (see [`confirm`]).
 pub async fn delete(ctx: &Ctx, resource: Resource, id: &str, yes: bool, opts: ActionOpts) -> Result<()> {
     if opts.dry_run {
         print_dry_run("delete", resource.singular, id, &[]);
         return Ok(());
     }
-    if !yes && !opts.json && !confirm(&format!("Delete {} {}?", resource.singular, short_id(id))) {
+    let question = format!("Delete {} {}?", resource.singular, short_id(id));
+    if !confirm(yes, &question, &format!("This deletes {} {id}.", resource.singular))? {
         return Ok(());
     }
     let client = ctx.client()?;

@@ -106,10 +106,7 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
                 account::config_list(ctx);
                 Ok(ok)
             }
-            ConfigCommand::Reset { yes } => {
-                account::config_reset(ctx, yes);
-                Ok(ok)
-            }
+            ConfigCommand::Reset { yes } => account::config_reset(ctx, yes).map(|_| ok),
         },
         Command::Profile { command } => match command {
             ProfileCommand::List => {

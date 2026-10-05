@@ -228,9 +228,10 @@ pub async fn activate(ctx: &Ctx, metric_id: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Delete after a confirmation, unless `--yes` or `--json`.
+/// Permanent delete, after a confirmation (see [`confirm`]).
 pub async fn delete(ctx: &Ctx, metric_id: &str, yes: bool, json: bool) -> Result<()> {
-    if !yes && !json && !confirm(&format!("Delete metric {}? This cannot be undone.", short_id(metric_id))) {
+    let question = format!("Delete metric {}? This cannot be undone.", short_id(metric_id));
+    if !confirm(yes, &question, &format!("This deletes metric {metric_id} and cannot be undone."))? {
         println!("Cancelled");
         return Ok(());
     }

@@ -641,15 +641,15 @@ async fn metrics_update_activate_and_delete_like_ts() {
     assert_eq!(ok_output(&sandbox.run(&["metrics", "activate", M1])), "\n✓ Metric \"New\" is now active\n");
     // The server's reason, not `HTTP 400` (VE-3764).
     assert_api_error(&sandbox.run(&["metrics", "activate", "refused"]), "Add a valid calculation first");
-    // Not a terminal: the confirmation is skipped, as in TS.
-    for args in [&["metrics", "delete", M1][..], &["metrics", "delete", M1, "--yes"], &["metrics", "delete", M1, "-y"]]
-    {
+    // Not a terminal: `--yes` confirms (VE-3823).
+    for args in [&["metrics", "delete", M1, "--yes"][..], &["metrics", "delete", M1, "-y"]] {
         assert_eq!(ok_output(&sandbox.run(args)), "\n✓ Metric deleted\n", "{args:?}");
     }
-    let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "delete", M1, "--json"]))).unwrap();
+    let printed: Value =
+        serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "delete", M1, "--yes", "--json"]))).unwrap();
     assert_eq!(printed, json!({ "data": { "deleted": true, "id": M1, "registryWarning": "pending" } }));
     let printed: Value =
-        serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "delete", "gone", "--json"]))).unwrap();
+        serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "delete", "gone", "--yes", "--json"]))).unwrap();
     assert_eq!(printed, json!({ "data": {} }), "a 204 is an empty body, as in TS");
 
     let requests = sent(&server).await;
@@ -1422,4 +1422,217 @@ async fn json_output_matches_the_ts_cli_byte_for_byte() {
     // `node dist/cli.js jobs get j-1 --json` against the same stub.
     let ts = "{\n  \"data\": {\n    \"id\": \"j-1\",\n    \"a\": 0.000001,\n    \"b\": 1e+21,\n    \"c\": 1.5,\n    \"d\": 0,\n    \"e\": 9007199254740992,\n    \"f\": 12345678901234567000,\n    \"g\": [\n      100000000000000000000,\n      2.5e-7\n    ]\n  }\n}\n";
     assert_eq!(text(&out.stdout), ts);
+}
+
+// ── VE-3823: delete, cancel and reset need --yes when no one is at a terminal ─
+// Decided by Yalcin, 2026-10-05. The TS CLI answered its own "are you sure?"
+// with yes when stdout was not a terminal, and `--json` skipped the question.
+
+const ID: &str = "550e8400-e29b-41d4-a716-446655440000";
+
+/// A stub that answers every request, so a test sees what a command sent.
+async fn stub_accepting_everything() -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "id": ID } })))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// Each confirming command that calls the API: its arguments, what the
+/// refusal says it would do, and the request a confirmed run sends.
+fn confirming_commands() -> Vec<(Vec<&'static str>, String, String)> {
+    let v1 = "/api/v1/accounts/acct-alpha";
+    vec![
+        (vec!["apps", "delete", ID], format!("This deletes app {ID}."), format!("DELETE {v1}/apps/{ID}")),
+        (vec!["sources", "delete", ID], format!("This deletes source {ID}."), format!("DELETE {v1}/sources/{ID}")),
+        (
+            vec!["integrations", "delete", ID],
+            format!("This deletes integration {ID}."),
+            format!("DELETE {v1}/connections/{ID}"),
+        ),
+        (vec!["int", "delete", ID], format!("This deletes integration {ID}."), format!("DELETE {v1}/connections/{ID}")),
+        (vec!["jobs", "cancel", ID], format!("This cancels job {ID}."), format!("POST {v1}/jobs/{ID}/cancel")),
+        (
+            vec!["metrics", "delete", ID],
+            format!("This deletes metric {ID} and cannot be undone."),
+            format!("DELETE /api/metrics/{ID}"),
+        ),
+    ]
+}
+
+/// Exit 1, nothing on stdout, and `Error: <what> Re-run with --yes to confirm.`
+fn assert_needs_yes(out: &Output, what: &str) {
+    assert_eq!(
+        (out.status.code(), text(&out.stdout), text(&out.stderr)),
+        (Some(1), String::new(), format!("Error: {what} Re-run with --yes to confirm.\n"))
+    );
+}
+
+#[tokio::test]
+async fn without_a_terminal_deletes_and_cancels_need_yes() {
+    for (args, what, request) in confirming_commands() {
+        let server = stub_accepting_everything().await;
+        let sandbox = Sandbox::new(&server.uri());
+        // Refused before any request, also with --json (which used to imply --yes).
+        assert_needs_yes(&sandbox.run(&args), &what);
+        assert_needs_yes(&sandbox.run(&[&args[..], &["--json"]].concat()), &what);
+        assert_eq!(sent(&server).await, Vec::<String>::new(), "{args:?} sent a request without --yes");
+
+        for yes in [&["--yes"][..], &["-y"], &["--yes", "--json"]] {
+            let out = sandbox.run(&[&args[..], yes].concat());
+            assert_eq!(out.status.code(), Some(0), "{args:?} {yes:?}: {}", text(&out.stderr));
+        }
+        assert_eq!(sent(&server).await, vec![request; 3], "{args:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_dry_run_needs_no_yes() {
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, printed) in [
+        (["apps", "delete", ID, "--dry-run"], "[dry-run] Would delete app 550e8400...\n"),
+        (["sources", "delete", ID, "--dry-run"], "[dry-run] Would delete source 550e8400...\n"),
+        (["int", "delete", ID, "--dry-run"], "[dry-run] Would delete integration 550e8400...\n"),
+        (["jobs", "cancel", ID, "--dry-run"], "[dry-run] Would cancel job 550e8400...\n"),
+    ] {
+        assert_eq!(ok_output(&sandbox.run(&args)), printed);
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+#[test]
+fn without_a_terminal_config_reset_needs_yes() {
+    let sandbox = Sandbox::new(CLOSED);
+    let file = sandbox.home.path().join(".config/vendo/config.json");
+    assert_needs_yes(&sandbox.run(&["config", "reset"]), "This deletes all CLI configuration.");
+    assert!(file.exists(), "the refusal kept the configuration");
+    assert_eq!(ok_output(&sandbox.run(&["config", "reset", "--yes"])), "Done: Configuration deleted.\n");
+    assert!(!file.exists());
+}
+
+/// A pseudo-terminal: the controller the test reads and types into, and the
+/// terminal end that `vendo` gets as stdin, stdout or stderr.
+#[cfg(unix)]
+fn pseudo_terminal() -> (std::fs::File, std::os::fd::OwnedFd) {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    // SAFETY: posix_openpt, grantpt, unlockpt and ptsname on a descriptor this
+    // function owns; the name is copied before anything else can call ptsname.
+    unsafe {
+        let controller = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
+        assert!(controller >= 0, "posix_openpt failed");
+        // Not inherited by the other tests' children (Command's own descriptors are close-on-exec too).
+        libc::fcntl(controller, libc::F_SETFD, libc::FD_CLOEXEC);
+        assert_eq!((libc::grantpt(controller), libc::unlockpt(controller)), (0, 0));
+        let name = std::ffi::CStr::from_ptr(libc::ptsname(controller)).to_owned();
+        let terminal = libc::open(name.as_ptr(), libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC);
+        assert!(terminal >= 0, "open {name:?} failed");
+        (std::fs::File::from_raw_fd(controller), OwnedFd::from_raw_fd(terminal))
+    }
+}
+
+/// Run `vendo` with stdin, stdout and stderr on a pseudo-terminal, like a
+/// person at a terminal; `answer` is typed once the `(y/N)` question shows.
+/// Returns what the terminal showed and the exit code.
+#[cfg(unix)]
+fn answer_on_terminal(sandbox: &Sandbox, args: &[&str], answer: &str) -> (String, Option<i32>) {
+    use std::io::{Read, Write};
+    let (controller, terminal) = pseudo_terminal();
+    let mut cmd = sandbox.command(args);
+    cmd.env("NO_COLOR", "1")
+        .stdin(terminal.try_clone().unwrap())
+        .stdout(terminal.try_clone().unwrap())
+        .stderr(terminal);
+    let mut child = cmd.spawn().unwrap();
+    // Close the test's copies of the terminal end, so reading ends when `vendo` exits.
+    drop(cmd);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut reader = controller.try_clone().unwrap();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n @ 1..) = reader.read(&mut buf) {
+            if tx.send(buf[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let mut screen = String::new();
+    let mut typed = false;
+    while let Ok(chunk) = rx.recv_timeout(std::time::Duration::from_secs(20)) {
+        screen.push_str(&text(&chunk));
+        if !typed && screen.contains("(y/N) ") {
+            (&controller).write_all(answer.as_bytes()).unwrap();
+            typed = true;
+        }
+    }
+    let _ = child.kill();
+    (screen, child.wait().unwrap().code())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn on_a_terminal_the_question_is_unchanged() {
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    // "n" changes nothing; the questions and "Cancelled" lines are the TS CLI's.
+    for (args, question, after) in [
+        (&["apps", "delete", ID][..], "Delete app 550e8400...? (y/N) ", ""),
+        (&["sources", "delete", ID, "--json"], "Delete source 550e8400...? (y/N) ", ""),
+        (&["int", "delete", ID], "Delete integration 550e8400...? (y/N) ", ""),
+        (&["jobs", "cancel", ID], "Cancel job 550e8400...? (y/N) ", ""),
+        (
+            &["metrics", "delete", ID, "--json"],
+            "Delete metric 550e8400...? This cannot be undone. (y/N) ",
+            "Cancelled\n",
+        ),
+        (&["config", "reset"], "Delete all CLI configuration? (y/N) ", "Cancelled.\n"),
+    ] {
+        let (screen, code) = answer_on_terminal(&sandbox, args, "n\n");
+        assert_eq!(code, Some(0), "{args:?}: {screen:?}");
+        // The terminal echoes the answer and ends lines with CR LF.
+        assert_eq!(screen.replace("\r\n", "\n"), format!("{question}n\n{after}"), "{args:?}");
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+    assert!(sandbox.home.path().join(".config/vendo/config.json").exists());
+
+    // "y" goes ahead; --json asks first now instead of skipping the question.
+    let (screen, code) = answer_on_terminal(&sandbox, &["apps", "delete", ID, "--json"], "y\n");
+    assert_eq!(code, Some(0), "{screen:?}");
+    assert!(screen.starts_with("Delete app 550e8400...? (y/N) y\r\n"), "{screen:?}");
+    assert!(screen.contains(&format!("\"id\": \"{ID}\"")), "{screen:?}");
+    assert_eq!(sent(&server).await, vec![format!("DELETE /api/v1/accounts/acct-alpha/apps/{ID}")]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_question_needs_stdin_and_stdout_on_a_terminal() {
+    use std::io::Write;
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let what = format!("This deletes app {ID}.");
+
+    // A terminal to read from, but stdout goes to a pipe: nobody would see the question.
+    let (_controller, terminal) = pseudo_terminal();
+    let out = sandbox.command(&["apps", "delete", ID]).stdin(terminal).output().unwrap();
+    assert_needs_yes(&out, &what);
+
+    // Shown on a terminal, but the answer would come from a pipe: `echo y | vendo …` does not confirm.
+    let (_controller, terminal) = pseudo_terminal();
+    let mut child = sandbox
+        .command(&["apps", "delete", ID])
+        .stdin(Stdio::piped())
+        .stdout(terminal)
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"y\n").unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(
+        (out.status.code(), text(&out.stderr)),
+        (Some(1), format!("Error: {what} Re-run with --yes to confirm.\n"))
+    );
+
+    assert_eq!(sent(&server).await, Vec::<String>::new());
 }

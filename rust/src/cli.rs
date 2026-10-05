@@ -1022,7 +1022,7 @@ pub enum MetricsCommand {
         /// Skip confirmation
         #[arg(short, long)]
         yes: bool,
-        /// Output raw JSON (implies --yes)
+        /// Output raw JSON
         #[arg(long)]
         json: bool,
     },

@@ -230,16 +230,17 @@ pub fn config_list(ctx: &Ctx) {
     print_profile_list(&ctx.store.profile_summaries(), false, "", NO_PROFILES);
 }
 
-pub fn config_reset(ctx: &Ctx, yes: bool) {
-    if !yes && !confirm("Delete all CLI configuration?") {
+pub fn config_reset(ctx: &Ctx, yes: bool) -> Result<()> {
+    if !confirm(yes, "Delete all CLI configuration?", "This deletes all CLI configuration.")? {
         println!("{}", dim("Cancelled."));
-        return;
+        return Ok(());
     }
     if ctx.store.delete() {
         print_success("Configuration deleted.");
     } else {
         println!("{}", dim("No configuration file found."));
     }
+    Ok(())
 }
 
 pub fn profile_list(ctx: &Ctx) {
