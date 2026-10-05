@@ -113,8 +113,9 @@ pub struct ConfigStore {
 }
 
 impl ConfigStore {
+    /// `--profile ""` is no override: the TS CLI checked `if (opts.profile)`.
     pub fn new(path: PathBuf, profile_override: Option<String>, env: EnvVars) -> Self {
-        ConfigStore { path, profile_override, env }
+        ConfigStore { path, profile_override: profile_override.filter(|name| !name.is_empty()), env }
     }
 
     pub fn path(&self) -> &Path {
@@ -264,10 +265,10 @@ impl ConfigStore {
     }
 
     /// Remove the selected profile (logout). Returns its name, or `None` when
-    /// no profile is selected or it doesn't exist.
+    /// no profile is selected (an empty name counts as none) or it doesn't exist.
     pub fn clear_active_profile(&self) -> Result<Option<String>> {
         let config = self.read();
-        let Some(name) = self.selected_profile_name(&config) else { return Ok(None) };
+        let Some(name) = self.selected_profile_name(&config).filter(|name| !name.is_empty()) else { return Ok(None) };
         let mut profiles = profiles_map(&config);
         if profiles.shift_remove(&name).is_none() {
             return Ok(None);
@@ -745,5 +746,25 @@ mod tests {
         assert_eq!(store(&f).clear_active_profile().unwrap().as_deref(), Some("a"));
         assert_eq!(on_disk(&f), json!({ "profiles": { "b": { "apiKey": "2" } } }));
         assert_eq!(store(&f).clear_active_profile().unwrap(), None);
+    }
+
+    #[test]
+    fn an_empty_profile_override_is_no_override() {
+        let f = fixture(Some(json!({ "profiles": { "alpha": { "apiKey": "a" } }, "activeProfile": "alpha" })));
+        let s = ConfigStore::new(f.path.clone(), Some(String::new()), EnvVars::default());
+        assert_eq!(s.effective().selected_profile.as_deref(), Some("alpha"));
+        s.save_resolved_values(ConfigValueUpdates { account_id: Some("x".into()), ..Default::default() }).unwrap();
+        assert_eq!(
+            on_disk(&f),
+            json!({ "profiles": { "alpha": { "apiKey": "a", "accountId": "x" } }, "activeProfile": "alpha" })
+        );
+    }
+
+    #[test]
+    fn logout_leaves_an_empty_active_profile_name_alone() {
+        let config = json!({ "profiles": { "": { "apiKey": "k" } }, "activeProfile": "" });
+        let f = fixture(Some(config.clone()));
+        assert_eq!(store(&f).clear_active_profile().unwrap(), None);
+        assert_eq!(on_disk(&f), config);
     }
 }

@@ -167,7 +167,7 @@ pub async fn watch_triggered_resource_job(
     sync_requested_at: String,
 ) -> Result<(), ApiError> {
     let interval = Duration::from_secs(3);
-    match job_id {
+    match job_id.filter(|id| !id.is_empty()) {
         Some(job_id) => tail_job(api, screen, job_id, interval, MAX_WAIT).await,
         None => {
             let next = NextJob { after_created_at: Some(sync_requested_at), skip_job_id: None };
@@ -292,10 +292,10 @@ pub async fn watch_job(
 }
 
 pub fn should_tail_job(job: Job, next: &NextJob) -> bool {
-    if next.skip_job_id.as_deref().is_some_and(|skip| job.id() == skip) {
+    if next.skip_job_id.as_deref().is_some_and(|skip| !skip.is_empty() && job.id() == skip) {
         return false;
     }
-    let Some(threshold) = next.after_created_at.as_deref() else { return true };
+    let Some(threshold) = next.after_created_at.as_deref().filter(|t| !t.is_empty()) else { return true };
     let parse = |s: &str| s.parse::<jiff::Timestamp>().ok();
     match (parse(threshold), job.text("createdAt").as_deref().and_then(parse)) {
         (Some(threshold), Some(created)) => created > threshold,
@@ -349,7 +349,8 @@ pub fn render_active_jobs_snapshot(
     scope: &WatchScope,
     poll_error: Option<&str>,
 ) -> String {
-    let scope_label = match (&scope.source_id, &scope.integration_id) {
+    let given = |id: &Option<String>| id.clone().filter(|id| !id.is_empty());
+    let scope_label = match (given(&scope.source_id), given(&scope.integration_id)) {
         (Some(source), _) => format!("source {source} "),
         (None, Some(integration)) => format!("integration {integration} "),
         (None, None) => String::new(),
@@ -639,5 +640,27 @@ mod tests {
         assert!(!should_tail_job(Job(&created("b", "2026-01-01T00:00:00Z")), &after));
         assert!(should_tail_job(Job(&created("b", "2026-01-01T00:00:01Z")), &after));
         assert!(should_tail_job(Job(&created("b", "not a date")), &after));
+    }
+
+    #[test]
+    fn an_empty_scope_id_is_no_scope() {
+        let header = |source: Option<&str>, integration: Option<&str>| {
+            let scope = WatchScope { source_id: source.map(Into::into), integration_id: integration.map(Into::into) };
+            render_active_jobs_snapshot(Some(&[]), 5, &scope, None).lines().next().unwrap().to_string()
+        };
+        assert!(header(Some(""), None).starts_with("Watching jobs..."));
+        assert!(header(Some(""), Some("i-1")).starts_with("Watching integration i-1 jobs..."));
+        assert!(header(None, Some("")).starts_with("Watching jobs..."));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_empty_triggered_job_id_waits_for_the_next_job() {
+        let api = FakeApi::new(vec![Ok(vec![job("j9", "running")])], vec![Ok(job("j9", "completed"))]);
+        let mut screen = Recorder::default();
+        watch_triggered_resource_job(&api, &mut screen, "s1", ResourceKind::Source, Some(""), "x".into())
+            .await
+            .unwrap();
+        assert!(api.queries.borrow()[0].contains(&("source_id", Some("s1".into()))));
+        assert!(screen.out.last().unwrap().contains("Job j9 completed."));
     }
 }

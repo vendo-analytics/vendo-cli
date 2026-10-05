@@ -124,3 +124,52 @@ fn version_prints_the_bare_number_anywhere() {
         assert_eq!(text(&out.stdout), format!("{}\n", env!("CARGO_PKG_VERSION")), "{args:?}");
     }
 }
+
+#[test]
+fn empty_profile_names_and_accounts_are_unset() {
+    let sandbox = Sandbox::new(CLOSED);
+    for args in [
+        &["profile", "switch", ""][..],
+        &["profile", "switch", "--account", ""],
+        &["--profile", "", "profile", "switch"],
+    ] {
+        let out = sandbox.run(args);
+        assert_eq!((out.status.code(), text(&out.stdout)), (Some(0), "Cancelled.\n".to_string()), "{args:?}");
+        assert_eq!(sandbox.config()["activeProfile"], "alpha", "{args:?}");
+    }
+    let out = sandbox.run(&["profile", "switch", "", "--account", "acct-beta"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    assert_eq!(sandbox.config()["activeProfile"], "beta");
+
+    let out = sandbox.run(&["--profile", "", "config", "set", "--account", "acct-x"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    let config = sandbox.config();
+    assert_eq!(
+        (config["activeProfile"].as_str(), config["profiles"]["beta"]["accountId"].as_str()),
+        (Some("beta"), Some("acct-x"))
+    );
+    assert!(config["profiles"].get("").is_none());
+}
+
+/// `self-update` runs `bash -lc "curl … | bash"`: a fake `bash` first on PATH
+/// records the installer's VENDO_VERSION instead, so nothing is downloaded.
+fn self_update_version(args: &[&str]) -> String {
+    let sandbox = Sandbox::new(CLOSED);
+    let bin = tempfile::tempdir().unwrap();
+    let fake = bin.path().join("bash");
+    std::fs::write(&fake, "#!/bin/sh\necho \"${VENDO_VERSION-unset}\" > \"$HOME/installer-version\"\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
+    let out = sandbox.command(args).env("PATH", path).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    std::fs::read_to_string(sandbox.home.path().join("installer-version")).unwrap().trim().to_string()
+}
+
+#[cfg(unix)]
+#[test]
+fn self_update_passes_only_a_non_empty_version() {
+    assert_eq!(self_update_version(&["self-update", "--version", "0.3.0"]), "0.3.0");
+    assert_eq!(self_update_version(&["self-update", "--version", ""]), "unset");
+    assert_eq!(self_update_version(&["self-update"]), "unset");
+}

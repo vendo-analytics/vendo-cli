@@ -40,13 +40,7 @@ pub async fn run(
     // the wrong one (VE-1563).
     let base_url = ctx.store.resolve_login_base_url(env.as_deref(), base_url.as_deref())?;
 
-    let result = if api_key.is_some() || account.is_some() {
-        let (Some(api_key), Some(account_id)) = (api_key, account) else {
-            bail!(
-                "Both --api-key and --account are required for headless login.\n{}",
-                dim("  Example: vendo login --api-key <key> --account <id>")
-            );
-        };
+    let result = if let Some((api_key, account_id)) = headless_credentials(api_key, account)? {
         let identity = run_action("Validating credentials...", async {
             fetch_identity(&api_key, &account_id, &base_url, ctx.debug).await.map_err(|err| match err {
                 IdentityError::Http { status, .. } => {
@@ -65,6 +59,20 @@ pub async fn run(
 
     print_login_success(&result);
     Ok(())
+}
+
+/// `--api-key` and `--account` read as the TS CLI did (`opts.apiKey ||
+/// opts.account`, so empty is unset): both for a headless login, neither for
+/// the browser flow, anything else is an error.
+pub fn headless_credentials(api_key: Option<String>, account: Option<String>) -> Result<Option<(String, String)>> {
+    match (api_key.filter(|k| !k.is_empty()), account.filter(|a| !a.is_empty())) {
+        (None, None) => Ok(None),
+        (Some(api_key), Some(account)) => Ok(Some((api_key, account))),
+        _ => bail!(
+            "Both --api-key and --account are required for headless login.\n{}",
+            dim("  Example: vendo login --api-key <key> --account <id>")
+        ),
+    }
 }
 
 /// The browser flow, shared with `vendo init`.
@@ -296,5 +304,18 @@ mod tests {
             Value::Object(p),
             serde_json::json!({ "apiKey": "k", "accountId": "a", "baseUrl": "https://stg.vendodata.com" })
         );
+    }
+
+    #[test]
+    fn headless_login_reads_its_flags_with_javascript_truthiness() {
+        let s = |v: &str| Some(v.to_string());
+        assert_eq!(headless_credentials(s("k"), s("a")).unwrap(), Some(("k".into(), "a".into())));
+        for (key, account) in [(s("k"), s("")), (s(""), s("a")), (s("k"), None), (None, s("a"))] {
+            let err = headless_credentials(key.clone(), account.clone()).unwrap_err().to_string();
+            assert!(err.starts_with("Both --api-key and --account are required"), "{key:?} {account:?}: {err}");
+        }
+        // Both empty: the browser flow, as in the TS CLI.
+        assert_eq!(headless_credentials(s(""), s("")).unwrap(), None);
+        assert_eq!(headless_credentials(None, None).unwrap(), None);
     }
 }

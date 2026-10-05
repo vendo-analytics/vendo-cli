@@ -43,7 +43,10 @@ fn iso(ms: i64) -> String {
     crate::output::js_iso_string(ms)
 }
 
+/// `--to` defaults to now and `--from` to 7 days before `--to`; empty values
+/// count as unset, as in the TS CLI.
 pub fn resolve_refresh_window(from: Option<&str>, to: Option<&str>, now_ms: i64) -> Result<RefreshWindow> {
+    let (from, to) = (from.filter(|f| !f.is_empty()), to.filter(|t| !t.is_empty()));
     let end = match to {
         Some(to) => parse_window_bound("--to", to)?,
         None => now_ms,
@@ -176,5 +179,12 @@ mod tests {
         let other = summarize(&json!({ "status": "partial" }));
         assert_eq!(other.tone, Tone::Info);
         assert!(other.headline.contains("partial"));
+    }
+
+    #[test]
+    fn empty_flags_mean_the_default_window() {
+        assert_eq!(window(Some(""), Some("")), window(None, None));
+        let w = window(Some(""), Some("2026-06-10"));
+        assert_eq!(w.requested_start, "2026-06-03T00:00:00.000Z");
     }
 }

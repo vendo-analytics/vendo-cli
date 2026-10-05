@@ -204,7 +204,7 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
         )
     });
 
-    checks.push(match &config.selected_profile {
+    checks.push(match config.selected_profile.as_ref().filter(|name| !name.is_empty()) {
         Some(name) if config.selected_profile_exists => check("Selected profile", Ok, name.clone(), None),
         Some(name) => check(
             "Selected profile",
@@ -409,7 +409,7 @@ const INSTALL_URL: &str = "https://app2.vendodata.com/install.sh";
 pub fn self_update(ctx: &Ctx, version: Option<String>) -> Result<ExitCode> {
     let mut cmd = Command::new("bash");
     cmd.args(["-lc", &format!("curl -fsSL {INSTALL_URL} | bash")]);
-    if let Some(version) = version {
+    if let Some(version) = version.filter(|v| !v.is_empty()) {
         cmd.env("VENDO_VERSION", version);
     }
     let status = cmd.status().map_err(|err| anyhow!(err))?;
@@ -541,5 +541,16 @@ mod tests {
     fn truncate_keeps_max_minus_one_then_ellipsis() {
         assert_eq!(truncate("abcdef", 4), "abc...");
         assert_eq!(truncate("abcd", 4), "abcd");
+    }
+
+    #[test]
+    fn an_empty_active_profile_name_is_no_profile() {
+        let home = tempfile::tempdir().unwrap();
+        let checks = local_checks(
+            &env(home.path(), "/opt/vendo/bin/vendo", "/usr/bin", Some("bash")),
+            &config(None, None, Some(("", false)), true),
+        );
+        let profile = checks.iter().find(|c| c.name == "Selected profile").unwrap();
+        assert_eq!(profile.detail, "No active profile selected");
     }
 }

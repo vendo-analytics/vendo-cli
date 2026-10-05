@@ -289,10 +289,12 @@ pub enum OutputMode {
     Table,
 }
 
+/// `--json` wins, then `--output <field>`; an empty field is the table, as
+/// the TS CLI's `if (opts.output)` had it.
 pub fn resolve_output_mode(json: bool, output: Option<&str>) -> OutputMode {
     if json {
         OutputMode::Json
-    } else if output.is_some() {
+    } else if output.is_some_and(|field| !field.is_empty()) {
         OutputMode::Field
     } else {
         OutputMode::Table
@@ -525,5 +527,11 @@ mod tests {
         });
         assert_eq!(format_error(&err), "Bad request\nRequest ID: req_456");
         assert_eq!(format_error(&anyhow::anyhow!("plain")), "plain");
+    }
+
+    #[test]
+    fn an_empty_output_field_is_the_table() {
+        assert_eq!(resolve_output_mode(false, Some("")), OutputMode::Table);
+        assert_eq!(resolve_output_mode(true, Some("")), OutputMode::Json);
     }
 }
