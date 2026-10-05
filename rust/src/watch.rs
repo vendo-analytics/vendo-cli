@@ -296,7 +296,7 @@ pub fn should_tail_job(job: Job, next: &NextJob) -> bool {
         return false;
     }
     let Some(threshold) = next.after_created_at.as_deref().filter(|t| !t.is_empty()) else { return true };
-    let parse = |s: &str| s.parse::<jiff::Timestamp>().ok();
+    let parse = crate::output::js_date_parse;
     match (parse(threshold), job.text("createdAt").as_deref().and_then(parse)) {
         (Some(threshold), Some(created)) => created > threshold,
         _ => true,

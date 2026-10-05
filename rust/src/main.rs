@@ -27,6 +27,7 @@ mod config;
 mod context;
 mod identity;
 mod jobs;
+mod js_date;
 mod output;
 mod profile_display;
 mod source_refresh;

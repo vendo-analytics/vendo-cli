@@ -168,8 +168,8 @@ pub fn time_ago(value: Option<&str>) -> String {
 
 pub fn time_ago_at(value: Option<&str>, now: jiff::Timestamp) -> String {
     let Some(raw) = value.filter(|v| !v.is_empty()) else { return dim("—") };
-    let Ok(then) = raw.parse::<jiff::Timestamp>() else { return "Invalid Date".to_string() };
-    let diff_ms = now.as_millisecond() - then.as_millisecond();
+    let Some(then_ms) = js_date_parse(raw) else { return "Invalid Date".to_string() };
+    let diff_ms = now.as_millisecond() - then_ms;
     if diff_ms < 0 {
         return "just now".to_string();
     }
@@ -189,7 +189,9 @@ pub fn time_ago_at(value: Option<&str>, now: jiff::Timestamp) -> String {
     if days < 30 {
         return format!("{days}d ago");
     }
-    then.to_zoned(jiff::tz::TimeZone::system()).strftime("%-m/%-d/%Y").to_string()
+    jiff::Timestamp::from_millisecond(then_ms)
+        .map(|then| then.to_zoned(jiff::tz::TimeZone::system()).strftime("%-m/%-d/%Y").to_string())
+        .unwrap_or_else(|_| "Invalid Date".to_string())
 }
 
 pub fn short_id(id: &str) -> String {
@@ -214,29 +216,10 @@ pub fn format_number(n: Option<f64>) -> String {
     if frac.is_empty() { format!("{sign}{grouped}") } else { format!("{sign}{grouped}.{frac}") }
 }
 
-/// `Date.parse` for the ISO shapes the API and users send: offset datetimes
-/// (`Z`, `±HH:MM`, and V8's lenient `±HHMM`), bare dates as UTC midnight, and
-/// offset-less datetimes as local time. Milliseconds since the epoch.
+/// `Date.parse` as Node evaluates it (see `js_date`): milliseconds since the
+/// epoch, `None` where JavaScript gives NaN.
 pub fn js_date_parse(value: &str) -> Option<i64> {
-    let value = value.trim();
-    if let Ok(ts) = value.parse::<jiff::Timestamp>() {
-        return Some(ts.as_millisecond());
-    }
-    let chars: Vec<char> = value.chars().collect();
-    let n = chars.len();
-    if n >= 5 && matches!(chars[n - 5], '+' | '-') && chars[n - 4..].iter().all(char::is_ascii_digit) {
-        let with_colon: String = chars[..n - 2].iter().chain([':'].iter()).chain(chars[n - 2..].iter()).collect();
-        if let Ok(ts) = with_colon.parse::<jiff::Timestamp>() {
-            return Some(ts.as_millisecond());
-        }
-    }
-    if n == 10
-        && let Ok(date) = value.parse::<jiff::civil::Date>()
-    {
-        return date.to_zoned(jiff::tz::TimeZone::UTC).ok().map(|z| z.timestamp().as_millisecond());
-    }
-    let datetime = value.parse::<jiff::civil::DateTime>().ok()?;
-    datetime.to_zoned(jiff::tz::TimeZone::system()).ok().map(|z| z.timestamp().as_millisecond())
+    crate::js_date::parse(value)
 }
 
 /// JavaScript `Number(string)`: JS whitespace trimmed, empty is 0, decimal
@@ -363,9 +346,7 @@ impl serde_json::ser::Formatter for JsFormatter {
 
 /// `Date.prototype.toISOString()`: UTC with milliseconds.
 pub fn js_iso_string(ms: i64) -> String {
-    jiff::Timestamp::from_millisecond(ms)
-        .map(|ts| ts.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
-        .unwrap_or_else(|_| "Invalid Date".to_string())
+    crate::js_date::iso_string(ms)
 }
 
 /// JavaScript `String(value)` for JSON values, which `--output <field>` uses.
