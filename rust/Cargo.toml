@@ -19,6 +19,7 @@ clap = { version = "4.6.7", features = ["derive"] }
 clap_complete = "4.6.11"
 comfy-table = { version = "8.0.1", features = ["custom_styling"] }
 fixed_decimal = { version = "0.7.2", features = ["ryu"] }
+hyper = { version = "1.11.1", default-features = false }
 icu_calendar = "2.3"
 icu_datetime = "2.3"
 icu_decimal = "2.3"

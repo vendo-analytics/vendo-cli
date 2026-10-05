@@ -2230,6 +2230,7 @@ dependencies = [
  "clap_complete",
  "comfy-table",
  "fixed_decimal",
+ "hyper",
  "icu_calendar",
  "icu_datetime",
  "icu_decimal",

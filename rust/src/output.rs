@@ -542,7 +542,8 @@ fn dim_err(s: &str) -> String {
 /// `Error: <message>` plus the request ID when the API gave one.
 pub fn format_error(err: &anyhow::Error) -> String {
     match err.downcast_ref::<ApiError>() {
-        Some(api) => match api.server_request_id.as_ref().or(api.request_id.as_ref()) {
+        // An empty X-Request-Id doesn't count: the CLI's own ID is shown instead.
+        Some(api) => match [&api.server_request_id, &api.request_id].into_iter().flatten().find(|id| !id.is_empty()) {
             Some(id) => format!("{}\n{}", api.message, dim_err(&format!("Request ID: {id}"))),
             None => api.message.clone(),
         },

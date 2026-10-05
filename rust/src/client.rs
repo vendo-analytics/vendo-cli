@@ -203,7 +203,12 @@ impl Client {
         };
 
         let status = res.status();
-        let status_text = status.canonical_reason().unwrap_or("").to_string();
+        // fetch's statusText is the server's reason phrase; hyper keeps it only when it isn't
+        // the canonical one.
+        let status_text = match res.extensions().get::<hyper::ext::ReasonPhrase>() {
+            Some(reason) => String::from_utf8_lossy(reason.as_bytes()).into_owned(),
+            None => status.canonical_reason().unwrap_or("").to_string(),
+        };
         let server_request_id = res.headers().get("x-request-id").and_then(|v| v.to_str().ok()).map(str::to_string);
         let duration_ms = started.elapsed().as_millis() as i64;
         self.debug_line(
@@ -842,5 +847,46 @@ mod tests {
         // fetch's res.json() drops a byte order mark and decodes invalid UTF-8 as U+FFFD.
         assert_eq!(ok_body(b"\xef\xbb\xbf{\"data\":1}").await.unwrap(), json!({ "data": 1 }));
         assert_eq!(ok_body(b"{\"data\":\"\xff\"}").await.unwrap(), json!({ "data": "\u{fffd}" }));
+    }
+
+    /// A one-shot HTTP server that answers with `head` (status line and headers) and `body`.
+    async fn raw_server(head: &'static str, body: &'static str) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = socket.read(&mut buf).await;
+            let response = format!("{head}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn the_servers_reason_phrase_is_the_status_text() {
+        for (head, message, status_text) in [
+            ("HTTP/1.1 502 Proxy Error", "HTTP 502: Proxy Error", "Proxy Error"),
+            ("HTTP/1.1 502 Bad Gateway", "HTTP 502: Bad Gateway", "Bad Gateway"),
+            ("HTTP/1.1 503 ", "HTTP 503", ""),
+            ("HTTP/1.1 599 Custom", "HTTP 599: Custom", "Custom"),
+        ] {
+            let base = raw_server(head, "<html>").await;
+            let err = Client::new("k".into(), base, Some("a".into()), false).get("/me", &[]).await.unwrap_err();
+            assert_eq!((err.message.as_str(), err.status_text.as_deref()), (message, Some(status_text)), "{head}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_empty_server_request_id_falls_back_to_the_cli_id() {
+        let base = raw_server(
+            "HTTP/1.1 400 Bad Request\r\nX-Request-Id: \r\nContent-Type: application/json",
+            r#"{"error":{"message":"nope"}}"#,
+        )
+        .await;
+        let err = Client::new("k".into(), base, Some("a".into()), false).get("/me", &[]).await.unwrap_err();
+        let shown = crate::output::format_error(&anyhow::Error::new(err.clone()));
+        assert_eq!(shown, format!("nope\nRequest ID: {}", err.request_id.unwrap()));
     }
 }
