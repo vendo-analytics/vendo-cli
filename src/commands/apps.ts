@@ -791,15 +791,36 @@ interface CallbackResult {
   error?: string;
 }
 
+const CALLBACK_METHODS = 'POST, GET, OPTIONS';
+
+/**
+ * The approval page runs on the web app's origin, so the browser only lets it
+ * call us with CORS headers. Any origin is echoed: the listener is one-shot on
+ * a random port, and a header-safe value is all we check.
+ */
+function corsHeaders(origin: string | undefined): Record<string, string> {
+  return origin && /^[\x21-\x7e]+$/.test(origin)
+    ? { 'Access-Control-Allow-Origin': origin }
+    : {};
+}
+
+/**
+ * Local `/callback` for the approval page. It POSTs `{status, appId, error}`
+ * as JSON, so the browser first sends a CORS preflight (OPTIONS), which is
+ * answered without ending the wait. Only the POST, or a GET that carries
+ * `?status=`, settles it; other requests get an error and the wait goes on.
+ */
 async function startLocalCallbackServer(): Promise<{
   port: number;
   waitForCallback: () => Promise<CallbackResult>;
   stop: () => void;
 }> {
-  return new Promise((resolve, reject) => {
-    let resolveCallback: ((r: CallbackResult) => void) | null = null;
-    let rejectCallback: ((e: Error) => void) | null = null;
+  let settle: (result: CallbackResult) => void = () => {};
+  const callback = new Promise<CallbackResult>((resolve) => {
+    settle = resolve;
+  });
 
+  return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (url.pathname !== '/callback') {
@@ -808,7 +829,46 @@ async function startLocalCallbackServer(): Promise<{
         return;
       }
 
+      const cors = corsHeaders(req.headers.origin);
+      const answer = (result: CallbackResult) => {
+        res.writeHead(200, { 'Content-Type': 'text/plain', ...cors });
+        res.end('ok');
+        settle(result);
+      };
       const sessionStatus = url.searchParams.get('status');
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          ...cors,
+          'Access-Control-Allow-Methods': CALLBACK_METHODS,
+          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Private-Network': 'true',
+          'Access-Control-Max-Age': '600',
+        });
+        res.end();
+        return;
+      }
+
+      if (req.method === 'GET') {
+        if (!sessionStatus) {
+          res.writeHead(400, cors);
+          res.end();
+          return;
+        }
+        answer({
+          status: sessionStatus as CallbackResult['status'],
+          appId: url.searchParams.get('appId') ?? undefined,
+          error: url.searchParams.get('error') ?? undefined,
+        });
+        return;
+      }
+
+      if (req.method !== 'POST') {
+        res.writeHead(405, { ...cors, Allow: CALLBACK_METHODS });
+        res.end();
+        return;
+      }
+
       let body = '';
       req.on('data', (chunk) => {
         body += chunk;
@@ -816,24 +876,22 @@ async function startLocalCallbackServer(): Promise<{
       req.on('end', () => {
         let parsed: Partial<CallbackResult> = {};
         try {
-          parsed = body ? (JSON.parse(body) as Partial<CallbackResult>) : {};
+          const json: unknown = body ? JSON.parse(body) : {};
+          if (json && typeof json === 'object') {
+            parsed = json as Partial<CallbackResult>;
+          }
         } catch {
           // ignore — fall back to query params
         }
 
-        const result: CallbackResult = {
+        answer({
           status:
             (parsed.status as CallbackResult['status']) ??
             (sessionStatus as CallbackResult['status']) ??
             'failed',
           appId: parsed.appId ?? undefined,
           error: parsed.error ?? undefined,
-        };
-
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('ok');
-
-        if (resolveCallback) resolveCallback(result);
+        });
       });
     });
 
@@ -846,15 +904,8 @@ async function startLocalCallbackServer(): Promise<{
 
       resolve({
         port: addr.port,
-        waitForCallback: () =>
-          new Promise<CallbackResult>((res, rej) => {
-            resolveCallback = res;
-            rejectCallback = rej;
-          }),
-        stop: () => {
-          server.close();
-          if (rejectCallback) rejectCallback(new Error('server stopped'));
-        },
+        waitForCallback: () => callback,
+        stop: () => server.close(),
       });
     });
   });

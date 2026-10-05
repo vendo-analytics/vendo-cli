@@ -452,6 +452,13 @@ pub async fn update(ctx: &Ctx, app_id: &str, args: UpdateArgs) -> Result<()> {
 
 // ── browser-assisted OAuth for `apps create` ───────────────────────────────
 
+/// How long a callback connection may take to send its request: Node's HTTP
+/// server default (`headersTimeout`), as for `vendo login`.
+const CALLBACK_READ_TIMEOUT: Duration = Duration::from_secs(60);
+const CALLBACK_METHODS: &str = "POST, GET, OPTIONS";
+/// A larger request is not the approval page's: the connection is dropped.
+const MAX_CALLBACK_REQUEST: usize = 64 * 1024;
+
 #[derive(Debug, PartialEq)]
 pub struct OAuthResult {
     pub status: String,
@@ -496,48 +503,114 @@ async fn run_browser_oauth(
     })
     .await?;
     match settled {
-        OAuthResult { status, app_id: Some(app_id), .. } if status == "completed" => Ok(app_id),
+        // `!settled.appId` in TS: an empty ID is not a result.
+        OAuthResult { status, app_id: Some(app_id), .. } if status == "completed" && !app_id.is_empty() => Ok(app_id),
         OAuthResult { error, .. } => Err(anyhow!(error.unwrap_or_else(|| "Authorization did not complete".into()))),
     }
 }
 
-/// The drawer POSTs `{status, appId, error}` (or `?status=`) to `/callback`.
+/// Serve the local `/callback` until the approval page reports the outcome.
+/// It POSTs `{status, appId, error}` as JSON from the web app's origin, so the
+/// browser first sends a CORS preflight (OPTIONS): that gets its answer and
+/// the wait goes on. Only the POST, or a GET that carries `?status=`, settles
+/// it; other requests get an error status and the wait goes on. Connections
+/// are served side by side, as Node's HTTP server does, so an idle browser
+/// preconnect can't hold up the real request.
 pub async fn wait_for_oauth_callback(listener: &TcpListener) -> OAuthResult {
+    wait_for_oauth_callback_with(listener, CALLBACK_READ_TIMEOUT).await
+}
+
+async fn wait_for_oauth_callback_with(listener: &TcpListener, read_timeout: Duration) -> OAuthResult {
+    let mut connections = tokio::task::JoinSet::new();
     loop {
-        let Ok((mut socket, _)) = listener.accept().await else { continue };
-        let Some((target, body)) = read_request(&mut socket).await else { continue };
-        let Ok(url) = reqwest::Url::parse(&format!("http://127.0.0.1{target}")) else { continue };
-        if url.path() != "/callback" {
-            let _ = socket.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
-            continue;
+        tokio::select! {
+            accepted = listener.accept() => {
+                if let Ok((socket, _)) = accepted {
+                    connections.spawn(handle_oauth_callback(socket, read_timeout));
+                }
+            }
+            Some(handled) = connections.join_next() => {
+                if let Ok(Some(result)) = handled {
+                    return result;
+                }
+            }
         }
-        let query_status = url.query_pairs().find(|(k, _)| k == "status").map(|(_, v)| v.into_owned());
-        let parsed: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-        let field = |key: &str| parsed.get(key).and_then(Value::as_str).map(str::to_string);
-        let result = OAuthResult {
-            status: field("status").or(query_status).unwrap_or_else(|| "failed".into()),
-            app_id: field("appId"),
-            error: field("error"),
-        };
-        let _ = socket
-            .write_all(
-                b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
-            )
-            .await;
-        let _ = socket.shutdown().await;
-        return result;
     }
 }
 
-/// Request target and body (by Content-Length) of one HTTP request.
-async fn read_request(socket: &mut TcpStream) -> Option<(String, Vec<u8>)> {
+/// One connection: `Some` only when it carries the outcome.
+async fn handle_oauth_callback(mut socket: TcpStream, read_timeout: Duration) -> Option<OAuthResult> {
+    let request = tokio::time::timeout(read_timeout, read_request(&mut socket)).await.ok()??;
+    let url = match reqwest::Url::parse(&format!("http://127.0.0.1{}", request.target)) {
+        Ok(url) if url.path() == "/callback" => url,
+        _ => {
+            respond(&mut socket, "404 Not Found", &[], "").await;
+            return None;
+        }
+    };
+    let query = |key: &str| url.query_pairs().find(|(k, _)| k == key).map(|(_, v)| v.into_owned());
+    // Any origin is echoed: the listener is one-shot on a random port, and a
+    // header-safe value is all we check.
+    let mut headers: Vec<(&str, String)> = request
+        .origin
+        .filter(|origin| !origin.is_empty() && origin.bytes().all(|b| b.is_ascii_graphic()))
+        .map(|origin| ("Access-Control-Allow-Origin", origin))
+        .into_iter()
+        .collect();
+    let result = match request.method.as_str() {
+        "OPTIONS" => {
+            headers.extend([
+                ("Access-Control-Allow-Methods", CALLBACK_METHODS.into()),
+                ("Access-Control-Allow-Headers", "Content-Type".into()),
+                ("Access-Control-Allow-Private-Network", "true".into()),
+                ("Access-Control-Max-Age", "600".into()),
+            ]);
+            respond(&mut socket, "204 No Content", &headers, "").await;
+            return None;
+        }
+        "GET" => match query("status").filter(|status| !status.is_empty()) {
+            Some(status) => OAuthResult { status, app_id: query("appId"), error: query("error") },
+            None => {
+                respond(&mut socket, "400 Bad Request", &headers, "").await;
+                return None;
+            }
+        },
+        "POST" => {
+            let parsed: Value = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
+            let field = |key: &str| parsed.get(key).and_then(Value::as_str).map(str::to_string);
+            OAuthResult {
+                status: field("status").or_else(|| query("status")).unwrap_or_else(|| "failed".into()),
+                app_id: field("appId"),
+                error: field("error"),
+            }
+        }
+        _ => {
+            headers.push(("Allow", CALLBACK_METHODS.into()));
+            respond(&mut socket, "405 Method Not Allowed", &headers, "").await;
+            return None;
+        }
+    };
+    headers.push(("Content-Type", "text/plain".into()));
+    respond(&mut socket, "200 OK", &headers, "ok").await;
+    Some(result)
+}
+
+struct CallbackRequest {
+    method: String,
+    target: String,
+    origin: Option<String>,
+    body: Vec<u8>,
+}
+
+/// Method, target, `Origin` and body (by Content-Length) of one HTTP request.
+async fn read_request(socket: &mut TcpStream) -> Option<CallbackRequest> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
     let header_end = loop {
         if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
             break pos + 4;
         }
-        if buf.len() > 64 * 1024 {
+        if buf.len() > MAX_CALLBACK_REQUEST {
             return None;
         }
         let n = socket.read(&mut chunk).await.ok()?;
@@ -546,13 +619,19 @@ async fn read_request(socket: &mut TcpStream) -> Option<(String, Vec<u8>)> {
         }
         buf.extend_from_slice(&chunk[..n]);
     };
-    let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
-    let target = head.lines().next()?.split_whitespace().nth(1)?.to_string();
-    let length: usize = head
-        .lines()
-        .find_map(|l| l.split_once(':').filter(|(k, _)| k.trim().eq_ignore_ascii_case("content-length")))
-        .and_then(|(_, v)| v.trim().parse().ok())
-        .unwrap_or(0);
+    let head = String::from_utf8_lossy(&buf[..header_end]).into_owned();
+    let mut request_line = head.lines().next()?.split_whitespace();
+    let (method, target) = (request_line.next()?.to_string(), request_line.next()?.to_string());
+    let header = |name: &str| {
+        head.lines()
+            .skip(1)
+            .find_map(|l| l.split_once(':').filter(|(k, _)| k.trim().eq_ignore_ascii_case(name)))
+            .map(|(_, v)| v.trim().to_string())
+    };
+    let length: usize = header("content-length").and_then(|v| v.parse().ok()).unwrap_or(0);
+    if length > MAX_CALLBACK_REQUEST {
+        return None;
+    }
     let mut body = buf[header_end..].to_vec();
     while body.len() < length {
         let n = socket.read(&mut chunk).await.ok()?;
@@ -562,7 +641,22 @@ async fn read_request(socket: &mut TcpStream) -> Option<(String, Vec<u8>)> {
         body.extend_from_slice(&chunk[..n]);
     }
     body.truncate(length);
-    Some((target, body))
+    Some(CallbackRequest { method, target, origin: header("origin"), body })
+}
+
+async fn respond(socket: &mut TcpStream, status: &str, headers: &[(&str, String)], body: &str) {
+    let mut response = format!("HTTP/1.1 {status}\r\n");
+    for (name, value) in headers {
+        response.push_str(&format!("{name}: {value}\r\n"));
+    }
+    // A 204 has no body, so no Content-Length either.
+    if !status.starts_with("204") {
+        response.push_str(&format!("Content-Length: {}\r\n", body.len()));
+    }
+    response.push_str("Connection: close\r\n\r\n");
+    response.push_str(body);
+    let _ = socket.write_all(response.as_bytes()).await;
+    let _ = socket.shutdown().await;
 }
 
 /// Poll `GET /apps/oauth-session/{id}` (a global route) until it settles.
@@ -678,6 +772,123 @@ mod tests {
             waiter.await.unwrap(),
             OAuthResult { status: "completed".into(), app_id: Some("app-9".into()), error: None }
         );
+    }
+
+    const WEB_APP: &str = "https://stg.vendodata.com";
+
+    async fn oauth_callback_server() -> (u16, tokio::task::JoinHandle<OAuthResult>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        (port, tokio::spawn(async move { wait_for_oauth_callback(&listener).await }))
+    }
+
+    /// The approval page's request, as the web app sends it.
+    fn drawer_post(port: u16, body: Value) -> reqwest::RequestBuilder {
+        reqwest::Client::new()
+            .post(format!("http://127.0.0.1:{port}/callback?sessionId=s1&status=completed"))
+            .header("Origin", WEB_APP)
+            .json(&body)
+    }
+
+    async fn settled(waiter: tokio::task::JoinHandle<OAuthResult>) -> OAuthResult {
+        tokio::time::timeout(Duration::from_secs(5), waiter).await.expect("the callback settles").unwrap()
+    }
+
+    /// Lets a callback the server took as the answer finish before checking.
+    async fn still_waiting(waiter: &tokio::task::JoinHandle<OAuthResult>) -> bool {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        !waiter.is_finished()
+    }
+
+    #[tokio::test]
+    async fn oauth_callback_answers_the_browser_preflight_and_waits_for_the_post() {
+        let (port, waiter) = oauth_callback_server().await;
+        let preflight = reqwest::Client::new()
+            .request(
+                reqwest::Method::OPTIONS,
+                format!("http://127.0.0.1:{port}/callback?sessionId=s1&status=completed"),
+            )
+            .header("Origin", WEB_APP)
+            .header("Access-Control-Request-Method", "POST")
+            .header("Access-Control-Request-Headers", "content-type")
+            .header("Access-Control-Request-Private-Network", "true")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(preflight.status(), 204);
+        let header = |name: &str| preflight.headers().get(name).map(|v| v.to_str().unwrap().to_string());
+        assert_eq!(header("access-control-allow-origin").as_deref(), Some(WEB_APP));
+        assert_eq!(header("access-control-allow-methods").as_deref(), Some("POST, GET, OPTIONS"));
+        assert_eq!(header("access-control-allow-headers").as_deref(), Some("Content-Type"));
+        assert_eq!(header("access-control-allow-private-network").as_deref(), Some("true"));
+        assert_eq!(header("access-control-max-age").as_deref(), Some("600"));
+        assert!(still_waiting(&waiter).await, "the preflight is not the answer");
+
+        let res = drawer_post(port, json!({ "status": "completed", "appId": "app-9" })).send().await.unwrap();
+        assert_eq!(res.status(), 200);
+        assert_eq!(res.headers()["access-control-allow-origin"], WEB_APP);
+        assert_eq!(res.text().await.unwrap(), "ok");
+        assert_eq!(
+            settled(waiter).await,
+            OAuthResult { status: "completed".into(), app_id: Some("app-9".into()), error: None }
+        );
+    }
+
+    #[tokio::test]
+    async fn an_idle_connection_does_not_delay_the_oauth_callback() {
+        let (port, waiter) = oauth_callback_server().await;
+        // A browser preconnect: connected, never sends a request.
+        let _idle = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let res = tokio::time::timeout(
+            Duration::from_secs(5),
+            drawer_post(port, json!({ "status": "completed", "appId": "app-9" })).send(),
+        )
+        .await
+        .expect("the POST is answered while the idle connection stays open")
+        .unwrap();
+        assert_eq!(res.status(), 200);
+        assert_eq!(settled(waiter).await.app_id.as_deref(), Some("app-9"));
+    }
+
+    #[tokio::test]
+    async fn idle_oauth_callback_connections_are_closed_after_the_read_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let waiter =
+            tokio::spawn(async move { wait_for_oauth_callback_with(&listener, Duration::from_millis(100)).await });
+        let mut idle = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let mut buf = [0u8; 16];
+        let read = tokio::time::timeout(Duration::from_secs(5), idle.read(&mut buf)).await;
+        assert!(matches!(read, Ok(Ok(0)) | Ok(Err(_))), "the server closes the idle connection: {read:?}");
+        assert!(!waiter.is_finished());
+        waiter.abort();
+    }
+
+    #[tokio::test]
+    async fn a_get_with_a_status_settles_the_oauth_callback() {
+        let (port, waiter) = oauth_callback_server().await;
+        let res = reqwest::get(format!("http://127.0.0.1:{port}/callback?status=failed&error=x")).await.unwrap();
+        assert_eq!(res.status(), 200);
+        assert_eq!(
+            settled(waiter).await,
+            OAuthResult { status: "failed".into(), app_id: None, error: Some("x".into()) }
+        );
+    }
+
+    #[tokio::test]
+    async fn requests_that_are_not_the_outcome_keep_the_oauth_callback_waiting() {
+        let (port, waiter) = oauth_callback_server().await;
+        let http = reqwest::Client::new();
+        let url = |path: &str| format!("http://127.0.0.1:{port}{path}");
+        assert_eq!(http.get(url("/favicon.ico")).send().await.unwrap().status(), 404);
+        assert_eq!(http.get(url("/callback?sessionId=s1")).send().await.unwrap().status(), 400);
+        let put = http.put(url("/callback?status=completed")).send().await.unwrap();
+        assert_eq!(put.status(), 405);
+        assert_eq!(put.headers()["allow"], "POST, GET, OPTIONS");
+        assert!(still_waiting(&waiter).await);
+
+        drawer_post(port, json!({ "status": "cancelled" })).send().await.unwrap();
+        assert_eq!(settled(waiter).await, OAuthResult { status: "cancelled".into(), app_id: None, error: None });
     }
 
     #[tokio::test]
