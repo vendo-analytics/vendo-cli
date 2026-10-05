@@ -113,6 +113,21 @@ function compare(ts, rust, { json, keyCasing }) {
 }
 
 const TRANSIENT = /timed out|fetch failed|rate limit|error sending request/i;
+const RATE_LIMITED = /rate limit/i;
+
+/**
+ * Run one CLI command. The API refuses a rate-limited call before the command
+ * runs, so wait out the key's minute window and run it again. The test key
+ * allows 60 requests a minute, shared by both CLIs.
+ */
+function runCli(cli, args) {
+  let res = session.run(cli, args);
+  for (let i = 0; i < 2 && RATE_LIMITED.test(failureLine(res.stderr) ?? ''); i++) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 61_000);
+    res = session.run(cli, args);
+  }
+  return res;
+}
 
 /**
  * Staging flakes (timeouts, rate limits, a swallowed catalog hiccup) make one
@@ -132,13 +147,13 @@ function flakySides(res) {
  * `must` aborts the run (after cleanup) unless both CLIs exit 0.
  */
 function step(name, argsFor, { json = false, keyCasing = false, must = false } = {}) {
-  const res = Object.fromEntries(CLIS.map((cli) => [cli, session.run(cli, argsFor(cli))]));
+  const res = Object.fromEntries(CLIS.map((cli) => [cli, runCli(cli, argsFor(cli))]));
   let diffs = compare(res.ts, res.rust, { json, keyCasing });
   const retried = [];
   if (diffs.length) {
     for (const cli of flakySides(res)) {
       retried.push(`${label(cli)} after: ${failureLine(res[cli].stderr)}`);
-      res[cli] = session.run(cli, argsFor(cli));
+      res[cli] = runCli(cli, argsFor(cli));
     }
     if (retried.length) diffs = compare(res.ts, res.rust, { json, keyCasing });
   }
@@ -171,7 +186,7 @@ function idsFrom(res, read = (r) => JSON.parse(r.stdout).data.id) {
 function runWithRetry(args, attempts = 3) {
   let res;
   for (let i = 0; i < attempts; i++) {
-    res = session.run('rust', args);
+    res = runCli('rust', args);
     if (res.code === 0) return res;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
   }
@@ -199,7 +214,7 @@ function sweep() {
 }
 
 function getJson(cli, args) {
-  const res = session.run(cli, [...args, '--json']);
+  const res = runCli(cli, [...args, '--json']);
   return res.code === 0 ? JSON.parse(res.stdout) : null;
 }
 
