@@ -117,11 +117,14 @@ pub enum Command {
         base_url: Option<String>,
     },
     /// Remove stored credentials
-    #[command(after_help = "Examples:\n  $ vendo logout\n  $ vendo logout --all")]
+    #[command(after_help = "Examples:\n  $ vendo logout\n  $ vendo logout --all\n  $ vendo logout --all --yes")]
     Logout {
         /// Remove every saved profile, not just the active one
         #[arg(long)]
         all: bool,
+        /// Skip the confirmation prompt for --all
+        #[arg(short, long)]
+        yes: bool,
     },
     /// Manage CLI configuration
     Config {

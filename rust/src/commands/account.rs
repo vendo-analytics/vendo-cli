@@ -83,8 +83,13 @@ pub async fn init(ctx: &Ctx, env: Option<String>, base_url: Option<String>) -> R
     Ok(())
 }
 
-pub fn logout(ctx: &Ctx, all: bool) -> Result<()> {
+pub fn logout(ctx: &Ctx, all: bool, yes: bool) -> Result<()> {
     if all {
+        // The TS CLI removed everything without asking (VE-3823, Yalcin 2026-10-06).
+        if !confirm(yes, "Remove every saved profile?", "This removes every saved profile and its API key.")? {
+            println!("{}", dim("Cancelled."));
+            return Ok(());
+        }
         if ctx.store.delete() {
             print_success("Logged out. All profiles removed.");
         } else {

@@ -1513,6 +1513,23 @@ fn without_a_terminal_config_reset_needs_yes() {
     assert!(!file.exists());
 }
 
+#[test]
+fn without_a_terminal_logout_all_needs_yes() {
+    let sandbox = Sandbox::new(CLOSED);
+    let file = sandbox.home.path().join(".config/vendo/config.json");
+    assert_needs_yes(&sandbox.run(&["logout", "--all"]), "This removes every saved profile and its API key.");
+    assert!(file.exists(), "the refusal kept every profile");
+    assert_eq!(ok_output(&sandbox.run(&["logout", "--all", "--yes"])), "Done: Logged out. All profiles removed.\n");
+    assert!(!file.exists());
+}
+
+#[test]
+fn logging_out_of_one_profile_still_needs_no_yes() {
+    let sandbox = Sandbox::new(CLOSED);
+    assert_eq!(ok_output(&sandbox.run(&["logout"])), "Done: Logged out of profile \"alpha\".\n");
+    assert!(sandbox.config()["profiles"]["beta"]["apiKey"].is_string(), "the other profile is kept");
+}
+
 /// A pseudo-terminal: the controller the test reads and types into, and the
 /// terminal end that `vendo` gets as stdin, stdout or stderr.
 #[cfg(unix)]
@@ -1588,6 +1605,7 @@ async fn on_a_terminal_the_question_is_unchanged() {
             "Cancelled\n",
         ),
         (&["config", "reset"], "Delete all CLI configuration? (y/N) ", "Cancelled.\n"),
+        (&["logout", "--all"], "Remove every saved profile? (y/N) ", "Cancelled.\n"),
     ] {
         let (screen, code) = answer_on_terminal(&sandbox, args, "n\n");
         assert_eq!(code, Some(0), "{args:?}: {screen:?}");

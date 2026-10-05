@@ -27,9 +27,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `LANG` as Node's ICU does (ICU4X, `rust/src/output/locale.rs`). Node-generated tables fill ICU4X's gaps
   (`scripts/gen-ymd-patterns.mjs`, `scripts/gen-usd-patterns.mjs`), and `scripts/gen-locale-fixture.mjs`
   writes the Node values the tests check. Regenerate all three when Node's ICU changes.
-- Confirmation (VE-3823, decided by Yalcin, 2026-10-05): delete, cancel and reset ask y/N only when stdin and
-  stdout are both terminals. Otherwise they need `--yes` and stop with exit 1 before any request, where the TS CLI
-  went ahead; `--json` no longer implies `--yes`. `output::confirm` owns this.
+- Confirmation (VE-3823, decided by Yalcin, 2026-10-05): delete, cancel, reset and `logout --all` ask y/N only when
+  stdin and stdout are both terminals. Otherwise they need `--yes` and stop with exit 1 before any request, where the
+  TS CLI went ahead; `--json` no longer implies `--yes`. `output::confirm` owns this.
 - Stack: clap 4, reqwest (rustls), tokio, serde_json (`preserve_order`, `arbitrary_precision`), ICU4X,
   comfy-table, indicatif.
   Toolchain: `rustup` stable (`~/.cargo/bin`); `pnpm rust:test`, `pnpm rust:build`,
@@ -88,7 +88,8 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
   (`cargo update --workspace` from `rust/`) in one commit, merged through a PR like any change. Then tag that
   commit `cli-vX.Y.Z-rc.N` and push the tag. Agents never push tags or create releases: Yalcin approves each one.
 - Before tagging, run `pnpm build && pnpm parity:help --rust rust/target/release/vendo` on that commit. Every help
-  screen must be the same. This is a manual step, not a CI job (decided by Yalcin, 2026-10-05): the TypeScript CLI
+  screen must be the same, except the two accepted for VE-3823 (`logout`, `metrics delete`; Yalcin, 2026-10-06).
+  This is a manual step, not a CI job (decided by Yalcin, 2026-10-05): the TypeScript CLI
   it compares against is deleted at 1.0.0 (VE-3669).
 - Installing a release candidate: `VENDO_VERSION=cli-vX.Y.Z-rc.N bash install.sh` from a checkout,
   `curl -fsSL https://app2.vendodata.com/install.sh | VENDO_VERSION=cli-vX.Y.Z-rc.N bash` from anywhere, or
