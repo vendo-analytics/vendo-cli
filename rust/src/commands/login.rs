@@ -4,7 +4,7 @@
 //! `http://127.0.0.1:<port>/callback?key=&account=&account_id=&state=`.
 //! The server requires `state` to match `^[a-f0-9]{32}$`.
 
-use std::{collections::HashMap, io::Write, time::Duration};
+use std::{io::Write, time::Duration};
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value};
@@ -18,11 +18,14 @@ use crate::{
     config::DEFAULT_BASE_URL,
     context::Ctx,
     identity::{IdentityError, fetch_identity},
-    output::{bold, dim, print_success, run_action},
+    output::{bold, dim, green, run_action},
     update_check,
 };
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// How long a callback connection may take to send its request line and
+/// headers: Node's HTTP server default (`headersTimeout`).
+const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub struct LoginResult {
     pub account: String,
@@ -40,13 +43,7 @@ pub async fn run(
     // the wrong one (VE-1563).
     let base_url = ctx.store.resolve_login_base_url(env.as_deref(), base_url.as_deref())?;
 
-    let result = if api_key.is_some() || account.is_some() {
-        let (Some(api_key), Some(account_id)) = (api_key, account) else {
-            bail!(
-                "Both --api-key and --account are required for headless login.\n{}",
-                dim("  Example: vendo login --api-key <key> --account <id>")
-            );
-        };
+    let result = if let Some((api_key, account_id)) = headless_credentials(api_key, account)? {
         let identity = run_action("Validating credentials...", async {
             fetch_identity(&api_key, &account_id, &base_url, ctx.debug).await.map_err(|err| match err {
                 IdentityError::Http { status, .. } => {
@@ -67,6 +64,20 @@ pub async fn run(
     Ok(())
 }
 
+/// `--api-key` and `--account` read as the TS CLI did (`opts.apiKey ||
+/// opts.account`, so empty is unset): both for a headless login, neither for
+/// the browser flow, anything else is an error.
+pub fn headless_credentials(api_key: Option<String>, account: Option<String>) -> Result<Option<(String, String)>> {
+    match (api_key.filter(|k| !k.is_empty()), account.filter(|a| !a.is_empty())) {
+        (None, None) => Ok(None),
+        (Some(api_key), Some(account)) => Ok(Some((api_key, account))),
+        _ => bail!(
+            "Both --api-key and --account are required for headless login.\n{}",
+            dim("  Example: vendo login --api-key <key> --account <id>")
+        ),
+    }
+}
+
 /// The browser flow, shared with `vendo init`.
 pub async fn run_browser_login(ctx: &Ctx, base_url: &str) -> Result<LoginResult> {
     update_check::check(&ctx.update_cache_path()).await;
@@ -76,17 +87,24 @@ pub async fn run_browser_login(ctx: &Ctx, base_url: &str) -> Result<LoginResult>
 }
 
 pub fn print_login_success(result: &LoginResult) {
-    println!();
-    print_success(&format!("Authenticated as {}", bold(&result.account)));
-    println!("{}", dim(&format!("Active profile: {}", result.account)));
-    if let Some(id) = &result.account_id {
-        println!("{}", dim(&format!("Account ID saved: {id}")));
+    for line in login_success_lines(result) {
+        println!("{line}");
     }
-    println!();
-    println!("{}", bold("Next steps"));
-    println!("  vendo whoami");
-    println!("  vendo status");
-    println!("  vendo doctor");
+}
+
+fn login_success_lines(result: &LoginResult) -> Vec<String> {
+    let mut lines = vec![
+        String::new(),
+        format!("{} Authenticated as {}", green("Done:"), bold(&result.account)),
+        dim(&format!("Active profile: {}", result.account)),
+    ];
+    // `if (result.accountId)`: an empty ID is saved but not announced.
+    if let Some(id) = result.account_id.as_deref().filter(|id| !id.is_empty()) {
+        lines.push(dim(&format!("Account ID saved: {id}")));
+    }
+    lines.extend([String::new(), bold("Next steps"), "  vendo whoami".into(), "  vendo status".into()]);
+    lines.push("  vendo doctor".into());
+    lines
 }
 
 fn profile(api_key: &str, account_id: Option<&str>, base_url: &str) -> Map<String, Value> {
@@ -138,36 +156,61 @@ pub async fn wait_for_callback(listener: &TcpListener, state: &str, timeout: Dur
 }
 
 /// Serve the local callback until a `/callback` request arrives; other paths
-/// get a 404 and the flow keeps waiting.
+/// get a 404 and the flow keeps waiting. Connections are served side by side,
+/// as Node's HTTP server does, so an idle browser preconnect can't hold up
+/// the real request.
 pub async fn accept_callback(listener: &TcpListener, state: &str) -> Result<Callback> {
-    loop {
-        let (mut socket, _) = listener.accept().await?;
-        let Some(target) = read_request_target(&mut socket).await else { continue };
-        let url = match reqwest::Url::parse(&format!("http://localhost{target}")) {
-            Ok(url) if url.path() == "/callback" => url,
-            _ => {
-                respond(&mut socket, "404 Not Found", "").await;
-                continue;
-            }
-        };
-        let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
-        let get = |key: &str| query.get(key).filter(|v| !v.is_empty()).cloned();
+    accept_callback_with(listener, state, READ_TIMEOUT).await
+}
 
-        if let Some(error) = get("error") {
-            respond_page(&mut socket, "Authentication Failed", &error).await;
-            bail!(error);
+pub async fn accept_callback_with(listener: &TcpListener, state: &str, read_timeout: Duration) -> Result<Callback> {
+    let mut connections = tokio::task::JoinSet::new();
+    loop {
+        tokio::select! {
+            accepted = listener.accept() => {
+                if let Ok((socket, _)) = accepted {
+                    connections.spawn(handle_connection(socket, state.to_string(), read_timeout));
+                }
+            }
+            Some(handled) = connections.join_next() => {
+                if let Ok(Some(outcome)) = handled {
+                    return outcome;
+                }
+            }
         }
-        if get("state").as_deref() != Some(state) {
-            respond_page(&mut socket, "Invalid Request", "State mismatch. Please try again.").await;
-            bail!("State mismatch — possible CSRF attack");
-        }
-        let (Some(key), Some(account)) = (get("key"), get("account")) else {
-            respond_page(&mut socket, "Missing Credentials", "Please try again.").await;
-            bail!("Missing key or account in callback");
-        };
-        respond_page(&mut socket, "Authenticated", "You can close this window and return to the terminal.").await;
-        return Ok(Callback { key, account, account_id: get("account_id") });
     }
+}
+
+/// One connection: `None` unless it was a `/callback` request, which ends the
+/// flow either way. Like `URLSearchParams.get`, the first value of a repeated
+/// parameter counts.
+async fn handle_connection(mut socket: TcpStream, state: String, read_timeout: Duration) -> Option<Result<Callback>> {
+    let target = tokio::time::timeout(read_timeout, read_request_target(&mut socket)).await.ok()??;
+    let url = match reqwest::Url::parse(&format!("http://localhost{target}")) {
+        Ok(url) if url.path() == "/callback" => url,
+        _ => {
+            respond(&mut socket, "404 Not Found", "").await;
+            return None;
+        }
+    };
+    let param = |key: &str| url.query_pairs().find(|(k, _)| k == key).map(|(_, v)| v.into_owned());
+    let given = |key: &str| param(key).filter(|v| !v.is_empty());
+
+    if let Some(error) = given("error") {
+        respond_page(&mut socket, "Authentication Failed", &error).await;
+        return Some(Err(anyhow!(error)));
+    }
+    if param("state").as_deref() != Some(state.as_str()) {
+        respond_page(&mut socket, "Invalid Request", "State mismatch. Please try again.").await;
+        return Some(Err(anyhow!("State mismatch — possible CSRF attack")));
+    }
+    let (Some(key), Some(account)) = (given("key"), given("account")) else {
+        respond_page(&mut socket, "Missing Credentials", "Please try again.").await;
+        return Some(Err(anyhow!("Missing key or account in callback")));
+    };
+    respond_page(&mut socket, "Authenticated", "You can close this window and return to the terminal.").await;
+    // `accountId ?? undefined`: an empty account_id is kept (and saved).
+    Some(Ok(Callback { key, account, account_id: param("account_id") }))
 }
 
 async fn read_request_target(socket: &mut TcpStream) -> Option<String> {
@@ -296,5 +339,69 @@ mod tests {
             Value::Object(p),
             serde_json::json!({ "apiKey": "k", "accountId": "a", "baseUrl": "https://stg.vendodata.com" })
         );
+    }
+
+    #[test]
+    fn headless_login_reads_its_flags_with_javascript_truthiness() {
+        let s = |v: &str| Some(v.to_string());
+        assert_eq!(headless_credentials(s("k"), s("a")).unwrap(), Some(("k".into(), "a".into())));
+        for (key, account) in [(s("k"), s("")), (s(""), s("a")), (s("k"), None), (None, s("a"))] {
+            let err = headless_credentials(key.clone(), account.clone()).unwrap_err().to_string();
+            assert!(err.starts_with("Both --api-key and --account are required"), "{key:?} {account:?}: {err}");
+        }
+        // Both empty: the browser flow, as in the TS CLI.
+        assert_eq!(headless_credentials(s(""), s("")).unwrap(), None);
+        assert_eq!(headless_credentials(None, None).unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn an_idle_connection_does_not_block_the_callback() {
+        let (listener, port) = serve().await;
+        let server = tokio::spawn(async move { accept_callback(&listener, "abc").await });
+        // A browser preconnect: connected, never sends a request.
+        let _idle = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let (status, _) = hit(port, "/callback?key=k1&account=acme&state=abc").await;
+        assert_eq!(status, 200);
+        assert_eq!(server.await.unwrap().unwrap().key, "k1");
+    }
+
+    #[tokio::test]
+    async fn idle_connections_are_closed_after_the_read_timeout() {
+        let (listener, port) = serve().await;
+        let server =
+            tokio::spawn(async move { accept_callback_with(&listener, "abc", Duration::from_millis(100)).await });
+        let mut idle = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let mut buf = [0u8; 16];
+        let read = tokio::time::timeout(Duration::from_secs(5), idle.read(&mut buf)).await;
+        assert!(matches!(read, Ok(Ok(0)) | Ok(Err(_))), "the server closes the idle connection: {read:?}");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn the_first_value_of_a_parameter_counts_and_an_empty_account_id_is_kept() {
+        let (listener, port) = serve().await;
+        let server = tokio::spawn(async move { accept_callback(&listener, "abc").await });
+        let (status, _) = hit(port, "/callback?key=k1&key=k2&account=acme&account=other&account_id=&state=abc").await;
+        assert_eq!(status, 200);
+        assert_eq!(
+            server.await.unwrap().unwrap(),
+            Callback { key: "k1".into(), account: "acme".into(), account_id: Some(String::new()) }
+        );
+
+        let (listener, port) = serve().await;
+        let server = tokio::spawn(async move { accept_callback(&listener, "abc").await });
+        assert!(hit(port, "/callback?key=k&account=a&state=nope&state=abc").await.1.contains("Invalid Request"));
+        assert_eq!(server.await.unwrap().unwrap_err().to_string(), "State mismatch — possible CSRF attack");
+    }
+
+    #[test]
+    fn an_empty_account_id_is_saved_but_not_announced() {
+        let p = profile("k", Some(""), DEFAULT_BASE_URL);
+        assert_eq!(Value::Object(p), serde_json::json!({ "apiKey": "k", "accountId": "" }));
+        let lines = |id: Option<&str>| {
+            login_success_lines(&LoginResult { account: "acme".into(), account_id: id.map(Into::into) }).join("\n")
+        };
+        assert!(!lines(Some("")).contains("Account ID saved"));
+        assert!(lines(Some("a-1")).contains("Account ID saved: a-1"));
     }
 }

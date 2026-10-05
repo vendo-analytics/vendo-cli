@@ -125,11 +125,10 @@ pub async fn cancel(
     Ok(())
 }
 
-/// `Number(value)` from JavaScript, for `--interval`: whitespace-trimmed,
-/// empty is 0. Returns the interval only when finite and positive.
+/// `--interval` read with JavaScript's `Number()` (`0x10` is 16 seconds).
+/// Returns the interval only when finite and positive.
 pub fn parse_interval_seconds(raw: &str) -> Option<f64> {
-    let trimmed = raw.trim();
-    let n = if trimmed.is_empty() { 0.0 } else { trimmed.parse::<f64>().ok()? };
+    let n = crate::output::js_number(raw);
     (n.is_finite() && n > 0.0).then_some(n)
 }
 
@@ -161,9 +160,26 @@ pub struct TailArgs {
     pub interval: String,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum TailTarget {
+    Job(String),
+    Resource(String, ResourceKind),
+}
+
+/// The one thing `jobs tail` follows. Empty values count as missing, as the
+/// TS CLI's `filter(Boolean)` did; `None` unless exactly one is given.
+pub fn tail_target(job_id: Option<String>, source: Option<String>, integration: Option<String>) -> Option<TailTarget> {
+    let given = |value: Option<String>| value.filter(|v| !v.is_empty());
+    match (given(job_id), given(source), given(integration)) {
+        (Some(job_id), None, None) => Some(TailTarget::Job(job_id)),
+        (None, Some(source), None) => Some(TailTarget::Resource(source, ResourceKind::Source)),
+        (None, None, Some(integration)) => Some(TailTarget::Resource(integration, ResourceKind::Integration)),
+        _ => None,
+    }
+}
+
 pub async fn tail(ctx: &Ctx, args: TailArgs) -> Result<ExitCode> {
-    let targets = [&args.job_id, &args.source, &args.integration].iter().filter(|t| t.is_some()).count();
-    if targets != 1 {
+    let Some(target) = tail_target(args.job_id, args.source, args.integration) else {
         arg_error(
             "Specify exactly one target: <jobId>, --source <sourceId>, or --integration <integrationId>.",
             &[
@@ -173,7 +189,7 @@ pub async fn tail(ctx: &Ctx, args: TailArgs) -> Result<ExitCode> {
                 "vendo jobs tail --source <sourceId> --next",
             ],
         );
-    }
+    };
     let Some(seconds) = parse_interval_seconds(&args.interval) else {
         arg_error(
             "Polling interval must be a positive number of seconds.",
@@ -183,22 +199,22 @@ pub async fn tail(ctx: &Ctx, args: TailArgs) -> Result<ExitCode> {
     let interval = interval_ms(seconds);
     let mut screen = Terminal::default();
 
-    if let Some(job_id) = &args.job_id {
-        if args.next {
-            arg_error(
-                "`--next` can only be used with `--source` or `--integration`.",
-                &["vendo jobs tail --source <sourceId> --next", "vendo jobs tail --integration <integrationId> --next"],
-            );
+    let (resource_id, kind) = match target {
+        TailTarget::Job(job_id) => {
+            if args.next {
+                arg_error(
+                    "`--next` can only be used with `--source` or `--integration`.",
+                    &[
+                        "vendo jobs tail --source <sourceId> --next",
+                        "vendo jobs tail --integration <integrationId> --next",
+                    ],
+                );
+            }
+            let client = ctx.client()?;
+            watch::tail_job(&client, &mut screen, &job_id, interval, MAX_WAIT).await?;
+            return Ok(ExitCode::SUCCESS);
         }
-        let client = ctx.client()?;
-        watch::tail_job(&client, &mut screen, job_id, interval, MAX_WAIT).await?;
-        return Ok(ExitCode::SUCCESS);
-    }
-
-    let (resource_id, kind) = match (&args.source, &args.integration) {
-        (Some(source), _) => (source.clone(), ResourceKind::Source),
-        (None, Some(integration)) => (integration.clone(), ResourceKind::Integration),
-        (None, None) => unreachable!("exactly one target was checked above"),
+        TailTarget::Resource(resource_id, kind) => (resource_id, kind),
     };
     let client = ctx.client()?;
     let next = if args.next {
@@ -223,8 +239,35 @@ mod tests {
         assert_eq!(parse_interval_seconds("5"), Some(5.0));
         assert_eq!(parse_interval_seconds(" 2.5 "), Some(2.5));
         assert_eq!(parse_interval_seconds("1e1"), Some(10.0));
-        for bad in ["0", "-1", "", "abc", "inf", "NaN"] {
+        assert_eq!(parse_interval_seconds("0x10"), Some(16.0));
+        assert_eq!(parse_interval_seconds("0b11"), Some(3.0));
+        assert_eq!(parse_interval_seconds("0o7"), Some(7.0));
+        for bad in ["0", "-1", "", "abc", "inf", "NaN", "Infinity", "-0x10", "0x"] {
             assert_eq!(parse_interval_seconds(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn tail_targets_follow_javascript_truthiness() {
+        let s = |v: &str| Some(v.to_string());
+        assert_eq!(tail_target(s("j1"), None, None), Some(TailTarget::Job("j1".into())));
+        for (job, source, integration) in [
+            (None, s(""), None),
+            (None, None, s("")),
+            (s(""), None, None),
+            (None, None, None),
+            (s("j1"), s("s1"), None),
+        ] {
+            assert_eq!(
+                tail_target(job.clone(), source.clone(), integration.clone()),
+                None,
+                "{job:?} {source:?} {integration:?}"
+            );
+        }
+        assert_eq!(
+            tail_target(None, s(""), s("i1")),
+            Some(TailTarget::Resource("i1".into(), ResourceKind::Integration))
+        );
+        assert_eq!(tail_target(s(""), s("s1"), s("")), Some(TailTarget::Resource("s1".into(), ResourceKind::Source)));
     }
 }

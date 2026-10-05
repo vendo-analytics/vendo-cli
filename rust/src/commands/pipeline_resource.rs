@@ -65,15 +65,17 @@ pub fn split_list(value: &str) -> Vec<Value> {
     value.split(',').map(str::trim).filter(|s| !s.is_empty()).map(|s| Value::String(s.to_string())).collect()
 }
 
-/// `Number(value)` for numeric flags sent in a body: NaN becomes JSON `null`,
-/// as `JSON.stringify` does.
+/// `Number(value)` for numeric flags sent in a body (`0x10` is 16). NaN and
+/// ±Infinity become JSON `null`, as `JSON.stringify` writes them; the client
+/// prints the rest the JavaScript way (see `output::js_stringify`).
 pub fn js_number_value(value: &str) -> Value {
-    let trimmed = value.trim();
-    let n = if trimmed.is_empty() { Some(0.0) } else { trimmed.parse::<f64>().ok().filter(|n| n.is_finite()) };
-    match n {
-        Some(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => json!(n as i64),
-        Some(n) => json!(n),
-        None => Value::Null,
+    let n = crate::output::js_number(value);
+    if !n.is_finite() {
+        Value::Null
+    } else if n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_992.0 {
+        json!(n as i64)
+    } else {
+        json!(n)
     }
 }
 
@@ -238,6 +240,12 @@ mod tests {
         assert_eq!(js_number_value("1.5"), json!(1.5));
         assert_eq!(js_number_value(""), json!(0));
         assert_eq!(js_number_value("abc"), Value::Null);
+        assert_eq!(js_number_value("0x10"), json!(16));
+        assert_eq!(js_number_value(" 0b11 "), json!(3));
+        assert_eq!(js_number_value("Infinity"), Value::Null);
+        assert_eq!(js_number_value("-0"), json!(0));
+        let big = json!({ "frequencyValue": js_number_value("12345678901234567890") });
+        assert_eq!(crate::output::js_stringify(&big), r#"{"frequencyValue":12345678901234567000}"#);
     }
 
     #[test]

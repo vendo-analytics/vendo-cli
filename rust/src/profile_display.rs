@@ -74,12 +74,14 @@ pub fn switch_profile_selection(ctx: &Ctx, profiles: &[ProfileSummary], opts: Sw
         println!("{}", dim(opts.empty_message));
         return Ok(());
     }
-    let mut profile_name = opts.profile_name;
-    if profile_name.is_some() && opts.account_id.is_some() {
+    // Empty values count as unset, as the TS CLI's truthiness checks had it.
+    let mut profile_name = opts.profile_name.filter(|name| !name.is_empty());
+    let account_id = opts.account_id.filter(|id| !id.is_empty());
+    if profile_name.is_some() && account_id.is_some() {
         bail!("Choose either a profile name or `--account <accountId>`, not both.");
     }
 
-    if let Some(account_id) = &opts.account_id {
+    if let Some(account_id) = &account_id {
         let matches = ctx.store.find_profiles_by_account_id(account_id);
         match matches.as_slice() {
             [] => bail!(

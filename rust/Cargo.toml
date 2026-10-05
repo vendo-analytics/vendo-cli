@@ -23,10 +23,14 @@ jiff = "0.2.37"
 open = "5.4.4"
 owo-colors = { version = "4.4.0", features = ["supports-colors"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
+semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["float_roundtrip", "preserve_order"] }
 tokio = { version = "1.53.2", features = ["rt", "macros", "net", "io-util", "time", "signal"] }
 uuid = { version = "1.27.0", features = ["v4"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"
 
 [dev-dependencies]
 tempfile = "3.27.0"

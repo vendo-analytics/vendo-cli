@@ -18,14 +18,61 @@ use serde_json::Value;
 
 use crate::client::ApiError;
 
+/// JavaScript truthiness for a JSON value.
+pub fn js_truthy(v: &Value) -> bool {
+    match v {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+        Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
+/// `print!`/`println!` (see main.rs): write errors are ignored, as Node's
+/// `console` does, so a closed pipe never aborts a command (VE-3727).
+pub fn write_stdout(args: std::fmt::Arguments, newline: bool) {
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_fmt(args);
+    if newline {
+        let _ = out.write_all(b"\n");
+    }
+}
+
+pub fn write_stdout_bytes(bytes: &[u8]) {
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(bytes);
+    let _ = out.flush();
+}
+
+/// `eprint!`/`eprintln!`: like [`write_stdout`], for stderr.
+pub fn write_stderr(args: std::fmt::Arguments, newline: bool) {
+    let mut err = std::io::stderr().lock();
+    let _ = err.write_fmt(args);
+    if newline {
+        let _ = err.write_all(b"\n");
+    }
+}
+
+/// Whether stdout is a terminal. Never in unit tests: what they assert must
+/// not depend on the terminal that runs `cargo test` (VE-3727).
 pub fn stdout_is_tty() -> bool {
-    std::io::stdout().is_terminal()
+    !cfg!(test) && std::io::stdout().is_terminal()
+}
+
+/// Style `s` for `stream` when owo-colors says that stream takes colour.
+/// Never in unit tests, for the same reason as [`stdout_is_tty`].
+pub fn paint(s: &str, stream: Stream, style: impl Fn(&str) -> String) -> String {
+    if cfg!(test) {
+        return s.to_string();
+    }
+    s.if_supports_color(stream, |t| style(t)).to_string()
 }
 
 macro_rules! color_fns {
     ($($name:ident => $method:ident),* $(,)?) => {
         $(pub fn $name(s: &str) -> String {
-            s.if_supports_color(Stream::Stdout, |t| t.$method()).to_string()
+            paint(s, Stream::Stdout, |t| t.$method().to_string())
         })*
     };
 }
@@ -49,9 +96,7 @@ pub fn table(headers: &[&str]) -> Table {
     let mut table = Table::new();
     if stdout_is_tty() {
         table.load_style(presets::UTF8_FULL);
-        table.set_header(
-            headers.iter().map(|h| h.if_supports_color(Stream::Stdout, |t| t.cyan().bold().to_string()).to_string()),
-        );
+        table.set_header(headers.iter().map(|h| paint(h, Stream::Stdout, |t| t.cyan().bold().to_string())));
     } else {
         table.load_style(presets::NOTHING);
         table.set_header(headers.to_vec());
@@ -123,8 +168,8 @@ pub fn time_ago(value: Option<&str>) -> String {
 
 pub fn time_ago_at(value: Option<&str>, now: jiff::Timestamp) -> String {
     let Some(raw) = value.filter(|v| !v.is_empty()) else { return dim("—") };
-    let Ok(then) = raw.parse::<jiff::Timestamp>() else { return "Invalid Date".to_string() };
-    let diff_ms = now.as_millisecond() - then.as_millisecond();
+    let Some(then_ms) = js_date_parse(raw) else { return "Invalid Date".to_string() };
+    let diff_ms = now.as_millisecond() - then_ms;
     if diff_ms < 0 {
         return "just now".to_string();
     }
@@ -144,7 +189,9 @@ pub fn time_ago_at(value: Option<&str>, now: jiff::Timestamp) -> String {
     if days < 30 {
         return format!("{days}d ago");
     }
-    then.to_zoned(jiff::tz::TimeZone::system()).strftime("%-m/%-d/%Y").to_string()
+    jiff::Timestamp::from_millisecond(then_ms)
+        .map(|then| then.to_zoned(jiff::tz::TimeZone::system()).strftime("%-m/%-d/%Y").to_string())
+        .unwrap_or_else(|_| "Invalid Date".to_string())
 }
 
 pub fn short_id(id: &str) -> String {
@@ -169,36 +216,137 @@ pub fn format_number(n: Option<f64>) -> String {
     if frac.is_empty() { format!("{sign}{grouped}") } else { format!("{sign}{grouped}.{frac}") }
 }
 
-/// `Date.parse` for the ISO shapes the API and users send: offset datetimes
-/// (`Z`, `±HH:MM`, and V8's lenient `±HHMM`), bare dates as UTC midnight, and
-/// offset-less datetimes as local time. Milliseconds since the epoch.
+/// `Date.parse` as Node evaluates it (see `js_date`): milliseconds since the
+/// epoch, `None` where JavaScript gives NaN.
 pub fn js_date_parse(value: &str) -> Option<i64> {
-    let value = value.trim();
-    if let Ok(ts) = value.parse::<jiff::Timestamp>() {
-        return Some(ts.as_millisecond());
+    crate::js_date::parse(value)
+}
+
+/// JavaScript `Number(string)`: JS whitespace trimmed, empty is 0, decimal
+/// literals (and `Infinity`) with an optional sign, and unsigned `0x`/`0o`/`0b`
+/// integers; anything else is NaN.
+pub fn js_number(raw: &str) -> f64 {
+    let s = raw.trim_matches(is_js_whitespace);
+    if s.is_empty() {
+        return 0.0;
     }
-    let chars: Vec<char> = value.chars().collect();
-    let n = chars.len();
-    if n >= 5 && matches!(chars[n - 5], '+' | '-') && chars[n - 4..].iter().all(char::is_ascii_digit) {
-        let with_colon: String = chars[..n - 2].iter().chain([':'].iter()).chain(chars[n - 2..].iter()).collect();
-        if let Ok(ts) = with_colon.parse::<jiff::Timestamp>() {
-            return Some(ts.as_millisecond());
+    let bytes = s.as_bytes();
+    if bytes.len() > 2 && bytes[0] == b'0' {
+        let radix = match bytes[1] {
+            b'x' | b'X' => 16,
+            b'o' | b'O' => 8,
+            b'b' | b'B' => 2,
+            _ => 0,
+        };
+        if radix != 0 {
+            return js_radix_integer(&s[2..], radix);
         }
     }
-    if n == 10
-        && let Ok(date) = value.parse::<jiff::civil::Date>()
-    {
-        return date.to_zoned(jiff::tz::TimeZone::UTC).ok().map(|z| z.timestamp().as_millisecond());
+    let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
+    if unsigned == "Infinity" {
+        return if s.starts_with('-') { f64::NEG_INFINITY } else { f64::INFINITY };
     }
-    let datetime = value.parse::<jiff::civil::DateTime>().ok()?;
-    datetime.to_zoned(jiff::tz::TimeZone::system()).ok().map(|z| z.timestamp().as_millisecond())
+    // Rust's float grammar is JavaScript's decimal one, plus `inf`/`nan`.
+    if !unsigned.bytes().all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'e' | b'E' | b'+' | b'-')) {
+        return f64::NAN;
+    }
+    s.parse().unwrap_or(f64::NAN)
+}
+
+/// ECMAScript WhiteSpace and LineTerminator, which `Number()` trims.
+fn is_js_whitespace(c: char) -> bool {
+    matches!(
+        c,
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+    )
+}
+
+fn js_radix_integer(digits: &str, radix: u32) -> f64 {
+    if digits.is_empty() {
+        return f64::NAN;
+    }
+    let mut exact: Option<u128> = Some(0);
+    let mut approx = 0.0_f64;
+    for c in digits.chars() {
+        let Some(digit) = c.to_digit(radix) else { return f64::NAN };
+        exact = exact.and_then(|n| n.checked_mul(radix.into())).and_then(|n| n.checked_add(digit.into()));
+        approx = approx * f64::from(radix) + f64::from(digit);
+    }
+    // Exactly rounded while the value fits in 128 bits, close enough beyond.
+    exact.map_or(approx, |n| n as f64)
+}
+
+/// `Number.prototype.toString()`, which is also how `JSON.stringify` writes a
+/// finite number: the shortest digits that round-trip, in plain notation up
+/// to 21 integer digits and down to 6 leading fraction zeros.
+pub fn js_number_string(n: f64) -> String {
+    if n.is_nan() {
+        return "NaN".into();
+    }
+    if n.is_infinite() {
+        return if n > 0.0 { "Infinity" } else { "-Infinity" }.into();
+    }
+    if n == 0.0 {
+        return "0".into();
+    }
+    // Rust's `{:e}` gives the same shortest round-trip digits.
+    let scientific = format!("{:e}", n.abs());
+    let (mantissa, exponent) = scientific.split_once('e').expect("{:e} always has an exponent");
+    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
+    let k = digits.len() as i32;
+    let point = exponent.parse::<i32>().expect("{:e} exponent is an integer") + 1;
+    let body = if k <= point && point <= 21 {
+        format!("{digits}{}", "0".repeat((point - k) as usize))
+    } else if 0 < point && point <= 21 {
+        format!("{}.{}", &digits[..point as usize], &digits[point as usize..])
+    } else if -6 < point && point <= 0 {
+        format!("0.{}{digits}", "0".repeat(-point as usize))
+    } else {
+        let e = point - 1;
+        let sign = if e < 0 { '-' } else { '+' };
+        let (first, rest) = digits.split_at(1);
+        if rest.is_empty() { format!("{first}e{sign}{}", e.abs()) } else { format!("{first}.{rest}e{sign}{}", e.abs()) }
+    };
+    if n < 0.0 { format!("-{body}") } else { body }
+}
+
+/// Compact JSON as `JSON.stringify` writes it. JavaScript parsed every number
+/// to a double, so integers beyond 2^53 and floats print the JS way
+/// (`12345678901234567000`, `1e+21`, `1` for `1.0`). Used for request bodies.
+pub fn js_stringify(value: &Value) -> String {
+    use serde::Serialize;
+    let mut out = Vec::new();
+    let mut serializer = serde_json::Serializer::with_formatter(&mut out, JsFormatter);
+    value.serialize(&mut serializer).expect("JSON values always serialize");
+    String::from_utf8(out).expect("serde_json writes UTF-8")
+}
+
+struct JsFormatter;
+
+const JS_SAFE_INTEGER: u64 = 1 << 53;
+
+impl serde_json::ser::Formatter for JsFormatter {
+    fn write_f64<W: ?Sized + Write>(&mut self, writer: &mut W, value: f64) -> std::io::Result<()> {
+        writer.write_all(js_number_string(value).as_bytes())
+    }
+
+    fn write_u64<W: ?Sized + Write>(&mut self, writer: &mut W, value: u64) -> std::io::Result<()> {
+        if value <= JS_SAFE_INTEGER { write!(writer, "{value}") } else { self.write_f64(writer, value as f64) }
+    }
+
+    fn write_i64<W: ?Sized + Write>(&mut self, writer: &mut W, value: i64) -> std::io::Result<()> {
+        if value.unsigned_abs() <= JS_SAFE_INTEGER {
+            write!(writer, "{value}")
+        } else {
+            self.write_f64(writer, value as f64)
+        }
+    }
 }
 
 /// `Date.prototype.toISOString()`: UTC with milliseconds.
 pub fn js_iso_string(ms: i64) -> String {
-    jiff::Timestamp::from_millisecond(ms)
-        .map(|ts| ts.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
-        .unwrap_or_else(|_| "Invalid Date".to_string())
+    crate::js_date::iso_string(ms)
 }
 
 /// JavaScript `String(value)` for JSON values, which `--output <field>` uses.
@@ -255,10 +403,12 @@ pub enum OutputMode {
     Table,
 }
 
+/// `--json` wins, then `--output <field>`; an empty field is the table, as
+/// the TS CLI's `if (opts.output)` had it.
 pub fn resolve_output_mode(json: bool, output: Option<&str>) -> OutputMode {
     if json {
         OutputMode::Json
-    } else if output.is_some() {
+    } else if output.is_some_and(|field| !field.is_empty()) {
         OutputMode::Field
     } else {
         OutputMode::Table
@@ -282,11 +432,11 @@ pub fn print_dry_run(action: &str, resource_type: &str, resource_id: &str, detai
 }
 
 fn red_err(s: &str) -> String {
-    s.if_supports_color(Stream::Stderr, |t| t.red()).to_string()
+    paint(s, Stream::Stderr, |t| t.red().to_string())
 }
 
 fn dim_err(s: &str) -> String {
-    s.if_supports_color(Stream::Stderr, |t| t.dimmed()).to_string()
+    paint(s, Stream::Stderr, |t| t.dimmed().to_string())
 }
 
 /// `Error: <message>` plus the request ID when the API gave one.
@@ -314,14 +464,57 @@ pub fn arg_error(message: &str, examples: &[&str]) -> ! {
     std::process::exit(1);
 }
 
-fn prompt(question: &str) -> Option<String> {
+/// What a prompt read.
+#[derive(Debug, PartialEq)]
+pub enum Answer {
+    Line(String),
+    /// Ctrl-C, Ctrl-D or the end of the input.
+    Closed,
+}
+
+/// One answer: up to and including a newline. A line holding the terminal's
+/// interrupt character (Ctrl-C, see [`InterruptAsInput`]) or the end of the
+/// input closes the prompt instead.
+fn read_answer(input: &mut impl BufRead, interrupt: Option<u8>) -> Answer {
+    let mut line = Vec::new();
+    loop {
+        let buf = match input.fill_buf() {
+            Ok(buf) => buf,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Answer::Closed,
+        };
+        if buf.is_empty() {
+            return Answer::Closed;
+        }
+        match buf.iter().position(|b| *b == b'\n' || Some(*b) == interrupt) {
+            Some(end) => {
+                let closed = Some(buf[end]) == interrupt;
+                line.extend_from_slice(&buf[..=end]);
+                input.consume(end + 1);
+                return if closed { Answer::Closed } else { Answer::Line(String::from_utf8_lossy(&line).into_owned()) };
+            }
+            None => {
+                let n = buf.len();
+                line.extend_from_slice(buf);
+                input.consume(n);
+            }
+        }
+    }
+}
+
+fn prompt(question: &str) -> Answer {
     print!("{question}");
     let _ = std::io::stdout().flush();
-    let mut line = String::new();
-    match std::io::stdin().lock().read_line(&mut line) {
-        Ok(0) | Err(_) => None,
-        Ok(_) => Some(line),
-    }
+    let terminal = InterruptAsInput::enable();
+    let answer = read_answer(&mut std::io::stdin().lock(), terminal.key);
+    drop(terminal);
+    answer
+}
+
+/// Ctrl-C or Ctrl-D at a prompt: Node's readline closed and the question
+/// never resolved, so the TS CLI exited 0 with nothing printed or changed.
+fn quit_quietly() -> ! {
+    std::process::exit(0)
 }
 
 /// `(y/N)` prompt. Like the TS CLI, a non-interactive stdout confirms.
@@ -329,9 +522,74 @@ pub fn confirm(message: &str) -> bool {
     if !stdout_is_tty() {
         return true;
     }
-    prompt(&format!("{message} {} ", dim("(y/N)")))
-        .map(|answer| answer.trim().eq_ignore_ascii_case("y"))
-        .unwrap_or(false)
+    match prompt(&format!("{message} {} ", dim("(y/N)"))) {
+        Answer::Line(answer) => answer.trim().eq_ignore_ascii_case("y"),
+        Answer::Closed => quit_quietly(),
+    }
+}
+
+/// While a prompt reads the terminal, its interrupt key (Ctrl-C) arrives as
+/// input and ends the line instead of raising SIGINT, as Node's readline
+/// read the terminal raw. The settings are restored on drop.
+struct InterruptAsInput {
+    #[cfg(unix)]
+    saved: Option<libc::termios>,
+    key: Option<u8>,
+}
+
+impl InterruptAsInput {
+    #[cfg(unix)]
+    fn enable() -> Self {
+        let off = InterruptAsInput { saved: None, key: None };
+        let fd = libc::STDIN_FILENO;
+        // SAFETY: plain termios calls on stdin; `settings` is fully written by
+        // tcgetattr before it is read or passed back to tcsetattr.
+        unsafe {
+            if libc::isatty(fd) != 1 {
+                return off;
+            }
+            let mut settings: libc::termios = std::mem::zeroed();
+            if libc::tcgetattr(fd, &mut settings) != 0 {
+                return off;
+            }
+            let saved = settings;
+            let key = settings.c_cc[libc::VINTR];
+            if key == libc::_POSIX_VDISABLE {
+                return off;
+            }
+            // ECHOCTL off too: readline echoed nothing for Ctrl-C or Ctrl-D.
+            settings.c_lflag &= !(libc::ISIG | libc::ECHOCTL);
+            settings.c_cc[libc::VEOL] = key;
+            if libc::tcsetattr(fd, libc::TCSANOW, &settings) != 0 {
+                return off;
+            }
+            InterruptAsInput { saved: Some(saved), key: Some(key) }
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn enable() -> Self {
+        InterruptAsInput { key: None }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for InterruptAsInput {
+    fn drop(&mut self) {
+        if let Some(saved) = &self.saved {
+            // SAFETY: puts back the settings `enable` read from the same descriptor.
+            unsafe {
+                libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, saved);
+            }
+        }
+    }
+}
+
+/// A picker answer as a 0-based index: `Number(answer)` must be an integer
+/// from 1 to `count`, so `2.0` and `0x2` pick the second option, as in TS.
+fn selection_index(answer: &str, count: usize) -> Option<usize> {
+    let n = js_number(answer);
+    (n.fract() == 0.0 && n >= 1.0 && n <= count as f64).then(|| n as usize - 1)
 }
 
 pub struct SelectOption {
@@ -341,14 +599,19 @@ pub struct SelectOption {
 }
 
 /// Search-then-pick prompt (the TS `searchSelectOption`). `None` when not a
-/// terminal, there are no options, or the user cancels.
+/// terminal, there are no options, or the user types `q`; Ctrl-C and Ctrl-D
+/// end the command quietly.
 pub fn search_select_option(message: &str, options: &[SelectOption]) -> Option<String> {
     if !stdout_is_tty() || options.is_empty() {
         return None;
     }
+    let ask = |question: String| match prompt(&question) {
+        Answer::Line(line) => line,
+        Answer::Closed => quit_quietly(),
+    };
     println!("{message}");
     loop {
-        let query = prompt(&format!("Search {} ", dim("(ENTER for all, q to cancel)")))?.trim().to_lowercase();
+        let query = ask(format!("Search {} ", dim("(ENTER for all, q to cancel)"))).trim().to_lowercase();
         if query == "q" {
             return None;
         }
@@ -367,14 +630,12 @@ pub fn search_select_option(message: &str, options: &[SelectOption]) -> Option<S
         if filtered.len() > displayed.len() {
             println!("{}", dim(&format!("  … {} more matches", filtered.len() - displayed.len())));
         }
-        let selection = prompt(&format!("Choose an option {} ", dim("(ENTER to search again)")))?.trim().to_string();
+        let selection = ask(format!("Choose an option {} ", dim("(ENTER to search again)"))).trim().to_string();
         if selection.is_empty() {
             continue;
         }
-        if let Ok(index) = selection.parse::<usize>()
-            && (1..=displayed.len()).contains(&index)
-        {
-            return Some(displayed[index - 1].value.clone());
+        if let Some(index) = selection_index(&selection, displayed.len()) {
+            return Some(displayed[index].value.clone());
         }
         if let Some(matched) = filtered.iter().find(|o| o.value == selection || o.label == selection) {
             return Some(matched.value.clone());
@@ -491,5 +752,189 @@ mod tests {
         });
         assert_eq!(format_error(&err), "Bad request\nRequest ID: req_456");
         assert_eq!(format_error(&anyhow::anyhow!("plain")), "plain");
+    }
+
+    #[test]
+    fn an_empty_output_field_is_the_table() {
+        assert_eq!(resolve_output_mode(false, Some("")), OutputMode::Table);
+        assert_eq!(resolve_output_mode(true, Some("")), OutputMode::Json);
+    }
+
+    /// `Number(s)` as Node 24.16 evaluates it (VE-3727).
+    const JS_NUMBERS: &[(&str, &str)] = &[
+        ("5", "5"),
+        (" 2.5 ", "2.5"),
+        ("1e1", "10"),
+        ("0x10", "16"),
+        ("0X1f", "31"),
+        ("0b11", "3"),
+        ("0B11", "3"),
+        ("0o7", "7"),
+        ("0O17", "15"),
+        ("-0x10", "NaN"),
+        ("+0x10", "NaN"),
+        ("0x", "NaN"),
+        ("0b2", "NaN"),
+        ("0o8", "NaN"),
+        ("Infinity", "Infinity"),
+        ("-Infinity", "-Infinity"),
+        ("+Infinity", "Infinity"),
+        ("infinity", "NaN"),
+        ("inf", "NaN"),
+        ("NaN", "NaN"),
+        ("", "0"),
+        ("   ", "0"),
+        ("\t\n 5 \n", "5"),
+        (".5", "0.5"),
+        ("5.", "5"),
+        (".", "NaN"),
+        ("1e", "NaN"),
+        ("e1", "NaN"),
+        ("1_000", "NaN"),
+        ("12345678901234567890", "12345678901234567000"),
+        ("0.1", "0.1"),
+        ("-0", "-0"),
+        ("1e21", "1e+21"),
+        ("1e-7", "1e-7"),
+        ("00012", "12"),
+        ("0012.5", "12.5"),
+        ("1.5e+3", "1500"),
+        ("1.5E-3", "0.0015"),
+        ("\u{a0}5\u{a0}", "5"),
+        ("\u{feff}5", "5"),
+        ("\u{2028}5\u{2029}", "5"),
+        ("\u{85}5", "NaN"),
+        ("\u{180e}5", "NaN"),
+        ("\u{ff11}\u{ff12}", "NaN"),
+        ("5abc", "NaN"),
+        ("abc", "NaN"),
+        ("0x1g", "NaN"),
+        ("--5", "NaN"),
+        ("+-5", "NaN"),
+        ("0xffffffffffffffffffff", "1.2089258196146292e+24"),
+        ("0x1fffffffffffff", "9007199254740991"),
+        ("0x20000000000001", "9007199254740992"),
+        ("2.0", "2"),
+        ("0x2", "2"),
+        ("+2", "2"),
+        ("2e0", "2"),
+        (" 0b10 ", "2"),
+        ("-5", "-5"),
+        ("+.5", "0.5"),
+        ("-.5e1", "-5"),
+        ("1e400", "Infinity"),
+        ("-1e400", "-Infinity"),
+        ("0.0000001", "1e-7"),
+        ("1E+2", "100"),
+        ("0e0", "0"),
+        ("0x0", "0"),
+        ("007", "7"),
+        ("08", "8"),
+        ("1.", "1"),
+        ("1..2", "NaN"),
+        ("1e5e5", "NaN"),
+        ("0b", "NaN"),
+        ("0o", "NaN"),
+        ("\u{b}5\u{c}", "5"),
+    ];
+
+    /// `JSON.stringify(n)` in Node 24.16.
+    const JS_NUMBER_STRINGS: &[(f64, &str)] = &[
+        (0.0, "0"),
+        (0.0, "0"),
+        (1.0, "1"),
+        (-1.0, "-1"),
+        (16.0, "16"),
+        (0.1, "0.1"),
+        (1.5, "1.5"),
+        (1e+21, "1e+21"),
+        (1e-07, "1e-7"),
+        (1.2345678901234568e+20, "123456789012345680000"),
+        (1.2345678901234567e+19, "12345678901234567000"),
+        (1e-06, "0.000001"),
+        (1e-06, "0.000001"),
+        (1.7976931348623157e+308, "1.7976931348623157e+308"),
+        (5e-324, "5e-324"),
+        (9007199254740992.0, "9007199254740992"),
+        (9007199254740994.0, "9007199254740994"),
+        (100.0, "100"),
+        (1e+20, "100000000000000000000"),
+        (1.23e-18, "1.23e-18"),
+        (-1.5e-09, "-1.5e-9"),
+        (31.4159, "31.4159"),
+        (0.000123, "0.000123"),
+        (1234.5678, "1234.5678"),
+        (9.95e+20, "995000000000000000000"),
+        (1e+300, "1e+300"),
+        (1.8446744073709552e+19, "18446744073709552000"),
+        (-1e-07, "-1e-7"),
+        (4.35, "4.35"),
+        (0.19999999999999998, "0.19999999999999998"),
+    ];
+
+    fn js_number_text(n: f64) -> String {
+        if n.is_nan() {
+            "NaN".into()
+        } else if n == 0.0 && n.is_sign_negative() {
+            "-0".into()
+        } else {
+            js_number_string(n)
+        }
+    }
+
+    #[test]
+    fn js_number_matches_javascript_number() {
+        for (input, expected) in JS_NUMBERS {
+            assert_eq!(js_number_text(js_number(input)), *expected, "Number({input:?})");
+        }
+    }
+
+    #[test]
+    fn js_number_string_matches_json_stringify() {
+        for (n, expected) in JS_NUMBER_STRINGS {
+            assert_eq!(js_number_string(*n), *expected, "{n:?}");
+        }
+        assert_eq!(js_number_string(-0.0), "0");
+    }
+
+    #[test]
+    fn js_stringify_writes_numbers_the_way_javascript_does() {
+        let body = json!({ "a": 12345678901234567890u64, "b": 1.0, "c": -0.0, "d": [1e21, 0.1, -5, 9007199254740993u64], "e": "x\u{2028}" });
+        assert_eq!(
+            js_stringify(&body),
+            "{\"a\":12345678901234567000,\"b\":1,\"c\":0,\"d\":[1e+21,0.1,-5,9007199254740992],\"e\":\"x\u{2028}\"}"
+        );
+    }
+
+    #[test]
+    fn an_answer_ends_at_a_newline_and_closes_on_interrupt_or_end_of_input() {
+        let read = |bytes: &[u8]| read_answer(&mut std::io::Cursor::new(bytes.to_vec()), Some(3));
+        assert_eq!(read(b"y\n"), Answer::Line("y\n".into()));
+        assert_eq!(read(b"2.0\nrest"), Answer::Line("2.0\n".into()));
+        for closed in [&b""[..], b"\x03", b"ab\x03", b"a\x03b\n", b"no newline"] {
+            assert_eq!(read(closed), Answer::Closed, "{closed:?}");
+        }
+        // Without an interrupt key (stdin is not a terminal) 0x03 is just input.
+        let mut piped = std::io::Cursor::new(b"\x03\n".to_vec());
+        assert_eq!(read_answer(&mut piped, None), Answer::Line("\x03\n".into()));
+    }
+
+    #[test]
+    fn picker_numbers_are_read_with_javascript_number() {
+        for (answer, expected) in [
+            ("2", Some(1)),
+            ("2.0", Some(1)),
+            ("0x2", Some(1)),
+            ("+2", Some(1)),
+            ("2e0", Some(1)),
+            ("1", Some(0)),
+            ("3", None),
+            ("0", None),
+            ("1.5", None),
+            ("abc", None),
+            ("Infinity", None),
+        ] {
+            assert_eq!(selection_index(answer, 2), expected, "{answer:?}");
+        }
     }
 }

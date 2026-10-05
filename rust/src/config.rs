@@ -2,7 +2,8 @@
 //! uses (`src/config.ts`), so both binaries work against one config.
 //!
 //! The file is handled as an ordered JSON object, like the TS spread-merges:
-//! unknown keys and key order survive every save.
+//! unknown keys and key order survive every save, in JavaScript's order
+//! (integer-like keys such as a profile named "2" first, ascending).
 
 use std::{
     fs,
@@ -113,8 +114,9 @@ pub struct ConfigStore {
 }
 
 impl ConfigStore {
+    /// `--profile ""` is no override: the TS CLI checked `if (opts.profile)`.
     pub fn new(path: PathBuf, profile_override: Option<String>, env: EnvVars) -> Self {
-        ConfigStore { path, profile_override, env }
+        ConfigStore { path, profile_override: profile_override.filter(|name| !name.is_empty()), env }
     }
 
     pub fn path(&self) -> &Path {
@@ -127,7 +129,7 @@ impl ConfigStore {
             .ok()
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             .and_then(|value| match value {
-                Value::Object(map) => Some(map),
+                Value::Object(map) => Some(js_key_order(map)),
                 _ => None,
             })
             .unwrap_or_default()
@@ -154,7 +156,7 @@ impl ConfigStore {
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
-        let body = serde_json::to_string_pretty(config)? + "\n";
+        let body = serde_json::to_string_pretty(&js_key_order(config.clone()))? + "\n";
         fs::write(&self.path, body).with_context(|| format!("writing {}", self.path.display()))
     }
 
@@ -264,10 +266,10 @@ impl ConfigStore {
     }
 
     /// Remove the selected profile (logout). Returns its name, or `None` when
-    /// no profile is selected or it doesn't exist.
+    /// no profile is selected (an empty name counts as none) or it doesn't exist.
     pub fn clear_active_profile(&self) -> Result<Option<String>> {
         let config = self.read();
-        let Some(name) = self.selected_profile_name(&config) else { return Ok(None) };
+        let Some(name) = self.selected_profile_name(&config).filter(|name| !name.is_empty()) else { return Ok(None) };
         let mut profiles = profiles_map(&config);
         if profiles.shift_remove(&name).is_none() {
             return Ok(None);
@@ -303,6 +305,29 @@ impl ConfigStore {
         }
         Ok(self.effective().base_url)
     }
+}
+
+/// JavaScript's property order, which `JSON.parse` and `JSON.stringify` keep:
+/// array-index keys ("0" to "4294967294") first in ascending order, then the
+/// rest in insertion order, at every level.
+fn js_key_order(map: Map<String, Value>) -> Map<String, Value> {
+    let (mut indexes, rest): (Vec<_>, Vec<_>) = map.into_iter().partition(|(key, _)| array_index(key).is_some());
+    indexes.sort_by_key(|(key, _)| array_index(key));
+    indexes.into_iter().chain(rest).map(|(key, value)| (key, js_key_order_value(value))).collect()
+}
+
+fn js_key_order_value(value: Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(js_key_order(map)),
+        Value::Array(items) => Value::Array(items.into_iter().map(js_key_order_value).collect()),
+        other => other,
+    }
+}
+
+/// A canonical array index: digits without a leading zero, below 2^32 - 1.
+fn array_index(key: &str) -> Option<u32> {
+    let canonical = !key.is_empty() && key.bytes().all(|b| b.is_ascii_digit()) && (key == "0" || !key.starts_with('0'));
+    canonical.then(|| key.parse::<u32>().ok()).flatten().filter(|n| *n < u32::MAX)
 }
 
 pub fn mask_api_key(key: &str) -> String {
@@ -745,5 +770,42 @@ mod tests {
         assert_eq!(store(&f).clear_active_profile().unwrap().as_deref(), Some("a"));
         assert_eq!(on_disk(&f), json!({ "profiles": { "b": { "apiKey": "2" } } }));
         assert_eq!(store(&f).clear_active_profile().unwrap(), None);
+    }
+
+    #[test]
+    fn an_empty_profile_override_is_no_override() {
+        let f = fixture(Some(json!({ "profiles": { "alpha": { "apiKey": "a" } }, "activeProfile": "alpha" })));
+        let s = ConfigStore::new(f.path.clone(), Some(String::new()), EnvVars::default());
+        assert_eq!(s.effective().selected_profile.as_deref(), Some("alpha"));
+        s.save_resolved_values(ConfigValueUpdates { account_id: Some("x".into()), ..Default::default() }).unwrap();
+        assert_eq!(
+            on_disk(&f),
+            json!({ "profiles": { "alpha": { "apiKey": "a", "accountId": "x" } }, "activeProfile": "alpha" })
+        );
+    }
+
+    #[test]
+    fn logout_leaves_an_empty_active_profile_name_alone() {
+        let config = json!({ "profiles": { "": { "apiKey": "k" } }, "activeProfile": "" });
+        let f = fixture(Some(config.clone()));
+        assert_eq!(store(&f).clear_active_profile().unwrap(), None);
+        assert_eq!(on_disk(&f), config);
+    }
+
+    #[test]
+    fn integer_like_profile_names_come_first_as_in_javascript() {
+        let f = fixture(Some(json!({
+            "profiles": { "beta": {}, "10": {}, "2": {}, "alpha": {}, "01": {}, "4294967295": {}, "4294967294": {} },
+            "activeProfile": "beta",
+            "7": 1,
+        })));
+        let names: Vec<String> = store(&f).profile_summaries().into_iter().map(|p| p.name).collect();
+        assert_eq!(names, ["2", "10", "4294967294", "beta", "alpha", "01", "4294967295"]);
+        store(&f).set_active_profile("2").unwrap();
+        // What `JSON.stringify({ ...config, activeProfile })` writes in Node.
+        assert_eq!(
+            serde_json::to_string(&on_disk(&f)).unwrap(),
+            r#"{"7":1,"profiles":{"2":{},"10":{},"4294967294":{},"beta":{},"alpha":{},"01":{},"4294967295":{}},"activeProfile":"2"}"#
+        );
     }
 }

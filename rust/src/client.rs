@@ -75,6 +75,9 @@ pub struct Client {
     base_url: String,
     account_id: Option<String>,
     debug: bool,
+    /// How long to wait for the response headers; reading the body is not
+    /// limited (the TS client cleared its abort timer once fetch resolved).
+    timeout: Duration,
 }
 
 impl Client {
@@ -89,12 +92,13 @@ impl Client {
         debug: bool,
         timeout: Duration,
     ) -> Self {
+        // No proxies: Node's fetch ignores HTTP(S)_PROXY / ALL_PROXY.
         let http = reqwest::Client::builder()
             .user_agent(concat!("vendo-cli/", env!("CARGO_PKG_VERSION")))
-            .timeout(timeout)
+            .no_proxy()
             .build()
             .expect("reqwest client builds with static config");
-        Client { http, api_key, base_url, account_id, debug }
+        Client { http, api_key, base_url, account_id, debug, timeout }
     }
 
     pub async fn get(&self, path: &str, query: &[(&str, Option<String>)]) -> Result<Value, ApiError> {
@@ -137,6 +141,22 @@ impl Client {
             ],
         );
 
+        // fetch refuses these (Basic auth would replace the Bearer token).
+        if !url.username().is_empty() || url.password().is_some() {
+            let message = format!("Request cannot be constructed from a URL that includes credentials: {url}");
+            self.debug_line(
+                "request_failed",
+                &[
+                    ("method", Field::Str(method.as_str())),
+                    ("url", Field::Str(url.as_str())),
+                    ("requestId", Field::Str(&request_id)),
+                    ("durationMs", Field::Num(0)),
+                    ("error", Field::Str(&message)),
+                ],
+            );
+            return Err(client_error(message, 0, None));
+        }
+
         let mut req = self
             .http
             .request(method.clone(), url.clone())
@@ -148,19 +168,22 @@ impl Client {
         if let Some(account) = &account_id {
             req = req.header("X-Account-Id", account);
         }
-        if let Some(body) = &opts.body {
-            req = req.body(body.to_string());
+        match &opts.body {
+            Some(body) => req = req.body(crate::output::js_stringify(body)),
+            // fetch sends `Content-Length: 0` for a bodiless POST or PUT.
+            None if matches!(method, Method::POST | Method::PUT) => req = req.header("Content-Length", "0"),
+            None => {}
         }
 
         let started = Instant::now();
-        let res = match req.send().await {
-            Ok(res) => res,
-            Err(err) => {
+        let res = match tokio::time::timeout(self.timeout, req.send()).await {
+            Ok(Ok(res)) => res,
+            failed => {
                 // The TS client (undici fetch) said only "fetch failed"; the full cause goes to --debug.
-                let (message, status) = if err.is_timeout() {
-                    ("Request timed out".to_string(), 408)
-                } else {
-                    ("fetch failed".to_string(), 0)
+                let (message, status, cause) = match failed {
+                    Ok(Err(err)) if err.is_timeout() => ("Request timed out", 408, error_chain(&err)),
+                    Ok(Err(err)) => ("fetch failed", 0, error_chain(&err)),
+                    _ => ("Request timed out", 408, "Request timed out".to_string()),
                 };
                 self.debug_line(
                     "request_failed",
@@ -169,11 +192,11 @@ impl Client {
                         ("url", Field::Str(url.as_str())),
                         ("requestId", Field::Str(&request_id)),
                         ("durationMs", Field::Num(started.elapsed().as_millis() as i64)),
-                        ("error", Field::Str(&error_chain(&err))),
+                        ("error", Field::Str(&cause)),
                     ],
                 );
                 // Like the TS client, network failures carry no request ID: the server never saw one.
-                return Err(client_error(message, status, None));
+                return Err(client_error(message.to_string(), status, None));
             }
         };
 
@@ -639,5 +662,88 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res, json!({ "data": { "signals": [] } }));
+    }
+
+    #[tokio::test]
+    async fn the_timeout_covers_only_the_wait_for_headers() {
+        // Headers at once, then the body after the timeout: like the TS client
+        // (it cleared its abort timer once fetch resolved), this succeeds.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = socket.read(&mut buf).await;
+            let body = br#"{"data":{"ok":true}}"#;
+            let head =
+                format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", body.len());
+            socket.write_all(head.as_bytes()).await.unwrap();
+            socket.write_all(&body[..5]).await.unwrap();
+            socket.flush().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            socket.write_all(&body[5..]).await.unwrap();
+        });
+        let c = Client::with_timeout(
+            "k".into(),
+            format!("http://{addr}"),
+            Some("a".into()),
+            false,
+            Duration::from_millis(100),
+        );
+        assert_eq!(c.get("/me", &[]).await.unwrap(), json!({ "data": { "ok": true } }));
+    }
+
+    #[tokio::test]
+    async fn bodiless_posts_send_content_length_zero() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/accounts/acct-123/apps/a1/pause"))
+            .and(header("Content-Length", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {} })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {} })))
+            .mount(&server)
+            .await;
+        let c = client(&server);
+        c.post("/apps/a1/pause", None).await.unwrap();
+        c.delete("/apps/a1", &[]).await.unwrap();
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests[0].headers.get_all("content-length").iter().count(), 1);
+        assert!(requests[1].headers.get("content-length").is_none(), "fetch sends none for a bodiless DELETE");
+    }
+
+    #[tokio::test]
+    async fn credentials_in_the_base_url_are_refused() {
+        let server = MockServer::start().await;
+        let port = server.address().port();
+        for (base, shown) in [
+            (format!("http://u:p@127.0.0.1:{port}"), format!("http://u:p@127.0.0.1:{port}")),
+            (format!("http://u@127.0.0.1:{port}"), format!("http://u@127.0.0.1:{port}")),
+            (format!("http://:p@127.0.0.1:{port}"), format!("http://:p@127.0.0.1:{port}")),
+        ] {
+            let c = Client::new("k".into(), base, Some("a".into()), false);
+            let err = c.get("/apps", &[("limit", Some("2".into()))]).await.unwrap_err();
+            assert_eq!(
+                err.message,
+                format!(
+                    "Request cannot be constructed from a URL that includes credentials: {shown}/api/v1/accounts/a/apps?limit=2"
+                )
+            );
+            assert_eq!((err.status, err.request_id, err.status_text), (0, None, None));
+        }
+        assert!(server.received_requests().await.unwrap().is_empty());
+        // `http://@host` has no credentials once parsed.
+        Mock::given(path("/api/v1/me"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {} })))
+            .mount(&server)
+            .await;
+        Client::new("k".into(), format!("http://@127.0.0.1:{port}"), Some("a".into()), false)
+            .get("/me", &[])
+            .await
+            .unwrap();
     }
 }

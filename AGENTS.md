@@ -23,6 +23,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
 - Stack: clap 4, reqwest (rustls), tokio, serde_json (`preserve_order`), comfy-table, indicatif.
   Toolchain: `rustup` stable (`~/.cargo/bin`); `pnpm rust:test`, `pnpm rust:build`,
   `cargo clippy --all-targets` and `cargo fmt` (120 columns, `rust/rustfmt.toml`) from `rust/`.
+- Tests: unit tests sit next to the code; `rust/tests/cli.rs` runs the built binary end to end with an isolated
+  HOME, fake keys, a local stub server and a fresh update-check cache, so nothing leaves the machine (VE-3727).
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667).

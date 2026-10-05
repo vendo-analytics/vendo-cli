@@ -1,10 +1,15 @@
 //! Command-line definition. Command names, descriptions, flags and examples
-//! follow the TypeScript CLI (`src/cli.ts`, `src/commands/*`).
+//! follow the TypeScript CLI (`src/cli.ts`, `src/commands/*`), and parsing
+//! follows commander's rules where clap's differ (VE-3727): a repeated flag
+//! takes the last value, an option's value may start with `-`, and
+//! `-V`/`--version` works after a command too ([`preprocess`]).
 
-use clap::{Parser, Subcommand, ValueEnum};
+use std::ffi::OsString;
+
+use clap::{Arg, ArgAction, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
-#[command(name = "vendo", version, about = "Vendo CLI — manage your data pipeline from the terminal")]
+#[command(name = "vendo", about = "Vendo CLI — manage your data pipeline from the terminal", args_override_self = true)]
 pub struct Cli {
     /// Use a specific account profile
     #[arg(long, global = true, value_name = "name")]
@@ -14,6 +19,71 @@ pub struct Cli {
     pub debug: bool,
     #[command(subcommand)]
     pub command: Command,
+}
+
+/// The clap command: [`Cli`] plus what commander did implicitly. Every
+/// option value may start with `-` (`--frequency -5`, `--name -Prod`), and the
+/// root lists `-V, --version`, which [`preprocess`] handles before clap runs.
+pub fn command() -> clap::Command {
+    allow_hyphen_values(Cli::command())
+        .arg(Arg::new("version").short('V').long("version").action(ArgAction::SetTrue).help("Print version"))
+}
+
+fn allow_hyphen_values(cmd: clap::Command) -> clap::Command {
+    cmd.mut_args(|arg| {
+        if !arg.is_positional() && arg.get_action().takes_values() { arg.allow_hyphen_values(true) } else { arg }
+    })
+    .mut_subcommands(allow_hyphen_values)
+}
+
+/// Parse with [`command`]; usage errors and `--help` exit like clap does.
+pub fn parse(args: Vec<OsString>) -> Cli {
+    let matches = command().get_matches_from(args);
+    Cli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Invocation {
+    /// `-V`/`--version`: print the bare version and exit 0.
+    Version,
+    /// Arguments for [`parse`].
+    Run(Vec<OsString>),
+}
+
+/// What commander did before any command saw its arguments. `-V` or
+/// `--version` anywhere before `--` prints the version, unless it is the value
+/// of `--profile` or `self-update --version <v>` (which installs that version:
+/// an accepted difference, commander printed the version). A `--` before the
+/// command name is dropped, so `vendo -- whoami` runs `whoami`.
+pub fn preprocess(args: Vec<OsString>) -> Invocation {
+    let mut out = Vec::with_capacity(args.len());
+    let mut iter = args.into_iter();
+    out.extend(iter.next());
+    let mut command: Option<OsString> = None;
+    while let Some(arg) = iter.next() {
+        let in_self_update = command.as_ref().is_some_and(|c| c == "self-update");
+        match arg.to_str() {
+            Some("--") => {
+                if command.is_some() {
+                    out.push(arg);
+                }
+                out.extend(iter);
+                break;
+            }
+            Some("-V") => return Invocation::Version,
+            Some("--version") if !in_self_update => return Invocation::Version,
+            Some("--version" | "--profile") => {
+                out.push(arg);
+                out.extend(iter.next());
+            }
+            Some(word) if command.is_none() && !word.starts_with('-') => {
+                command = Some(arg.clone());
+                out.push(arg);
+            }
+            _ => out.push(arg),
+        }
+    }
+    Invocation::Run(out)
 }
 
 #[derive(Subcommand)]
@@ -157,6 +227,8 @@ pub enum ConfigCommand {
     /// Alias for `vendo profile switch`
     #[command(after_help = "Examples:\n  $ vendo config use <profile>\n  $ vendo config use --account <accountId>")]
     Use {
+        // Its own id: `profile` is the global `--profile` (VE-3727).
+        #[arg(id = "profile_name", value_name = "profile")]
         profile: Option<String>,
         /// Switch by account ID instead of profile name
         #[arg(long, value_name = "accountId")]
@@ -187,6 +259,8 @@ pub enum ProfileCommand {
         after_help = "Examples:\n  $ vendo profile switch\n  $ vendo profile switch myprofile\n  $ vendo profile switch --account <accountId>"
     )]
     Switch {
+        // Its own id: `profile` is the global `--profile` (VE-3727).
+        #[arg(id = "profile_name", value_name = "profile")]
         profile: Option<String>,
         /// Switch by account ID instead of profile name
         #[arg(long, value_name = "accountId")]
@@ -873,5 +947,133 @@ impl From<Shell> for clap_complete::Shell {
             Shell::Zsh => clap_complete::Shell::Zsh,
             Shell::Fish => clap_complete::Shell::Fish,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn os(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        let matches = command().try_get_matches_from(os(args))?;
+        Cli::from_arg_matches(&matches)
+    }
+
+    fn switch_args(cli: Cli) -> (Option<String>, Option<String>) {
+        match cli.command {
+            Command::Profile { command: ProfileCommand::Switch { profile, account } } => (profile, account),
+            Command::Config { command: ConfigCommand::Use { profile, account } } => (profile, account),
+            _ => panic!("not a switch"),
+        }
+    }
+
+    #[test]
+    fn the_global_profile_is_not_the_switch_positional() {
+        for args in [
+            &["vendo", "--profile", "beta", "profile", "switch"][..],
+            &["vendo", "profile", "switch", "--profile", "beta"],
+            &["vendo", "config", "use", "--profile", "beta"],
+        ] {
+            let cli = parse(args).unwrap();
+            assert_eq!(cli.profile.as_deref(), Some("beta"), "{args:?}");
+            assert_eq!(switch_args(cli), (None, None), "{args:?}");
+        }
+        let cli = parse(&["vendo", "--profile", "alpha", "profile", "switch", "--account", "acct-beta"]).unwrap();
+        assert_eq!(cli.profile.as_deref(), Some("alpha"));
+        assert_eq!(switch_args(cli), (None, Some("acct-beta".into())));
+        let cli = parse(&["vendo", "profile", "switch", "beta"]).unwrap();
+        assert_eq!(cli.profile, None);
+        assert_eq!(switch_args(cli), (Some("beta".into()), None));
+    }
+
+    #[test]
+    fn repeated_flags_take_the_last_value() {
+        let cli =
+            parse(&["vendo", "--profile", "a", "jobs", "list", "--limit", "5", "--limit", "7", "--json", "--json"])
+                .unwrap();
+        let Command::Jobs { command: JobsCommand::List { limit, json, .. } } = cli.command else { panic!() };
+        assert_eq!((limit.as_str(), json), ("7", true));
+        assert_eq!(
+            parse(&["vendo", "--profile", "a", "--profile", "b", "whoami"]).unwrap().profile.as_deref(),
+            Some("b")
+        );
+        assert!(parse(&["vendo", "--debug", "whoami", "--debug"]).unwrap().debug);
+    }
+
+    #[test]
+    fn option_values_may_start_with_a_hyphen() {
+        let cli = parse(&["vendo", "sources", "update", "s1", "--frequency", "-5"]).unwrap();
+        let Command::Sources { command: SourcesCommand::Update { frequency, .. } } = cli.command else { panic!() };
+        assert_eq!(frequency.as_deref(), Some("-5"));
+        let cli = parse(&["vendo", "apps", "update", "a1", "--name", "-Prod"]).unwrap();
+        let Command::Apps { command: AppsCommand::Update { name, .. } } = cli.command else { panic!() };
+        assert_eq!(name.as_deref(), Some("-Prod"));
+        let cli = parse(&["vendo", "jobs", "list", "--offset", "-1"]).unwrap();
+        let Command::Jobs { command: JobsCommand::List { offset, .. } } = cli.command else { panic!() };
+        assert_eq!(offset, "-1");
+        let cli = parse(&["vendo", "jobs", "watch", "--interval", "-1"]).unwrap();
+        let Command::Jobs { command: JobsCommand::Watch { interval, .. } } = cli.command else { panic!() };
+        assert_eq!(interval, "-1");
+        assert_eq!(parse(&["vendo", "--profile", "-x", "whoami"]).unwrap().profile.as_deref(), Some("-x"));
+    }
+
+    #[test]
+    fn positionals_still_reject_hyphen_values() {
+        assert!(parse(&["vendo", "apps", "get", "-5"]).is_err());
+        assert!(parse(&["vendo", "jobs", "tail", "-5"]).is_err());
+    }
+
+    #[test]
+    fn version_anywhere_prints_the_bare_version() {
+        for args in [
+            &["vendo", "--version"][..],
+            &["vendo", "-V"],
+            &["vendo", "whoami", "--version"],
+            &["vendo", "jobs", "list", "-V"],
+            &["vendo", "--profile", "x", "status", "--json", "--version"],
+            &["vendo", "self-update", "-V"],
+        ] {
+            assert_eq!(preprocess(os(args)), Invocation::Version, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn version_is_a_value_where_an_option_takes_it() {
+        // `self-update --version <v>` installs that version (an accepted difference).
+        let args = os(&["vendo", "self-update", "--version", "0.3.0"]);
+        assert_eq!(preprocess(args.clone()), Invocation::Run(args.clone()));
+        let Command::SelfUpdate { install_version } =
+            parse(&["vendo", "self-update", "--version", "0.3.0"]).unwrap().command
+        else {
+            panic!()
+        };
+        assert_eq!(install_version.as_deref(), Some("0.3.0"));
+        // `--profile --version` names a profile, as commander reads it.
+        let args = os(&["vendo", "--profile", "--version", "whoami"]);
+        assert_eq!(preprocess(args.clone()), Invocation::Run(args));
+        // After `--` nothing is an option.
+        let args = os(&["vendo", "apps", "get", "--", "--version"]);
+        assert_eq!(preprocess(args.clone()), Invocation::Run(args));
+    }
+
+    #[test]
+    fn a_separator_before_the_command_is_dropped() {
+        assert_eq!(preprocess(os(&["vendo", "--", "whoami"])), Invocation::Run(os(&["vendo", "whoami"])));
+        assert_eq!(
+            preprocess(os(&["vendo", "--debug", "--", "whoami", "--json"])),
+            Invocation::Run(os(&["vendo", "--debug", "whoami", "--json"]))
+        );
+        let after = os(&["vendo", "apps", "get", "--", "-5"]);
+        assert_eq!(preprocess(after.clone()), Invocation::Run(after));
+        let Command::Apps { command: AppsCommand::Get { id, .. } } =
+            parse(&["vendo", "apps", "get", "--", "-5"]).unwrap().command
+        else {
+            panic!()
+        };
+        assert_eq!(id, "-5");
     }
 }

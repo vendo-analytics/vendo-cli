@@ -1,6 +1,25 @@
 //! The `vendo` CLI in Rust (Linear project "Vendo CLI in Rust"). Behaviour
 //! matches the TypeScript CLI; `pnpm parity` compares the two on staging.
 
+// Print like Node's `console`: when stdout or stderr is closed (`vendo … |
+// head -1`) the write is dropped and the command carries on, where std's
+// macros panic. Defined before the modules so they replace std's everywhere.
+macro_rules! print {
+    ($($arg:tt)*) => { $crate::output::write_stdout(::std::format_args!($($arg)*), false) };
+}
+macro_rules! println {
+    () => { $crate::output::write_stdout(::std::format_args!(""), true) };
+    ($($arg:tt)*) => { $crate::output::write_stdout(::std::format_args!($($arg)*), true) };
+}
+#[allow(unused_macros)]
+macro_rules! eprint {
+    ($($arg:tt)*) => { $crate::output::write_stderr(::std::format_args!($($arg)*), false) };
+}
+macro_rules! eprintln {
+    () => { $crate::output::write_stderr(::std::format_args!(""), true) };
+    ($($arg:tt)*) => { $crate::output::write_stderr(::std::format_args!($($arg)*), true) };
+}
+
 mod cli;
 mod client;
 mod commands;
@@ -8,6 +27,7 @@ mod config;
 mod context;
 mod identity;
 mod jobs;
+mod js_date;
 mod output;
 mod profile_display;
 mod source_refresh;
@@ -16,12 +36,10 @@ mod watch;
 
 use std::process::ExitCode;
 
-use clap::{CommandFactory, Parser};
-
 use crate::{
     cli::{
-        AppsCommand, CatalogCommand, Cli, Command, ConfigCommand, IntegrationsCommand, JobsCommand, ProfileCommand,
-        SourcesCommand,
+        AppsCommand, CatalogCommand, Command, ConfigCommand, IntegrationsCommand, Invocation, JobsCommand,
+        ProfileCommand, SourcesCommand,
     },
     commands::{
         account, apps, catalog, health, integrations, jobs as jobs_cmd, login,
@@ -34,7 +52,14 @@ use crate::{
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let args = match cli::preprocess(std::env::args_os().collect()) {
+        Invocation::Version => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+        Invocation::Run(args) => args,
+    };
+    let cli = cli::parse(args);
     let debug = cli.debug
         || std::env::var("VENDO_DEBUG")
             .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
@@ -267,12 +292,10 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             Ok(ok)
         }
         Command::Completions { shell } => {
-            clap_complete::generate(
-                clap_complete::Shell::from(shell),
-                &mut Cli::command(),
-                "vendo",
-                &mut std::io::stdout(),
-            );
+            // Rendered to a buffer: clap_complete panics when its writer fails.
+            let mut script = Vec::new();
+            clap_complete::generate(clap_complete::Shell::from(shell), &mut cli::command(), "vendo", &mut script);
+            output::write_stdout_bytes(&script);
             Ok(ok)
         }
         Command::Doctor { json } => health::doctor(ctx, json).await,

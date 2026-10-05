@@ -97,7 +97,7 @@ pub fn format_job_duration(started_at: Option<&str>, finished_at: Option<&str>) 
 
 pub fn format_job_duration_at(started_at: Option<&str>, finished_at: Option<&str>, now: jiff::Timestamp) -> String {
     let Some(started) = started_at.filter(|s| !s.is_empty()) else { return dim("—") };
-    let parse = |s: &str| s.parse::<jiff::Timestamp>().ok().map(|t| t.as_millisecond());
+    let parse = crate::output::js_date_parse;
     let end = match finished_at.filter(|s| !s.is_empty()) {
         Some(finished) => parse(finished),
         None => Some(now.as_millisecond()),
