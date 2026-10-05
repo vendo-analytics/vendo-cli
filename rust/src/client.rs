@@ -149,7 +149,7 @@ impl Client {
             req = req.header("X-Account-Id", account);
         }
         if let Some(body) = &opts.body {
-            req = req.body(body.to_string());
+            req = req.body(crate::output::js_stringify(body));
         }
 
         let started = Instant::now();

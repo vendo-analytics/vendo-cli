@@ -125,11 +125,10 @@ pub async fn cancel(
     Ok(())
 }
 
-/// `Number(value)` from JavaScript, for `--interval`: whitespace-trimmed,
-/// empty is 0. Returns the interval only when finite and positive.
+/// `--interval` read with JavaScript's `Number()` (`0x10` is 16 seconds).
+/// Returns the interval only when finite and positive.
 pub fn parse_interval_seconds(raw: &str) -> Option<f64> {
-    let trimmed = raw.trim();
-    let n = if trimmed.is_empty() { 0.0 } else { trimmed.parse::<f64>().ok()? };
+    let n = crate::output::js_number(raw);
     (n.is_finite() && n > 0.0).then_some(n)
 }
 
@@ -240,7 +239,10 @@ mod tests {
         assert_eq!(parse_interval_seconds("5"), Some(5.0));
         assert_eq!(parse_interval_seconds(" 2.5 "), Some(2.5));
         assert_eq!(parse_interval_seconds("1e1"), Some(10.0));
-        for bad in ["0", "-1", "", "abc", "inf", "NaN"] {
+        assert_eq!(parse_interval_seconds("0x10"), Some(16.0));
+        assert_eq!(parse_interval_seconds("0b11"), Some(3.0));
+        assert_eq!(parse_interval_seconds("0o7"), Some(7.0));
+        for bad in ["0", "-1", "", "abc", "inf", "NaN", "Infinity", "-0x10", "0x"] {
             assert_eq!(parse_interval_seconds(bad), None, "{bad}");
         }
     }
