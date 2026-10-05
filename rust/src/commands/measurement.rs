@@ -11,9 +11,9 @@ use crate::{
     context::Ctx,
     js_text::{cell, cell_or, length_of, template, template_or, time_ago_of},
     output::{
-        OutputMode, arg_error, bold, cyan, dim, format_number, green, js_number, js_number_string, js_string,
-        js_truthy, print_count, print_field, print_json, red, resolve_output_mode, run_action, short_id, table,
-        to_locale_number, yellow,
+        OutputMode, arg_error, bold, cyan, dim, format_number, format_usd, green, js_number, js_number_of,
+        js_number_string, js_string, js_truthy, print_count, print_field, print_json, red, resolve_output_mode,
+        run_action, short_id, table, to_locale_number, yellow,
     },
     web_app,
 };
@@ -31,30 +31,7 @@ fn array_at<'a>(value: &'a Value, pointer: &str) -> &'a [Value] {
 }
 
 // ── Number formats only measurement uses ───────────────────────────────────
-
-/// `n.toLocaleString(undefined, { style: 'currency', currency: 'USD',
-/// maximumFractionDigits: 2 })` in en-US: Intl rounds the shortest decimal
-/// form of the number half away from zero, so 1.005 is $1.01.
-/// ❓ en-US only: the TS output follows the user's locale (VE-3728).
-fn format_usd(n: f64) -> String {
-    let scientific = format!("{:e}", n.abs());
-    let (mantissa, exponent) = scientific.split_once('e').expect("{:e} always has an exponent");
-    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
-    let point = exponent.parse::<i64>().expect("{:e} exponent is an integer") + 1;
-    let (int, frac) = if point <= 0 {
-        ("0".to_string(), format!("{}{digits}", "0".repeat(point.unsigned_abs() as usize)))
-    } else if point as usize >= digits.len() {
-        (format!("{digits}{}", "0".repeat(point as usize - digits.len())), String::new())
-    } else {
-        (digits[..point as usize].to_string(), digits[point as usize..].to_string())
-    };
-    let round_up = frac.as_bytes().get(2).is_some_and(|d| *d >= b'5');
-    let cents = format!("{int}{:0<2}", &frac[..frac.len().min(2)]);
-    let cents = if round_up { increment(&cents) } else { cents };
-    let (int, frac) = cents.split_at(cents.len() - 2);
-    let sign = if n.is_sign_negative() { "-" } else { "" };
-    format!("{sign}${}.{frac}", group_thousands(int.trim_start_matches('0')))
-}
+// Money goes through `output::format_usd`, which follows the locale (VE-3728).
 
 /// Add one to a string of decimal digits.
 fn increment(digits: &str) -> String {
@@ -68,20 +45,6 @@ fn increment(digits: &str) -> String {
         }
     }
     format!("1{}", String::from_utf8(out).expect("ASCII digits"))
-}
-
-fn group_thousands(int: &str) -> String {
-    if int.is_empty() {
-        return "0".to_string();
-    }
-    let mut grouped = String::new();
-    for (i, digit) in int.chars().enumerate() {
-        if i > 0 && (int.len() - i).is_multiple_of(3) {
-            grouped.push(',');
-        }
-        grouped.push(digit);
-    }
-    grouped
 }
 
 /// `Number.prototype.toFixed(2)`: the exact binary value rounded half up, so
@@ -101,11 +64,11 @@ fn to_fixed_2(n: f64) -> String {
     format!("{sign}{}.{frac}", if int.is_empty() { "0" } else { int })
 }
 
-/// The TS `fmtMoney`.
+/// The TS `fmtMoney`: USD in the user's locale (VE-3728).
 fn fmt_money(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) => dash(),
-        Some(Value::Number(n)) => format_usd(n.as_f64().unwrap_or_default()),
+        Some(Value::Number(n)) => format_usd(js_number_of(n)),
         Some(other) => js_string(other),
     }
 }
@@ -114,7 +77,7 @@ fn fmt_money(value: Option<&Value>) -> String {
 fn fmt_ratio(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) => dash(),
-        Some(Value::Number(n)) => to_fixed_2(n.as_f64().unwrap_or_default()),
+        Some(Value::Number(n)) => to_fixed_2(js_number_of(n)),
         Some(other) => js_string(other),
     }
 }

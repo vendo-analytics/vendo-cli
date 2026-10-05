@@ -1,7 +1,8 @@
 //! Locale-aware formatting as Node does it (VE-3728): `toLocaleDateString()`,
-//! `toLocaleTimeString()` and `Number#toLocaleString()` in the default locale, which Node's ICU
-//! takes from `LC_ALL`, `LC_MESSAGES` or `LANG`. ICU4X does the formatting; the `yMd` date
-//! pattern comes from [`super::ymd_patterns`] (see there for why).
+//! `toLocaleTimeString()`, `Number#toLocaleString()` and the USD money format, in the default
+//! locale, which Node's ICU takes from `LC_ALL`, `LC_MESSAGES` or `LANG`. ICU4X does the
+//! formatting; the `yMd` date pattern comes from [`super::ymd_patterns`] and the text around money
+//! amounts from [`super::usd_patterns`] (see there for why).
 
 use fixed_decimal::{Decimal, FloatPrecision, SignedRoundingMode, UnsignedRoundingMode};
 use icu_calendar::{AnyCalendarKind, Date, Gregorian};
@@ -18,7 +19,7 @@ use icu_time::Time;
 use jiff::tz::TimeZone;
 use writeable::TryWriteable;
 
-use super::ymd_patterns::{LOCALES, PATTERNS};
+use super::{usd_patterns, ymd_patterns};
 
 /// The locale Node's ICU defaults to: `LC_ALL`, else `LC_MESSAGES`, else `LANG`, where a
 /// variable set to "" still counts (and gives `und`). `C` and `POSIX` (with any charset) are
@@ -58,6 +59,15 @@ pub struct LocaleFormat {
     ymd: Option<(FixedCalendarDateTimeNames<Gregorian, YMD>, DateTimePattern)>,
     time: NoCalendarFormatter<T>,
     number: DecimalFormatter,
+    usd: Usd,
+}
+
+/// How the locale writes a USD amount around the number ICU4X formats.
+struct Usd {
+    /// Positive, negative, +∞ and -∞, with `{n}` for the amount.
+    shapes: usd_patterns::Shapes,
+    /// Number group and decimal separators, and what currency amounts use instead.
+    separators: Option<usd_patterns::Separators>,
 }
 
 impl LocaleFormat {
@@ -83,7 +93,12 @@ impl LocaleFormat {
                 Some((names, pattern))
             })
             .flatten();
-        LocaleFormat { date, ymd, time, number }
+        let usd = Usd {
+            shapes: lookup(&usd_patterns::LOCALES, locale)
+                .map_or(usd_patterns::SHAPES[0], |i| usd_patterns::SHAPES[usize::from(i)]),
+            separators: lookup(&usd_patterns::SEPARATORS, locale),
+        };
+        LocaleFormat { date, ymd, time, number, usd }
     }
 
     /// `new Date(ms).toLocaleDateString()` in `tz`. Outside the years ICU4X supports
@@ -121,7 +136,9 @@ impl LocaleFormat {
             return "NaN".to_string();
         }
         if n.is_infinite() {
-            return if n > 0.0 { "∞" } else { "-∞" }.to_string();
+            // The locale's ±1 with the digit replaced: its minus sign and bidi marks, as ICU has them.
+            let one = self.number.format(&Decimal::from(1)).to_string();
+            return self.number.format(&Decimal::from(n.signum() as i32)).to_string().replacen(&one, "∞", 1);
         }
         let Ok(mut decimal) = Decimal::try_from_f64(n, FloatPrecision::RoundTrip) else {
             return crate::output::js_number_string(n);
@@ -129,6 +146,38 @@ impl LocaleFormat {
         decimal.round_with_mode(-3, SignedRoundingMode::Unsigned(UnsignedRoundingMode::HalfExpand));
         decimal.absolute.trim_end();
         self.number.format(&decimal).to_string()
+    }
+
+    /// `n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })`:
+    /// two fraction digits, rounded half away from zero from the shortest decimal that
+    /// round-trips, inside the locale's text for USD. A negative amount keeps its sign when it
+    /// rounds to zero (`-$0.00`), as in Node.
+    pub fn usd(&self, n: f64) -> String {
+        let (positive, negative, positive_infinity, negative_infinity) = self.usd.shapes;
+        if !n.is_finite() {
+            // Unreachable from JSON numbers except 1e400 and the like; NaN can't come from JSON.
+            let symbol = if n.is_nan() { "NaN" } else { "∞" };
+            let shape = if n == f64::NEG_INFINITY { negative_infinity } else { positive_infinity };
+            return shape.replacen("{n}", symbol, 1);
+        }
+        let Ok(mut decimal) = Decimal::try_from_f64(n.abs(), FloatPrecision::RoundTrip) else {
+            return crate::output::js_number_string(n);
+        };
+        decimal.round_with_mode(-2, SignedRoundingMode::Unsigned(UnsignedRoundingMode::HalfExpand));
+        decimal.absolute.pad_end(-2);
+        let mut amount = self.number.format(&decimal).to_string();
+        if let Some((group, point, currency_group, currency_point)) = self.usd.separators {
+            amount = amount
+                .chars()
+                .map(|c| match c.to_string() {
+                    s if s == group => currency_group.to_string(),
+                    s if s == point => currency_point.to_string(),
+                    s => s,
+                })
+                .collect();
+        }
+        let shape = if n.is_sign_negative() { negative } else { positive };
+        shape.replacen("{n}", &amount, 1)
     }
 }
 
@@ -148,22 +197,27 @@ fn v8_spaces(text: String) -> String {
     if text.contains('\u{202f}') { text.replace('\u{202f}', " ") } else { text }
 }
 
-/// Node's `yMd` pattern for `locale`: the locale itself, then its ICU4X fallback chain, then root.
+/// Node's `yMd` pattern for `locale`, root's when there is none.
 fn ymd_pattern(locale: &Locale) -> &'static str {
-    let lookup =
-        |tag: &str| LOCALES.binary_search_by_key(&tag, |(t, _)| t).ok().map(|i| PATTERNS[LOCALES[i].1 as usize]);
-    if let Some(pattern) = lookup(&locale.to_string()) {
-        return pattern;
+    lookup(&ymd_patterns::LOCALES, locale).map_or("y-MM-dd", |i| ymd_patterns::PATTERNS[usize::from(i)])
+}
+
+/// The entry for `locale` in a table sorted by tag: the locale itself, then its ICU4X fallback
+/// chain down to root (`und`).
+fn lookup<T: Copy>(table: &[(&str, T)], locale: &Locale) -> Option<T> {
+    let find = |tag: &str| table.binary_search_by_key(&tag, |(t, _)| t).ok().map(|i| table[i].1);
+    if let Some(found) = find(&locale.to_string()) {
+        return Some(found);
     }
     let fallbacker = LocaleFallbacker::new();
     let mut chain = fallbacker.for_config(Default::default()).fallback_for(DataLocale::from(locale));
     loop {
         let step = chain.get();
-        if let Some(pattern) = lookup(&step.to_string()) {
-            return pattern;
+        if let Some(found) = find(&step.to_string()) {
+            return Some(found);
         }
         if step.is_unknown() {
-            return "y-MM-dd";
+            return None;
         }
         chain.step();
     }
@@ -220,7 +274,7 @@ mod tests {
 
     /// Every value in the fixture, generated from Node by `scripts/gen-locale-fixture.mjs`.
     #[test]
-    fn dates_times_and_numbers_match_node_for_each_lang_and_time_zone() {
+    fn dates_times_numbers_and_money_match_node_for_each_lang_and_time_zone() {
         let fixture: Value = serde_json::from_str(include_str!("../../tests/fixtures/node-locale.json")).unwrap();
         let mut mismatches = Vec::new();
         let mut checked = 0;
@@ -241,14 +295,18 @@ mod tests {
                 check(&format!("date {ms}"), format.date(ms, &zone), &row[1]);
                 check(&format!("time {ms}"), format.time(ms, &zone), &row[2]);
             }
+            let number = |source: &str| -> f64 { if source == "-0" { -0.0 } else { source.parse().unwrap() } };
             for row in run["numbers"].as_array().unwrap() {
                 let source = row[0].as_str().unwrap();
-                let n: f64 = if source == "-0" { -0.0 } else { source.parse().unwrap() };
-                check(&format!("number {source}"), format.number(n), &row[1]);
+                check(&format!("number {source}"), format.number(number(source)), &row[1]);
+            }
+            for row in run["money"].as_array().unwrap() {
+                let source = row[0].as_str().unwrap();
+                check(&format!("money {source}"), format.usd(number(source)), &row[1]);
             }
         }
         assert!(mismatches.is_empty(), "{} of {checked} differ:\n{}", mismatches.len(), mismatches.join("\n"));
-        assert_eq!(checked, 18 * (21 * 2 + 38));
+        assert_eq!(checked, 18 * (21 * 2 + 38 + 38));
     }
 
     #[test]
@@ -257,6 +315,17 @@ mod tests {
         assert_eq!(format.number(f64::NAN), "NaN");
         assert_eq!(format.number(f64::INFINITY), "∞");
         assert_eq!(format.number(f64::NEG_INFINITY), "-∞");
+        // From Node: each locale's own minus sign and marks, and the money shapes without the
+        // space some locales put only before digits.
+        for (tag, numbers, money) in [
+            ("sv", ["∞", "\u{2212}∞"], ["∞\u{a0}US$", "\u{2212}∞\u{a0}US$"]),
+            ("fa", ["∞", "\u{200e}\u{2212}∞"], ["\u{200e}$∞", "\u{200e}\u{2212}\u{200e}$∞"]),
+            ("en-AU", ["∞", "-∞"], ["USD∞", "-USD∞"]),
+        ] {
+            let format = LocaleFormat::new(&tag.parse().unwrap());
+            assert_eq!([format.number(f64::INFINITY), format.number(f64::NEG_INFINITY)], numbers, "{tag}");
+            assert_eq!([format.usd(f64::INFINITY), format.usd(f64::NEG_INFINITY)], money, "{tag}");
+        }
     }
 
     #[test]

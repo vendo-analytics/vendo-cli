@@ -19,6 +19,7 @@ use serde_json::Value;
 use crate::client::ApiError;
 
 mod locale;
+mod usd_patterns;
 mod v8_json;
 mod ymd_patterns;
 
@@ -224,6 +225,12 @@ pub fn format_number(n: Option<&Value>) -> String {
 /// `n.toLocaleString()` for a JavaScript number, in the user's locale.
 pub fn to_locale_number(n: f64) -> String {
     locale::with_current(|format| format.number(n))
+}
+
+/// The measurement views' money format, `n.toLocaleString(undefined, { style: 'currency',
+/// currency: 'USD', maximumFractionDigits: 2 })`, in the user's locale.
+pub fn format_usd(n: f64) -> String {
+    locale::with_current(|format| format.usd(n))
 }
 
 /// `value.toLocaleString()`: numbers in the user's locale, strings as they are, arrays element by
@@ -1187,8 +1194,11 @@ mod tests {
         // Under `cargo test` the locale is en-US, whatever LANG is.
         let old = time_ago_at(Some("2026-01-01T12:00:00Z"), at("2026-03-15T12:00:00Z"));
         assert_eq!(old, to_locale_date_string(js_date_parse("2026-01-01T12:00:00Z").unwrap()));
+        // Half away from zero on the shortest digits, as Node's ICU does: 1.0005 is 1.001, not 1.
         assert_eq!(format_number(Some(&json!(1.0005))), "1.001");
         assert_eq!(format_number(Some(&json!(-0.0))), "-0");
+        assert_eq!(format_number(Some(&json!(-0.0001))), "-0");
+        assert_eq!(format_number(Some(&json!(-0.0005))), "-0.001");
     }
 
     /// A body as a Node server writes it (`JSON.stringify`) and what `node dist/cli.js … --json`

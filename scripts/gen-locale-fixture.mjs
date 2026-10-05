@@ -1,6 +1,7 @@
 // Generates rust/tests/fixtures/node-locale.json (VE-3728): what Node prints for
-// `toLocaleDateString()`, `toLocaleTimeString()` and `Number#toLocaleString()` with each LANG
-// under each TZ. The Rust table test in rust/src/output/locale.rs must reproduce every value.
+// `toLocaleDateString()`, `toLocaleTimeString()`, `Number#toLocaleString()` and the measurement
+// views' money format with each LANG under each TZ. The Rust table test in
+// rust/src/output/locale.rs must reproduce every value.
 //
 //   node scripts/gen-locale-fixture.mjs > rust/tests/fixtures/node-locale.json
 import { execFileSync } from 'node:child_process';
@@ -22,6 +23,9 @@ const NUMBERS = [
   '1000.1', '10.05', '4.35', '1.005', '8.345', '0.07', '100', '1000000.5',
 ];
 
+// `fmtMoney` in src/commands/measurement.ts.
+const MONEY = { style: 'currency', currency: 'USD', maximumFractionDigits: 2 };
+
 if (process.argv[2] === 'child') {
   console.log(
     JSON.stringify({
@@ -31,6 +35,7 @@ if (process.argv[2] === 'child') {
         return [date.getTime(), date.toLocaleDateString(), date.toLocaleTimeString()];
       }),
       numbers: NUMBERS.map((n) => [n, Number(n).toLocaleString()]),
+      money: NUMBERS.map((n) => [n, Number(n).toLocaleString(undefined, MONEY)]),
     }),
   );
 } else {
