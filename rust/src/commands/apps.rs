@@ -15,8 +15,8 @@ use crate::{
     context::Ctx,
     jobs::Job,
     output::{
-        OutputMode, bold, color_status, dim, print_count, print_field, print_json, print_label, print_success, red,
-        resolve_output_mode, run_action, short_id, table, time_ago, yellow,
+        OutputMode, bold, color_status, dim, js_truthy, print_count, print_field, print_json, print_label,
+        print_success, red, resolve_output_mode, run_action, short_id, table, time_ago, yellow,
     },
 };
 
@@ -57,34 +57,50 @@ fn permissions_from_roles(roles: &[String]) -> Vec<String> {
 }
 
 /// The grant for `--role` from the server catalog's `defaultPermissions`
-/// (VE-2534), falling back to the local map for older servers.
-async fn resolve_permissions_for_roles(client: &Client, app_type: &str, roles: &[String]) -> Result<Vec<String>> {
-    if let Ok(res) = client.get(&format!("/catalog/{app_type}"), &[]).await
-        && let Some(defaults) = payload(&res).get("defaultPermissions").filter(|d| d.is_object())
-    {
-        let mut perms: Vec<String> = Vec::new();
-        let mut add = |key: &str| {
-            for p in strings(defaults, key) {
-                if !perms.contains(&p) {
-                    perms.push(p);
-                }
-            }
+/// (VE-2534), read as the TS CLI read it. Without a client (no API key) or
+/// when the lookup fails it falls back to the local map, unless the error
+/// says the type "does not support" the role: that stops the command.
+async fn resolve_permissions_for_roles(
+    client: Option<&Client>,
+    app_type: &str,
+    roles: &[String],
+) -> Result<Vec<String>> {
+    let Some(client) = client else { return Ok(permissions_from_roles(roles)) };
+    let res = match client.get(&format!("/catalog/{app_type}"), &[]).await {
+        Ok(res) => res,
+        Err(err) if err.message.contains("does not support") => return Err(err.into()),
+        Err(_) => return Ok(permissions_from_roles(roles)),
+    };
+    // `if (defaults)`: any truthy value, so an array or a string refuses below.
+    let Some(defaults) = payload(&res).get("defaultPermissions").filter(|d| js_truthy(d)) else {
+        return Ok(permissions_from_roles(roles));
+    };
+    let mut perms: Vec<String> = Vec::new();
+    for (role, key) in [("source", "source"), ("destination", "destination")] {
+        if !roles.iter().any(|r| r == role || r == "both") {
+            continue;
+        }
+        // `for (const p of defaults[key] ?? [])`: arrays by element, strings by
+        // character; anything else threw in TS and fell back to the local map.
+        let granted: Vec<String> = match defaults.get(key) {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(items)) => items.iter().filter_map(Value::as_str).map(str::to_string).collect(),
+            Some(Value::String(s)) => s.chars().map(String::from).collect(),
+            Some(_) => return Ok(permissions_from_roles(roles)),
         };
-        if roles.iter().any(|r| r == "source" || r == "both") {
-            add("source");
+        for p in granted {
+            if !perms.contains(&p) {
+                perms.push(p);
+            }
         }
-        if roles.iter().any(|r| r == "destination" || r == "both") {
-            add("destination");
-        }
-        if perms.is_empty() {
-            bail!(
-                "App type \"{app_type}\" does not support the requested role(s): {}. Check 'vendo catalog get {app_type}' for its supported roles.",
-                roles.join(", ")
-            );
-        }
-        return Ok(perms);
     }
-    Ok(permissions_from_roles(roles))
+    if perms.is_empty() {
+        bail!(
+            "App type \"{app_type}\" does not support the requested role(s): {}. Check 'vendo catalog get {app_type}' for its supported roles.",
+            roles.join(", ")
+        );
+    }
+    Ok(perms)
 }
 
 fn capability_label(permissions: &[String]) -> String {
@@ -324,20 +340,25 @@ pub struct CreateArgs {
 }
 
 pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
-    let client = ctx.client()?;
+    // As in the TS CLI, a missing API key only stops the command when a
+    // request needs it: the role lookup falls back to the local map and the
+    // files are read first, credentials before config.
+    let client = ctx.client();
     // Explicit --permissions wins; otherwise resolve --role via the catalog.
     let permissions: Vec<String> = match args.permissions.as_deref().filter(|p| !p.is_empty()) {
         Some(perms) => role_list(perms),
-        None => resolve_permissions_for_roles(&client, &args.app_type, &role_list(&args.role)).await?,
+        None => resolve_permissions_for_roles(client.as_ref().ok(), &args.app_type, &role_list(&args.role)).await?,
     };
-    let config = match args.config_file.as_deref().filter(|p| !p.is_empty()) {
-        Some(path) => Some(read_json_file(path)?),
-        None => None,
+    let read_config = || match args.config_file.as_deref().filter(|p| !p.is_empty()) {
+        Some(path) => read_json_file(path).map(Some),
+        None => Ok(None),
     };
     let mode = resolve_output_mode(args.json, args.output.as_deref());
 
     // No credentials → the browser-assisted OAuth flow.
-    let Some(credentials_file) = args.credentials_file.filter(|p| !p.is_empty()) else {
+    let Some(credentials_file) = args.credentials_file.as_deref().filter(|p| !p.is_empty()) else {
+        let config = read_config()?;
+        let client = client?;
         let app_id = run_browser_oauth(&client, &args.app_type, &args.name, &permissions, config).await?;
         match mode {
             OutputMode::Json => print_json(&json!({ "data": { "id": app_id } })),
@@ -347,11 +368,14 @@ pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
         return Ok(());
     };
 
+    let credentials = read_json_file(credentials_file)?;
+    let config = read_config()?;
+    let client = client?;
     let mut body = Map::new();
     body.insert("appType".into(), json!(args.app_type));
     body.insert("displayName".into(), json!(args.name));
     body.insert("permissions".into(), json!(permissions));
-    body.insert("credentials".into(), read_json_file(&credentials_file)?);
+    body.insert("credentials".into(), credentials);
     if let Some(config) = config {
         body.insert("config".into(), config);
     }
@@ -391,7 +415,6 @@ pub struct UpdateArgs {
 }
 
 pub async fn update(ctx: &Ctx, app_id: &str, args: UpdateArgs) -> Result<()> {
-    let client = ctx.client()?;
     let mut body = Map::new();
     if let Some(name) = args.name.filter(|n| !n.is_empty()) {
         body.insert("displayName".into(), json!(name));
@@ -400,11 +423,12 @@ pub async fn update(ctx: &Ctx, app_id: &str, args: UpdateArgs) -> Result<()> {
         body.insert("permissions".into(), Value::Array(split_list(perms)));
     } else if let Some(role) = args.role.as_deref().filter(|r| !r.is_empty()) {
         // Role defaults are per platform: look up the app's type.
+        let client = ctx.client()?;
         let current = client.get(&format!("/apps/{app_id}"), &[]).await?;
         let app_type = text(payload(&current), "appType").unwrap_or_default();
         body.insert(
             "permissions".into(),
-            json!(resolve_permissions_for_roles(&client, &app_type, &role_list(role)).await?),
+            json!(resolve_permissions_for_roles(Some(&client), &app_type, &role_list(role)).await?),
         );
     }
     if let Some(path) = args.credentials_file.as_deref().filter(|p| !p.is_empty()) {
@@ -416,6 +440,7 @@ pub async fn update(ctx: &Ctx, app_id: &str, args: UpdateArgs) -> Result<()> {
     if body.is_empty() {
         bail!("Nothing to update — pass at least one flag.");
     }
+    let client = ctx.client()?;
     let res = run_action("Updating app...", client.patch(&format!("/apps/{app_id}"), Value::Object(body))).await?;
     match resolve_output_mode(args.json, args.output.as_deref()) {
         OutputMode::Json => print_json(&res),
@@ -623,14 +648,14 @@ mod tests {
             .await;
         let client = Client::new("k".into(), server.uri(), Some("a".into()), false);
         assert_eq!(
-            resolve_permissions_for_roles(&client, "webhook", &["source".into()]).await.unwrap(),
+            resolve_permissions_for_roles(Some(&client), "webhook", &["source".into()]).await.unwrap(),
             ["performance_data"]
         );
-        let err = resolve_permissions_for_roles(&client, "webhook", &["destination".into()]).await.unwrap_err();
+        let err = resolve_permissions_for_roles(Some(&client), "webhook", &["destination".into()]).await.unwrap_err();
         assert!(err.to_string().contains("does not support the requested role(s): destination"));
         // Older server (no catalog entry): legacy local map.
         assert_eq!(
-            resolve_permissions_for_roles(&client, "other", &["destination".into()]).await.unwrap(),
+            resolve_permissions_for_roles(Some(&client), "other", &["destination".into()]).await.unwrap(),
             ["send_conversions", "sync_audiences"]
         );
     }
@@ -671,5 +696,48 @@ mod tests {
         let gone = poll_oauth_session(&client, "missing", Duration::from_millis(1), Duration::from_secs(5)).await;
         assert_eq!(gone.status, "failed");
         assert!(gone.error.unwrap().contains("returned 404 3 times"));
+    }
+
+    async fn catalog_with(app_type: &str, response: ResponseTemplate) -> (MockServer, Client) {
+        let server = MockServer::start().await;
+        Mock::given(path(format!("/api/v1/catalog/{app_type}"))).respond_with(response).mount(&server).await;
+        let client = Client::new("k".into(), server.uri(), Some("a".into()), false);
+        (server, client)
+    }
+
+    #[tokio::test]
+    async fn a_catalog_error_saying_does_not_support_stops_the_command() {
+        let refusal = json!({ "error": { "message": "App type x does not support role destination" } });
+        let (_server, client) = catalog_with("x", ResponseTemplate::new(400).set_body_json(refusal)).await;
+        let err = resolve_permissions_for_roles(Some(&client), "x", &["destination".into()]).await.unwrap_err();
+        assert_eq!(err.to_string(), "App type x does not support role destination");
+        // Any other failure still falls back to the local map.
+        let (_server, client) = catalog_with("y", ResponseTemplate::new(500)).await;
+        let perms = resolve_permissions_for_roles(Some(&client), "y", &["destination".into()]).await.unwrap();
+        assert_eq!(perms, ["send_conversions", "sync_audiences"]);
+    }
+
+    #[tokio::test]
+    async fn default_permissions_follow_javascript_truthiness_and_iteration() {
+        let defaults =
+            |value: Value| ResponseTemplate::new(200).set_body_json(json!({ "data": { "defaultPermissions": value } }));
+        for refused in [json!([]), json!("abc"), json!(true), json!(5), json!({})] {
+            let (_server, client) = catalog_with("t", defaults(refused.clone())).await;
+            let err = resolve_permissions_for_roles(Some(&client), "t", &["source".into()]).await.unwrap_err();
+            assert!(err.to_string().contains("does not support the requested role(s): source"), "{refused}: {err}");
+        }
+        for legacy in [json!(0), json!(""), json!(false), json!(null), json!({ "source": true })] {
+            let (_server, client) = catalog_with("t", defaults(legacy.clone())).await;
+            let perms = resolve_permissions_for_roles(Some(&client), "t", &["source".into()]).await.unwrap();
+            assert_eq!(perms, ["performance_data"], "{legacy}");
+        }
+        // A string is iterated character by character, as `for…of` does.
+        let (_server, client) = catalog_with("t", defaults(json!({ "source": "ab" }))).await;
+        assert_eq!(resolve_permissions_for_roles(Some(&client), "t", &["source".into()]).await.unwrap(), ["a", "b"]);
+    }
+
+    #[tokio::test]
+    async fn no_client_means_the_local_map() {
+        assert_eq!(resolve_permissions_for_roles(None, "t", &["source".into()]).await.unwrap(), ["performance_data"]);
     }
 }

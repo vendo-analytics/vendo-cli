@@ -9,7 +9,7 @@ use crate::{
     context::Ctx,
     jobs::{Job, format_job_progress},
     output::{
-        OutputMode, bold, color_status, dim, js_string, print_count, print_field, print_json, print_label,
+        OutputMode, bold, color_status, dim, js_string, js_truthy, print_count, print_field, print_json, print_label,
         print_success, red, resolve_output_mode, run_action, short_id, table, time_ago,
     },
     source_refresh::{Tone, resolve_refresh_window, summarize},
@@ -127,7 +127,7 @@ pub async fn get(ctx: &Ctx, integration_id: &str, json: bool) -> Result<()> {
     println!("  Progress:     {}", format_job_progress(active.as_ref().map(Job)));
     println!("  Last Sync:    {}", time_ago(t("lastSyncAt").as_deref()));
     println!("  Created:      {}", time_ago(t("createdAt").as_deref()));
-    if let Some(schedule) = int.get("schedule").filter(|s| truthy(s)) {
+    if let Some(schedule) = int.get("schedule").filter(|s| js_truthy(s)) {
         println!("  Schedule:     {schedule}");
     }
     if let Some(error) = t("lastError").filter(|s| !s.is_empty()) {
@@ -140,17 +140,6 @@ pub async fn get(ctx: &Ctx, integration_id: &str, json: bool) -> Result<()> {
         println!("  Latest Job:   {}", dim(&job));
     }
     Ok(())
-}
-
-/// JavaScript truthiness for a JSON value.
-fn truthy(v: &Value) -> bool {
-    match v {
-        Value::Null => false,
-        Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
-        Value::String(s) => !s.is_empty(),
-        _ => true,
-    }
 }
 
 pub fn dry_run_fields(int: &Value) -> Vec<(&'static str, String)> {

@@ -34,6 +34,17 @@ impl Sandbox {
         Sandbox { home }
     }
 
+    /// The same profiles without API keys.
+    fn without_api_keys(base_url: &str) -> Self {
+        let sandbox = Sandbox::new(base_url);
+        let mut config = sandbox.config();
+        for profile in config["profiles"].as_object_mut().unwrap().values_mut() {
+            profile.as_object_mut().unwrap().remove("apiKey");
+        }
+        std::fs::write(sandbox.home.path().join(".config/vendo/config.json"), config.to_string()).unwrap();
+        sandbox
+    }
+
     fn command(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_vendo"));
         cmd.args(args).env("HOME", self.home.path()).stdin(Stdio::null());
@@ -186,4 +197,81 @@ async fn proxy_variables_are_ignored_like_node_fetch() {
         let out = sandbox.command(&["whoami", "--json"]).env(var, CLOSED).output().unwrap();
         assert_eq!(out.status.code(), Some(0), "{var}: {}", text(&out.stderr));
     }
+}
+
+fn stderr_line(out: &Output) -> String {
+    text(&out.stderr).lines().next().unwrap_or_default().to_string()
+}
+
+#[tokio::test]
+async fn apps_report_the_first_bad_input_the_ts_cli_did() {
+    let server = MockServer::start().await; // no catalog entry: the local role map
+    let sandbox = Sandbox::new(&server.uri());
+    let out = sandbox.run(&[
+        "apps",
+        "create",
+        "--type",
+        "t",
+        "--name",
+        "N",
+        "--credentials-file",
+        "nope.json",
+        "--config-file",
+        "nope2.json",
+    ]);
+    assert_eq!(
+        stderr_line(&out),
+        "Error: Failed to read nope.json: ENOENT: no such file or directory, open 'nope.json'"
+    );
+
+    let keyless = Sandbox::without_api_keys(CLOSED);
+    for (args, expected) in [
+        (
+            &["apps", "create", "--type", "t", "--name", "N", "--credentials-file", "nope.json"][..],
+            "Error: Failed to read nope.json: ENOENT: no such file or directory, open 'nope.json'",
+        ),
+        (
+            &["apps", "create", "--type", "t", "--name", "N", "--config-file", "nope.json"],
+            "Error: Failed to read nope.json: ENOENT: no such file or directory, open 'nope.json'",
+        ),
+        (&["apps", "update", "app-1"], "Error: Nothing to update — pass at least one flag."),
+        (
+            &["apps", "update", "app-1", "--role", "source"],
+            "Error: No API key configured. Run `vendo login` or `vendo config set --api-key <key>` or set VENDO_API_KEY.",
+        ),
+    ] {
+        let out = keyless.run(args);
+        assert_eq!((out.status.code(), stderr_line(&out)), (Some(1), expected.to_string()), "{args:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_role_the_catalog_refuses_creates_nothing() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/v1/catalog/denied"))
+        .respond_with(
+            ResponseTemplate::new(400)
+                .set_body_json(json!({ "error": { "message": "App type denied does not support role destination" } })),
+        )
+        .mount(&server)
+        .await;
+    let sandbox = Sandbox::new(&server.uri());
+    let creds = sandbox.home.path().join("creds.json");
+    std::fs::write(&creds, r#"{"k":"v"}"#).unwrap();
+    let out = sandbox.run(&[
+        "apps",
+        "create",
+        "--type",
+        "denied",
+        "--name",
+        "N",
+        "--role",
+        "destination",
+        "--credentials-file",
+        creds.to_str().unwrap(),
+    ]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stderr_line(&out), "Error: App type denied does not support role destination");
+    let requests = server.received_requests().await.unwrap();
+    assert!(requests.iter().all(|r| r.method.as_str() == "GET"), "no POST may be sent");
 }

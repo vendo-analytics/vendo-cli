@@ -18,6 +18,17 @@ use serde_json::Value;
 
 use crate::client::ApiError;
 
+/// JavaScript truthiness for a JSON value.
+pub fn js_truthy(v: &Value) -> bool {
+    match v {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+        Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
 /// `print!`/`println!` (see main.rs): write errors are ignored, as Node's
 /// `console` does, so a closed pipe never aborts a command (VE-3727).
 pub fn write_stdout(args: std::fmt::Arguments, newline: bool) {
