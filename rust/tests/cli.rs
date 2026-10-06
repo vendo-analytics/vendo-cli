@@ -5199,6 +5199,606 @@ async fn names_in_wide_characters_keep_the_columns_in_line_and_the_list_on_a_sho
     assert_eq!(sent(&server).await, [format!("GET {V1}/apps?limit=100&offset=0"), format!("GET {V1}/apps/{}", id(1))]);
 }
 
+// ── VE-3881, sources and destinations ────────────────────────────────────────
+// A source or destination missing its ID is chosen from the account's list (newest first, as
+// `vendo sources list` and `vendo destinations list` list them); `sources create` asks for its app
+// from the apps and then for the app's type, the one sync type the API takes for it, in a list of
+// that one row; `destinations create` asks for its app, then a data type from the 13 the API takes,
+// then the config file's path as a one-line question.
+
+const SOURCE_SHOP: &str = "5e6f7a8b-0000-4000-8000-000000000011";
+const SOURCE_BQ: &str = "6f7a8b9c-0000-4000-8000-000000000012";
+const SOURCE_BARE: &str = "7a8b9c0d-0000-4000-8000-000000000013";
+const DEST_EVENTS: &str = "8b9c0d1e-0000-4000-8000-000000000021";
+const DEST_AUDIENCES: &str = "9c0d1e2f-0000-4000-8000-000000000022";
+const DEST_ONE_APP: &str = "0d1e2f3a-0000-4000-8000-000000000023";
+
+/// The sources to choose from, newest first; the last has no app name.
+fn sources_to_choose() -> Vec<Value> {
+    let source = |id: &str, name: Value, sync_type: &str, status: &str| {
+        json!({
+            "id": id, "appId": MENU_APP, "appName": name, "syncType": sync_type, "state": "active",
+            "integrationStatus": status, "lastSyncAt": null, "createdAt": null,
+        })
+    };
+    vec![
+        source(SOURCE_SHOP, json!("Menu Shop"), "shopify", "healthy"),
+        source(SOURCE_BQ, json!("Analytics BQ"), "bigquery", "warning"),
+        source(SOURCE_BARE, Value::Null, "meta_ads", "error"),
+    ]
+}
+
+/// [`sources_to_choose`] as the list shows them: the table's dash for the missing name.
+const SOURCE_ROWS: [&str; 3] = [
+    "5e6f7a8b...  Menu Shop     shopify   healthy",
+    "6f7a8b9c...  Analytics BQ  bigquery  warning",
+    "7a8b9c0d...  —             meta_ads  error",
+];
+
+/// The destinations to choose from, newest first; the last has no source app.
+fn destinations_to_choose() -> Vec<Value> {
+    let destination = |id: &str, source: Value, destination: &str, data_type: &str, status: &str| {
+        json!({
+            "id": id, "sourceAppName": source, "destinationAppName": destination, "destinationAppId": CHOOSE_BQ,
+            "dataType": data_type, "state": "active", "status": status, "lastSyncAt": null, "createdAt": null,
+        })
+    };
+    vec![
+        destination(DEST_EVENTS, json!("Menu Shop"), "Analytics BQ", "events", "active"),
+        destination(DEST_AUDIENCES, json!("Analytics BQ"), "Demo Pixel", "audiences", "paused"),
+        destination(DEST_ONE_APP, Value::Null, "Demo Pixel", "conversions", "error"),
+    ]
+}
+
+/// [`destinations_to_choose`] as the list shows them: the two apps as `destinations get` titles them.
+const DESTINATION_ROWS: [&str; 3] = [
+    "8b9c0d1e...  Menu Shop → Analytics BQ   events       active",
+    "9c0d1e2f...  Analytics BQ → Demo Pixel  audiences    paused",
+    "0d1e2f3a...  — → Demo Pixel             conversions  error",
+];
+
+/// The data types `destinations create --data-type` lists: vendo-web-v2's `DataTypeSchema`, in its
+/// order.
+const DATA_TYPE_ROWS: [&str; 13] = [
+    "events",
+    "user_properties",
+    "group_properties",
+    "ad_data",
+    "revenue",
+    "contacts",
+    "email_messages",
+    "custom",
+    "event",
+    "user",
+    "group",
+    "audiences",
+    "conversions",
+];
+
+/// [`apps_to_choose_stub`] with [`sources_to_choose`] and [`destinations_to_choose`] in acct-alpha:
+/// the lists, `{ data: <item> }` for every request about one, no active jobs, a refresh-source
+/// that finds the data there, and `create` for both.
+async fn pipeline_to_choose_stub() -> MockServer {
+    let server = apps_to_choose_stub("acct-alpha").await;
+    serve(&server, "GET", &format!("{V1}/jobs"), 200, page_of(Vec::new(), 0, false)).await;
+    for (list, items) in [("sources", sources_to_choose()), ("connections", destinations_to_choose())] {
+        serve(&server, "GET", &format!("{V1}/{list}"), 200, page_of(items.clone(), 0, false)).await;
+        serve(&server, "POST", &format!("{V1}/{list}"), 201, json!({ "data": items[0] })).await;
+        for item in items {
+            let id = item["id"].as_str().unwrap();
+            // Before the catch-all below: wiremock answers with the first match mounted.
+            let refresh = format!("{V1}/{list}/{id}/refresh-source");
+            serve(&server, "POST", &refresh, 200, json!({ "data": { "status": "ready" } })).await;
+            Mock::given(wiremock::matchers::path_regex(format!("^{V1}/{list}/{id}(/.*)?$")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": item })))
+                .mount(&server)
+                .await;
+        }
+    }
+    server
+}
+
+/// What the screen shows after `answer`, without blank lines: the command's output.
+fn after_answer(terminal: &OnTerminal, answer: &str) -> Vec<String> {
+    let shown = shown_lines(terminal, (40, 120));
+    let answered = shown.iter().position(|line| line == answer).unwrap_or_else(|| panic!("{answer:?}: {shown:#?}"));
+    shown[answered + 1..].iter().filter(|line| !line.is_empty()).cloned().collect()
+}
+
+/// What `out` printed, stdout then stderr, as lines without blank ones.
+fn printed_lines(out: &Output) -> Vec<String> {
+    let printed = text(&out.stdout) + &text(&out.stderr);
+    printed.lines().map(str::trim_end).filter(|line| !line.is_empty()).map(str::to_string).collect()
+}
+
+/// `rows` as an open list shows them, the first marked.
+fn marked(rows: &[&str]) -> Vec<String> {
+    rows.iter().enumerate().map(|(i, row)| format!("{} {row}", if i == 0 { '>' } else { ' ' })).collect()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_missing_source_or_destination_is_chosen_from_the_accounts_list_and_the_command_runs_as_typed() {
+    let server = pipeline_to_choose_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let window = ["--from", "2026-06-29", "--to", "2026-07-02"];
+    let sources = (&SOURCE_ROWS, SOURCE_BQ, "6f7a8b9c... (Analytics BQ)", "sources");
+    let destinations = (&DESTINATION_ROWS, DEST_AUDIENCES, "9c0d1e2f... (Analytics BQ → Demo Pixel)", "connections");
+    let mut cases: Vec<(Vec<&str>, _)> = Vec::new();
+    for (command, flags) in [
+        ("get", &[][..]),
+        ("get", &["--json"]),
+        ("sync", &[]),
+        ("sync", &["--dry-run"]),
+        ("pause", &[]),
+        ("pause", &["--dry-run"]),
+        ("resume", &["--output", "id"]),
+        ("delete", &["--yes"]),
+        ("update", &["--frequency", "6"]),
+        // No change asked for: the command says so after the choice, as when typed with the ID.
+        ("update", &[]),
+    ] {
+        cases.push(([&["sources", command][..], flags].concat(), sources));
+    }
+    for (command, flags) in [
+        ("get", &[][..]),
+        ("sync", &[]),
+        ("refresh-source", &window),
+        ("pause", &["--dry-run"]),
+        ("resume", &[]),
+        ("delete", &["--yes"]),
+        ("update", &["--frequency", "2"]),
+    ] {
+        cases.push(([&["destinations", command][..], flags].concat(), destinations));
+    }
+    // The hidden names of destinations ask as destinations does, titled with the tree's name.
+    cases.push((vec!["int", "get"], destinations));
+    cases.push((vec!["integrations", "sync", "--dry-run"], destinations));
+    for (args, (rows, chosen, named, list)) in cases {
+        let case = args.join(" ");
+        let path = format!("vendo {} {}", if args[0] == "sources" { "sources" } else { "destinations" }, args[1]);
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, &args);
+        terminal.wait_for("type to filter]");
+        // Titled with the command; every row, newest first, the first marked; the menu's hint.
+        let mut expected = vec![format!("? {path}")];
+        expected.extend(marked(rows));
+        expected.push("[↑↓ to move, enter to select, type to filter]".to_string());
+        assert_eq!(shown_lines(&terminal, (40, 120)), expected, "{case}");
+        // Down to the second, which Enter chooses: the answer names it by its short ID and name.
+        terminal.press("\u{1b}[B");
+        terminal.wait_for(&format!("> {}", rows[1]));
+        terminal.press("\r");
+        let answer = format!("? {path} {named}");
+        terminal.wait_for(&answer[2..]);
+        let (_, code) = terminal.finish();
+        let mut asked = sent(&server).await[before..].to_vec();
+        // The same command typed with the full ID, on a pipe.
+        let typed_args: Vec<&str> = [&args[..2], &[chosen][..], &args[2..]].concat();
+        let typed = sandbox.run(&typed_args);
+        let mut typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!(code, typed.status.code(), "{case}");
+        assert_eq!(asked.remove(0), format!("GET {V1}/{list}?limit=100&offset=0"), "{case}");
+        // `get` and a dry run read the item and its active job at once, in either order.
+        asked.sort();
+        typed_sent.sort();
+        assert_eq!(asked, typed_sent, "{case}");
+        // What it showed after the answer is what the typed command printed.
+        assert_eq!(after_answer(&terminal, &answer), printed_lines(&typed), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn typing_filters_the_sources_and_destinations_by_any_column() {
+    let server = pipeline_to_choose_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, typed, rows) in [
+        (&["sources", "get"][..], "META", &SOURCE_ROWS[2..]),
+        (&["sources", "get"], "6f7a8b9c", &SOURCE_ROWS[1..2]),
+        (&["sources", "get"], "warn", &SOURCE_ROWS[1..2]),
+        (&["destinations", "get"], "demo pixel", &DESTINATION_ROWS[1..]),
+        (&["destinations", "get"], "AUDIENCES", &DESTINATION_ROWS[1..2]),
+        (&["destinations", "get"], "shop → a", &DESTINATION_ROWS[..1]),
+    ] {
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        terminal.press(typed);
+        terminal.wait_for(&format!("{} {typed}", args.join(" ")));
+        // The end of that frame: inquire shows the cursor again.
+        terminal.wait_for("\u{1b}[?25h");
+        assert_eq!(listed_rows(&terminal), marked(rows), "{typed}");
+        terminal.press("\u{1b}");
+        assert_eq!(terminal.finish().1, Some(0), "{typed}");
+    }
+    // Enter chooses the first row left.
+    let mut terminal = OnTerminal::start(&sandbox, &["destinations", "get", "--json"]);
+    terminal.wait_for("type to filter]");
+    terminal.press("conversions");
+    terminal.wait_for("vendo destinations get conversions");
+    terminal.press("\r");
+    terminal.wait_for("vendo destinations get 0d1e2f3a... (— → Demo Pixel)");
+    assert_eq!(terminal.finish().1, Some(0));
+    assert_eq!(sent(&server).await.last().unwrap(), &format!("GET {V1}/connections/{DEST_ONE_APP}"));
+    // A source without its app's name is answered by its short ID alone.
+    let mut terminal = OnTerminal::start(&sandbox, &["sources", "get", "--json"]);
+    terminal.wait_for("type to filter]");
+    terminal.press("meta\r");
+    let (_, code) = terminal.finish();
+    assert_eq!(code, Some(0));
+    assert!(shown_lines(&terminal, (40, 120)).iter().any(|line| line == "? vendo sources get 7a8b9c0d..."));
+    assert_eq!(sent(&server).await.last().unwrap(), &format!("GET {V1}/sources/{SOURCE_BARE}"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn sources_create_asks_for_the_app_then_its_type_and_creates_the_source_as_typed() {
+    let server = pipeline_to_choose_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let apps = format!("GET {V1}/apps?limit=100&offset=0");
+    let app_bq = format!("GET {V1}/apps/{CHOOSE_BQ}");
+    // (words, the app's answer if listed, the type listed, the words typed instead, what the asking
+    // sent before the command's own requests)
+    let cases = [
+        // Neither: the app from the account's apps, then its type, the one row.
+        (
+            &["sources", "create", "--run-now"][..],
+            Some("a1b2c3d4... (Menu Shop)"),
+            "shopify",
+            vec!["sources", "create", "--run-now", "--app", MENU_APP, "--sync-type", "shopify"],
+            vec![apps.clone()],
+        ),
+        // The app typed by its full ID: read for its type.
+        (
+            &["sources", "create", "--app", CHOOSE_BQ][..],
+            None,
+            "bigquery",
+            vec!["sources", "create", "--app", CHOOSE_BQ, "--sync-type", "bigquery"],
+            vec![app_bq.clone()],
+        ),
+        // By its short ID: looked up, read, and looked up again by the command (VE-3831).
+        (
+            &["sources", "create", "--app", "e5f6a7b8..."][..],
+            None,
+            "bigquery",
+            vec!["sources", "create", "--app", "e5f6a7b8...", "--sync-type", "bigquery"],
+            vec![apps.clone(), app_bq.clone()],
+        ),
+        // The type typed: the app from the list, not narrowed by it (Q3).
+        (
+            &["sources", "create", "--sync-type", "shopify", "--json"][..],
+            Some("a1b2c3d4... (Menu Shop)"),
+            "",
+            vec!["sources", "create", "--sync-type", "shopify", "--json", "--app", MENU_APP],
+            vec![apps.clone()],
+        ),
+    ];
+    for (args, app, sync_type, typed_args, asking) in cases {
+        let case = args.join(" ");
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        if let Some(app) = app {
+            terminal.wait_for("type to filter]");
+            let shown = shown_lines(&terminal, (40, 120));
+            assert_eq!(shown[0], "? vendo sources create --app", "{case}");
+            assert_eq!(shown[1..shown.len() - 1], marked(&APP_ROWS), "{case}");
+            terminal.press("\r");
+            terminal.wait_for(&format!("vendo sources create --app {app}"));
+        }
+        let mut last = app.map(|app| format!("? vendo sources create --app {app}"));
+        if !sync_type.is_empty() {
+            terminal.wait_for("vendo sources create --sync-type");
+            terminal.wait_for("type to filter]");
+            terminal.wait_for("\u{1b}[?25h");
+            let shown = shown_lines(&terminal, (40, 120));
+            let title = shown.iter().rposition(|line| line == "? vendo sources create --sync-type").unwrap();
+            assert_eq!(
+                shown[title + 1..],
+                [format!("> {sync_type}"), "[↑↓ to move, enter to select, type to filter]".into()],
+                "{case}"
+            );
+            terminal.press("\r");
+            let answer = format!("? vendo sources create --sync-type {sync_type}");
+            terminal.wait_for(&answer[2..]);
+            last = Some(answer);
+        }
+        let (_, code) = terminal.finish();
+        let asked = sent(&server).await[before..].to_vec();
+        let typed = sandbox.run(&typed_args);
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!((code, typed.status.code()), (Some(0), Some(0)), "{case}: {}", text(&typed.stderr));
+        assert_eq!(asked[..asking.len()], asking[..], "{case}");
+        assert_eq!(asked[asking.len()..], typed_sent[..], "{case}");
+        assert!(typed_sent.last().unwrap().starts_with(&format!("POST {V1}/sources ")), "{case}: {typed_sent:?}");
+        assert_eq!(after_answer(&terminal, &last.unwrap()), printed_lines(&typed), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_typed_app_whose_type_cannot_be_read_is_that_error_and_nothing_is_asked() {
+    // Q3's default: the app's type cannot be listed, so the command stops with the error reading
+    // the app gives, exit 1, as `vendo apps get` with the same ID does.
+    let server = pipeline_to_choose_stub().await;
+    let gone = "ffffffff-0000-4000-8000-000000000099";
+    let not_found = json!({ "error": { "code": "NOT_FOUND", "message": "App not found" } });
+    serve(&server, "GET", &format!("{V1}/apps/{gone}"), 404, not_found).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["sources", "create", "--app", gone]);
+    let (_, code) = terminal.finish();
+    let shown = shown_lines(&terminal, (40, 120));
+    let typed = text(&sandbox.run(&["apps", "get", gone]).stderr);
+    assert_eq!((code, shown[0].as_str()), (Some(1), typed.lines().next().unwrap()), "{shown:#?}");
+    assert_eq!(shown[0], "Error: App not found");
+    assert!(shown.len() == 2 && shown[1].starts_with("Request ID: "), "{shown:#?}");
+    // With `--json`, the JSON error.
+    let mut terminal =
+        OnTerminal::start_with(&sandbox, &["sources", "create", "--app", gone, "--json"], WIDE, "", None);
+    let (_, code) = terminal.finish();
+    let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into()));
+    assert_eq!((code, shown.len()), (Some(1), 1), "{shown:#?}");
+    let error: Value = serde_json::from_str(&shown[0]).unwrap();
+    assert_eq!((&error["error"]["message"], &error["error"]["status"]), (&json!("App not found"), &json!(404)));
+    // A short ID that several apps' IDs start with: the command's own refusal (VE-3831).
+    let twins = vec![
+        app_to_choose(&uuid_with("abcdef01", 1), "Twin One", "shopify", &["source"], "active"),
+        app_to_choose(&uuid_with("abcdef01", 2), "Twin Two", "shopify", &["source"], "active"),
+    ];
+    let server = MockServer::start().await;
+    serve(&server, "GET", &format!("{V1}/apps"), 200, page_of(twins, 0, false)).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let refused = text(&sandbox.run(&["sources", "create", "--app", "abcdef01", "--sync-type", "shopify"]).stderr);
+    assert!(refused.starts_with("Error: Short ID abcdef01 matches 2 apps:"), "{refused}");
+    let mut terminal = OnTerminal::start(&sandbox, &["sources", "create", "--app", "abcdef01"]);
+    let (_, code) = terminal.finish();
+    assert_eq!((code, shown_lines(&terminal, (40, 120)).join("\n")), (Some(1), refused.trim_end().to_string()));
+    assert!(!terminal.screen.contains("type to filter"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn destinations_create_asks_for_the_app_the_data_type_and_the_config_file_in_clap_order() {
+    let server = pipeline_to_choose_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let home = sandbox.home.path().to_path_buf();
+    std::fs::write(home.join("tasks.json"), r#"{ "tasks": [{ "id": "page_views" }] }"#).unwrap();
+    let in_home = |args: &[&str]| {
+        let mut cmd = sandbox.command(args);
+        cmd.current_dir(&home);
+        cmd
+    };
+    // All three: the app, then a data type, then the path, relative to where vendo runs (Q8).
+    let before = sent(&server).await.len();
+    let args = ["destinations", "create", "--run-now"];
+    let mut terminal = OnTerminal::spawn(in_home(&args), (40, 120), "", None, None);
+    terminal.wait_for("type to filter]");
+    let shown = shown_lines(&terminal, (40, 120));
+    assert_eq!(shown[0], "? vendo destinations create --dest-app");
+    assert_eq!(shown[1..shown.len() - 1], marked(&APP_ROWS));
+    terminal.press("\u{1b}[B");
+    terminal.wait_for(&format!("> {}", APP_ROWS[1]));
+    terminal.press("\r");
+    terminal.wait_for("vendo destinations create --dest-app e5f6a7b8... (Analytics BQ)");
+    terminal.wait_for("vendo destinations create --data-type");
+    terminal.wait_for("type to filter]");
+    terminal.wait_for("\u{1b}[?25h");
+    // Every data type the API takes, in its order.
+    let shown = shown_lines(&terminal, (40, 120));
+    let title = shown.iter().rposition(|line| line == "? vendo destinations create --data-type").unwrap();
+    assert_eq!(shown[title + 1..shown.len() - 1], marked(&DATA_TYPE_ROWS));
+    terminal.press("aud");
+    terminal.wait_for("vendo destinations create --data-type aud");
+    terminal.press("\r");
+    terminal.wait_for("vendo destinations create --data-type audiences");
+    // Then the path, as a one-line question: an empty answer is refused.
+    terminal.wait_for("vendo destinations create --config-file");
+    terminal.press("\r");
+    terminal.wait_for("A response is required.");
+    terminal.press("tasks.json\r");
+    let answer = "? vendo destinations create --config-file tasks.json";
+    terminal.wait_for(&answer[2..]);
+    let (_, code) = terminal.finish();
+    let asked = sent(&server).await[before..].to_vec();
+    let typed_args =
+        ["destinations", "create", "--run-now", "--dest-app", CHOOSE_BQ, "--data-type", "audiences", "--config-file"];
+    let typed = in_home(&[&typed_args[..], &["tasks.json"]].concat()).output().unwrap();
+    let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+    assert_eq!((code, typed.status.code()), (Some(0), Some(0)), "{}", text(&typed.stderr));
+    assert_eq!((asked[0].clone(), &asked[1..]), (format!("GET {V1}/apps?limit=100&offset=0"), &typed_sent[..]));
+    assert_eq!(typed_sent.len(), 1, "{typed_sent:?}");
+    let body = &typed_sent[0];
+    assert!(body.starts_with(&format!("POST {V1}/connections ")), "{body}");
+    for part in [
+        format!("\"destinationAppId\":\"{CHOOSE_BQ}\""),
+        "\"dataType\":\"audiences\"".into(),
+        "\"config\":{\"tasks\":[{\"id\":\"page_views\"}]}".into(),
+    ] {
+        assert!(body.contains(&part), "{part} in {body}");
+    }
+    assert_eq!(after_answer(&terminal, answer), printed_lines(&typed));
+
+    // Only the path missing: the question alone, nothing sent before the command's requests; a
+    // file that is not there is the command's error after the answer, as when typed.
+    for (path, ok) in [("tasks.json", true), ("missing.json", false)] {
+        let before = sent(&server).await.len();
+        let args = ["destinations", "create", "--dest-app", "e5f6a7b8", "--data-type", "events"];
+        let mut terminal = OnTerminal::spawn(in_home(&args), (40, 120), "", None, None);
+        terminal.wait_for("vendo destinations create --config-file");
+        terminal.press(&format!("{path}\r"));
+        let answer = format!("? vendo destinations create --config-file {path}");
+        terminal.wait_for(&answer[2..]);
+        let (_, code) = terminal.finish();
+        assert!(!terminal.screen.contains("type to filter"), "{path}");
+        let asked = sent(&server).await[before..].to_vec();
+        let typed = in_home(&[&args[..], &["--config-file", path]].concat()).output().unwrap();
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!((code, typed.status.code()), (Some(if ok { 0 } else { 1 }), code), "{path}");
+        assert_eq!(asked, typed_sent, "{path}");
+        assert_eq!(asked.len(), if ok { 2 } else { 0 }, "{path}: {asked:?}");
+        assert_eq!(after_answer(&terminal, &answer), printed_lines(&typed), "{path}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn esc_ctrl_c_or_ctrl_d_at_a_source_destination_type_or_path_leave_quietly() {
+    let server = pipeline_to_choose_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let list = |of: &str| vec![format!("GET {V1}/{of}?limit=100&offset=0")];
+    // (words, the line left, what was sent, whether a list or the question is open)
+    let cases: [(&[&str], &str, Vec<String>, bool); 5] = [
+        (&["sources", "delete"], "? vendo sources delete <canceled>", list("sources"), true),
+        (&["int", "pause"], "? vendo destinations pause <canceled>", list("connections"), true),
+        (
+            &["sources", "create", "--app", CHOOSE_BQ],
+            "? vendo sources create --sync-type <canceled>",
+            vec![format!("GET {V1}/apps/{CHOOSE_BQ}")],
+            true,
+        ),
+        (
+            &["destinations", "create", "--dest-app", CHOOSE_BQ],
+            "? vendo destinations create --data-type <canceled>",
+            vec![],
+            true,
+        ),
+        (
+            &["destinations", "create", "--dest-app", CHOOSE_BQ, "--data-type", "events"],
+            "? vendo destinations create --config-file <canceled>",
+            vec![],
+            false,
+        ),
+    ];
+    for (args, last, requests, list) in cases {
+        for (key, name) in [("\u{1b}", "Esc"), ("\u{3}", "Ctrl-C"), ("\u{4}", "Ctrl-D")] {
+            let case = format!("{name} {}", args.join(" "));
+            let before = sent(&server).await.len();
+            let mut terminal = OnTerminal::start(&sandbox, args);
+            terminal.wait_for(&last[2..last.len() - " <canceled>".len()]);
+            if list {
+                terminal.wait_for("type to filter]");
+            }
+            terminal.press(key);
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            let shown = shown_lines(&terminal, (40, 120));
+            assert_eq!(shown.last().map(String::as_str), Some(last), "{case}: {shown:#?}");
+            assert_eq!(sent(&server).await[before..], requests[..], "{case}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn with_no_source_destination_or_app_to_choose_from_it_says_so_and_is_the_usage_error() {
+    let server = MockServer::start().await;
+    for list in ["apps", "sources", "connections"] {
+        serve(&server, "GET", &format!("{V1}/{list}"), 200, page_of(Vec::new(), 0, false)).await;
+    }
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, nothing) in [
+        (&["sources", "get"][..], "No sources to choose from."),
+        (&["sources", "sync", "--json"], "No sources to choose from."),
+        (&["destinations", "refresh-source", "--json"], "No destinations to choose from."),
+        (&["int", "delete"], "No destinations to choose from."),
+        (&["sources", "create"], "No apps to choose from."),
+        (&["destinations", "create", "--data-type", "events"], "No apps to choose from."),
+    ] {
+        let typed = sandbox.run(args);
+        assert_eq!(typed.status.code(), Some(2));
+        let mut terminal = OnTerminal::start_with(&sandbox, args, WIDE, "", None);
+        let (_, code) = terminal.finish();
+        let expected = format!("{nothing}\n{}", text(&typed.stderr));
+        let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into())).join("\n");
+        assert_eq!((code, shown), (Some(2), expected.trim_end().to_string()), "{args:?}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_source_or_destination_list_that_fails_is_the_error_and_nothing_is_asked() {
+    let server = MockServer::start().await;
+    let refusal = json!({ "error": { "code": "RATE_LIMITED", "message": "Too many requests" } });
+    for list in ["sources", "connections"] {
+        serve(&server, "GET", &format!("{V1}/{list}"), 429, refusal.clone()).await;
+    }
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["sources", "pause"]);
+    let (_, code) = terminal.finish();
+    let shown = shown_lines(&terminal, (40, 120));
+    assert_eq!((code, shown[0].as_str()), (Some(1), "Error: Too many requests"), "{shown:#?}");
+    assert!(!terminal.screen.contains("type to filter"));
+    let mut terminal = OnTerminal::start_with(&sandbox, &["destinations", "get", "--json"], WIDE, "", None);
+    let (_, code) = terminal.finish();
+    let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into()));
+    assert_eq!((code, shown.len()), (Some(1), 1), "{shown:#?}");
+    let error: Value = serde_json::from_str(&shown[0]).unwrap();
+    assert_eq!(
+        (&error["error"]["message"], &error["error"]["code"], &error["error"]["status"]),
+        (&json!("Too many requests"), &json!("RATE_LIMITED"), &json!(429))
+    );
+    assert_eq!(
+        sent(&server).await,
+        [format!("GET {V1}/sources?limit=100&offset=0"), format!("GET {V1}/connections?limit=100&offset=0")]
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn sources_and_destinations_without_an_account_are_that_error_before_anything_is_asked() {
+    let server = pipeline_to_choose_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut config = sandbox.config();
+    for profile in config["profiles"].as_object_mut().unwrap().values_mut() {
+        profile.as_object_mut().unwrap().remove("accountId");
+    }
+    std::fs::write(sandbox.home.path().join(".config/vendo/config.json"), config.to_string()).unwrap();
+    let no_account = text(&sandbox.run(&["sources", "list"]).stderr);
+    assert!(no_account.starts_with("Error: No account configured."), "{no_account}");
+    for args in [
+        &["sources", "get"][..],
+        &["destinations", "sync"],
+        &["sources", "create"],
+        // The typed app is read for its type, in the account.
+        &["sources", "create", "--app", CHOOSE_BQ],
+        &["destinations", "create"],
+    ] {
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        let (_, code) = terminal.finish();
+        let shown = shown_lines(&terminal, (40, 120)).join("\n");
+        assert_eq!((code, shown), (Some(1), no_account.trim_end().to_string()), "{args:?}");
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn refresh_source_json_chosen_from_the_list_keeps_its_response_on_stdout_and_adds_the_error() {
+    // `destinations refresh-source --json` prints the response on stdout and, when the data cannot
+    // be imported, the JSON error on stderr, exit 1 (VE-1603, VE-3831): the same once the
+    // destination is chosen, the list drawn on stderr.
+    let server = MockServer::start().await;
+    serve(&server, "GET", &format!("{V1}/connections"), 200, page_of(destinations_to_choose(), 0, false)).await;
+    let route = format!("{V1}/connections/{DEST_EVENTS}/refresh-source");
+    serve(&server, "POST", &route, 200, json!({ "data": { "status": "unavailable" } })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let window = ["--from", "2026-06-29", "--to", "2026-07-02"];
+    let mut keys = SecondTerminal::new();
+    let cmd = sandbox.command(&[&["destinations", "refresh-source", "--json"][..], &window].concat());
+    let mut terminal = OnTerminal::launch(cmd, (40, 120), "", Some(keys.end()), Some(keys.end()), true);
+    keys.wait_for("type to filter]");
+    keys.press("\r");
+    let (stdout, code) = terminal.finish();
+    keys.wait_for("vendo destinations refresh-source 8b9c0d1e... (Menu Shop → Analytics BQ)");
+    let typed = sandbox.run(&[&["destinations", "refresh-source", DEST_EVENTS, "--json"][..], &window].concat());
+    assert_eq!((code, plain(&stdout)), (Some(1), text(&typed.stdout)));
+    assert_eq!(text(&typed.stdout), "{\n  \"data\": {\n    \"status\": \"unavailable\"\n  }\n}\n");
+    let error = text(&typed.stderr);
+    keys.wait_for(error.trim_end());
+    let posted: Vec<String> = sent(&server).await.into_iter().filter(|r| r.starts_with("POST")).collect();
+    assert_eq!(posted.len(), 2, "{posted:?}");
+    assert_eq!(posted[0], posted[1]);
+}
+
 // ── VE-3826: CI and VENDO_NO_INPUT turn prompts off; no menu on TERM=dumb ───
 // Decided by Yalcin, 2026-10-06, CLI 1.1. `CI` or `VENDO_NO_INPUT` set to anything but empty, `0`
 // or `false` (in any case) turns every prompt off, also at a terminal: the y/N questions, the group

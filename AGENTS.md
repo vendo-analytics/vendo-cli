@@ -243,38 +243,45 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `can_prompt`, so only when stdin and stdout are terminals (`echo 1 | vendo profile switch` reads no answer from the
   pipe). On `TERM=dumb` only the group menu and the questions for a missing value are off; the y/N questions and the
   picker still ask.
-- Missing values (VE-3881, decided by Yalcin 2026-10-07, CLI 1.1): a command typed without a value it requires asks
-  for it where the group menu opens (`output::can_show_menu`, the same rule, the hang-up watch included) instead of
-  stopping with clap's usage error; optional values are not asked. `rust/src/ask.rs` (the `menu` feature) owns it:
-  `VALUES` says how each value is asked for, and a value not there keeps the usage error. A value with choices opens an
-  arrow-key list with type-to-filter (`output::choose_value`: the menu's inquire Select and hint, plain-text rows padded
-  per column in the screen's columns, a wide character such as 東 taking two as inquire and the terminal count it
-  (`unicode-width`; `output::menu_page` fits the list to the screen by them too), filtered by substring in any case):
-  an app of the account's as `apps list` lists them (newest first,
-  pages of 100, at most 5 like a short-ID lookup; with more, the hint ends `· newest 500 shown`), a platform ready to
-  connect as `catalog list` lists them by default (VE-3829). Free text (`apps create --name`) is a one-line question
-  (`output::ask_text`, refusing an empty answer). Keys typed before a list or question opens (while the list loads, or
-  with the Enter that answered the menu or the list before) are thrown away (`output::discard_typed_ahead`), so a stray
-  Enter chooses nothing unseen. Each is titled with the command as the tree names it
-  (`vendo apps get`, `vendo apps create --type`), and the answered line reads like the command so far,
-  `vendo apps get a1b2c3d4... (Menu Shop)`, after inquire's mark for an answer: a green `>`, or `?` with `NO_COLOR`
-  (as the tests run); the title of an open list or question and the `<canceled>` line start with `?` either way. The
-  values go into the words where they would have been typed (an
-  option as `--type=shopify`, an ID whole) and `cli::parse` parses again, once, so global options, `MOVED`, the y/N
-  of a delete, `--dry-run`, `--json` and `--output` apply as typed. Before anything is asked: no API key, or an
-  unknown `VENDO_PROFILE`, is that error, and a list of the account's without an account is the client's "No account
-  configured" error (`Client::require_account`), exit 1 with nothing sent; the platforms are the key's, so
-  `apps create` lists them without an account. A list that fails is its error (exit 1, the JSON error with
-  `--json`); an empty one says `No apps to choose from.` and is the usage error (exit 2). Esc, Ctrl-C, Ctrl-D and a
-  hang-up exit 0 with nothing run. ❓ Open for Yalcin, built with the spec's cautious defaults: lists not narrowed
-  beyond what the list command shows (Q2), the empty-list line (Q4), the cut-off note's wording (Q6), `apps create`'s
+- Missing values (VE-3881, decided by Yalcin 2026-10-07, CLI 1.1): a command typed without a value it requires asks for
+  it where the group menu opens (`output::can_show_menu`, the same rule, the hang-up watch included) instead of stopping
+  with clap's usage error; optional values are not asked. `rust/src/ask.rs` (the `menu` feature) owns it: `VALUES` says
+  how each value is asked for, and a value not there keeps the usage error. A value with choices opens an arrow-key list
+  with type-to-filter (`output::choose_value`: the menu's inquire Select and hint, plain-text rows padded per column in
+  the screen's columns, a wide character such as 東 taking two as inquire and the terminal count it (`unicode-width`;
+  `output::menu_page` fits the list to the screen by them too), filtered by substring in any case): an app, source or
+  destination of the account's as `apps list`, `sources list` and `destinations list` list them (newest first, pages of
+  100, at most 5 like a short-ID lookup; with more, the hint ends `· newest 500 shown`), a platform ready to connect as
+  `catalog list` lists them by default (VE-3829), `sources create --sync-type` the one type the API takes, the type of
+  the app chosen for `--app` or typed (read as `apps get` reads it, a short ID looked up first; an app that cannot be
+  read is that error, exit 1), in a list of that one row, and `destinations create --data-type` the 13 data types
+  vendo-web-v2's `DataTypeSchema` (`lib/vendo/data-model.ts`) takes, in its order, the deprecated legacy ones too
+  (`ask::DATA_TYPES`). Free text (`apps create --name`) and a file's path (`destinations create --config-file`, taken as
+  typed, relative to the current directory, `~` not expanded) are a one-line question (`output::ask_text`, refusing an
+  empty answer). Keys typed before a list or question opens (while the list loads, or with the Enter that answered the
+  menu or the list before) are thrown away (`output::discard_typed_ahead`), so a stray Enter chooses nothing unseen.
+  Each is titled with the command as the tree names it (`vendo apps get`, `vendo apps create --type`,
+  `vendo destinations get` for `vendo int get`), and the answered line reads like the command so far,
+  `vendo apps get a1b2c3d4... (Menu Shop)`, `vendo destinations get 9c0d1e2f... (Analytics BQ → Demo Pixel)`, after
+  inquire's mark for an answer: a green `>`, or `?` with `NO_COLOR` (as the tests run); the title of an open list or
+  question and the `<canceled>` line start with `?` either way. The values go into the words where they would have been
+  typed (an option as `--type=shopify`, an ID whole) and `cli::parse` parses again, once, so global options, `MOVED`,
+  the y/N of a delete, `--dry-run`, `--json` and `--output` apply as typed. Before anything is asked: no API key, or an
+  unknown `VENDO_PROFILE`, is that error, and a list of the account's, or a typed app to read the type of, without an
+  account is the client's "No account configured" error (`Client::require_account`), exit 1 with nothing sent; the
+  platforms are the key's, so `apps create` lists them without an account. A list that fails is its error (exit 1, the
+  JSON error with `--json`); an empty one says `No apps to choose from.` (`sources`, `destinations`) and is the usage
+  error (exit 2). Esc, Ctrl-C, Ctrl-D and a hang-up exit 0 with nothing run. ❓ Open for Yalcin, built with the spec's
+  cautious defaults: lists not narrowed beyond what the list command shows (Q2: `sources create`'s apps not narrowed to
+  active source apps, nor by a typed `--sync-type`), the sync type as a one-row list to confirm (Q3), the empty-list
+  line (Q4), the cut-off note's wording (Q6), all 13 data types (Q7), a path taken as typed (Q8), `apps create`'s
   platforms not narrowed by `--role` (Q9), and `--dry-run` sending the list request (Q14). Without a terminal, with
   prompts off, on `TERM=dumb`, with stderr redirected or a write-only stdin, the usage error stays byte for byte and
-  nothing is sent (`rust/tests/snapshots/usage/`). Built so far for `apps get|pause|resume|delete|update` and
-  `apps create --type/--name`; the other commands are `PENDING` in `ask.rs`'s coverage test and keep the usage error
-  until their part is built. An agent that runs `vendo` on a
-  pseudo-terminal without `CI` or `VENDO_NO_INPUT` now waits at the question where it got exit 2, as at the group menu
-  and the y/N questions; `VENDO_NO_INPUT=1` turns it off.
+  nothing is sent (`rust/tests/snapshots/usage/`). Built so far for every command of apps, sources and destinations
+  (`integrations` and `int` too) that requires a value; jobs, models, metrics, the catalog, measurement and the
+  dictionary are `PENDING` in `ask.rs`'s coverage test and keep the usage error until their part is built. An agent that
+  runs `vendo` on a pseudo-terminal without `CI` or `VENDO_NO_INPUT` now waits at the question where it got exit 2, as
+  at the group menu and the y/N questions; `VENDO_NO_INPUT=1` turns it off.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).
