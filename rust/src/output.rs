@@ -851,7 +851,8 @@ pub fn quit_quietly() -> ! {
 /// decided by Yalcin 2026-10-06): CI runners can give a job a terminal, where a question or a
 /// menu would wait for no one. There is no `--no-input` flag. Every prompt asks by it: the
 /// questions, the group menu and the profile picker through [`can_prompt`], and login's
-/// "Press ENTER to open in the browser" read.
+/// "Press ENTER to open in the browser" read at a terminal (a stdin that is no terminal it reads
+/// as before).
 pub fn prompts_off() -> bool {
     turns_prompts_off(std::env::var_os("CI").as_deref())
         || turns_prompts_off(std::env::var_os("VENDO_NO_INPUT").as_deref())

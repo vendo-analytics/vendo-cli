@@ -61,7 +61,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   has (profile or `VENDO_API_KEY`) is checked and kept; `--force`, `--env`/`--base-url` naming another instance, or a
   401/403 from `/me` sign in again, and any other failed check exits 1 without creating a key. With `VENDO_API_KEY`
   set it never opens a browser. Tests act as the browser (`login_at_browser` in `rust/tests/cli.rs` visits the printed
-  sign-in URL on the stub); stdin stays closed, so no real browser opens.
+  sign-in URL on the stub); stdin stays closed, so no real browser opens. The one test of a piped stdin (VE-3826)
+  writes no line end and keeps the pipe open until `vendo` has exited (`OnTerminal` stops it first on a failure).
 - Catalog (VE-3829, CLI 1.1): `vendo catalog list` shows what the API lists by default, the platforms ready to
   connect, and ends with a footer built from the response's `meta` counts (`35 ready · 560 more on request (vendo
   catalog list --all)`; only `35 ready` when none is on request; the plain count line when the API sends no counts).
@@ -141,9 +142,11 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `0` or `false` (any case) turns every prompt off, also at a terminal; there is no `--no-input` flag.
   `output::prompts_off` owns the rule, and every prompt asks by it: the y/N questions refuse without `--yes`, a bare
   group is the usage error (exit 2), and the profile picker does not ask (`profile switch` prints "Cancelled."),
-  each as without a terminal, through `can_prompt`; login does not read its "Press ENTER to open in the browser"
-  (`commands/login.rs`), so it does what it does with stdin closed: it prints the sign-in URL and that line, opens no
-  browser and waits for the sign-in. The profile picker (`output::search_select_option`) asks by `can_prompt`, so
+  each as without a terminal, through `can_prompt`; at a terminal login does not read its "Press ENTER to open in
+  the browser" (`commands/login.rs`), so it does what it does without one, stdin closed on a CI runner: it prints
+  the sign-in URL and that line, opens no browser and waits for the sign-in. A stdin that is not a terminal (a pipe,
+  a file) is no prompt: login reads it as before, so `echo | CI=true vendo login` opens the browser as
+  `echo | vendo login` does. The profile picker (`output::search_select_option`) asks by `can_prompt`, so
   only when stdin and stdout are terminals (`echo 1 | vendo profile switch` reads no answer from the pipe). On
   `TERM=dumb` only the group menu is off; the questions and the picker still ask.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,

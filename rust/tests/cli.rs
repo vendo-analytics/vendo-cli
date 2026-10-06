@@ -1570,12 +1570,15 @@ fn logging_out_of_one_profile_still_needs_no_yes() {
 #[cfg(unix)]
 fn pseudo_terminal() -> (std::fs::File, std::os::fd::OwnedFd) {
     // Wide enough that no menu row wraps (VE-3826): a new pseudo-terminal has no size.
-    pseudo_terminal_sized(40, 120)
+    let (controller, terminal, _) = pseudo_terminal_sized(40, 120);
+    (controller, terminal)
 }
 
-/// [`pseudo_terminal`] of `lines` × `columns`.
+/// [`pseudo_terminal`] of `lines` × `columns`, and the terminal end's name (`/dev/ttys004`). The name
+/// comes from ptsname, as the terminal end is opened by it: macOS's ttyname_r fails with ERANGE when
+/// several threads call it at once, as the tests run.
 #[cfg(unix)]
-fn pseudo_terminal_sized(lines: u16, columns: u16) -> (std::fs::File, std::os::fd::OwnedFd) {
+fn pseudo_terminal_sized(lines: u16, columns: u16) -> (std::fs::File, std::os::fd::OwnedFd, std::ffi::CString) {
     use std::os::fd::{FromRawFd, OwnedFd};
     // SAFETY: posix_openpt, grantpt, unlockpt and ptsname on a descriptor this
     // function owns; the name is copied before anything else can call ptsname.
@@ -1590,7 +1593,7 @@ fn pseudo_terminal_sized(lines: u16, columns: u16) -> (std::fs::File, std::os::f
         assert!(terminal >= 0, "open {name:?} failed");
         let size = libc::winsize { ws_row: lines, ws_col: columns, ws_xpixel: 0, ws_ypixel: 0 };
         assert_eq!(libc::ioctl(controller, libc::TIOCSWINSZ as _, &size), 0, "TIOCSWINSZ failed");
-        (std::fs::File::from_raw_fd(controller), OwnedFd::from_raw_fd(terminal))
+        (std::fs::File::from_raw_fd(controller), OwnedFd::from_raw_fd(terminal), name)
     }
 }
 
@@ -1643,14 +1646,9 @@ impl OnTerminal {
     ) -> Self {
         use std::{
             io::{Read, Write},
-            os::{fd::AsRawFd, unix::process::CommandExt},
+            os::unix::process::CommandExt,
         };
-        let (controller, terminal) = pseudo_terminal_sized(lines, columns);
-        let mut name = [0 as libc::c_char; 128];
-        // SAFETY: ttyname_r writes at most `name.len()` bytes, NUL included, into `name`.
-        assert_eq!(unsafe { libc::ttyname_r(terminal.as_raw_fd(), name.as_mut_ptr(), name.len()) }, 0);
-        // SAFETY: ttyname_r succeeded, so `name` holds a NUL-terminated string.
-        let name = unsafe { std::ffi::CStr::from_ptr(name.as_ptr()) }.to_owned();
+        let (controller, terminal, name) = pseudo_terminal_sized(lines, columns);
         std::fs::File::from(terminal.try_clone().unwrap()).write_all(before.as_bytes()).unwrap();
         let kept = terminal.try_clone().unwrap();
         cmd.env("NO_COLOR", "1")
@@ -1765,6 +1763,16 @@ impl OnTerminal {
             self.screen.push_str(&text(&chunk));
         }
         (self.screen[self.seen..].to_string(), code)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for OnTerminal {
+    /// Stops a `vendo` still running when the test ends early, on a failed assertion, so it reads
+    /// nothing from what the test leaves behind (login opens a browser on a line it reads).
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -3571,8 +3579,8 @@ fn on_a_short_terminal_the_menu_scrolls_its_list() {
 // ── VE-3826: CI and VENDO_NO_INPUT turn prompts off; no menu on TERM=dumb ───
 // Decided by Yalcin, 2026-10-06, CLI 1.1. `CI` or `VENDO_NO_INPUT` set to anything but empty, `0`
 // or `false` (in any case) turns every prompt off, also at a terminal: the y/N questions, the group
-// menu and the profile picker do what they do without a terminal, and login reads no "Press ENTER".
-// There is no `--no-input` flag. On `TERM=dumb` a bare group is the usage error, as without a
+// menu and the profile picker do what they do without a terminal, and login reads no "Press ENTER"
+// at a terminal (a stdin that is no terminal it reads as before). There is no `--no-input` flag. On `TERM=dumb` a bare group is the usage error, as without a
 // terminal; the questions still ask there. The profile picker asks only when stdin and stdout are
 // terminals, the rule the questions ask by.
 
@@ -3730,7 +3738,7 @@ fn the_profile_picker_asks_only_when_stdin_and_stdout_are_terminals() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn with_prompts_off_login_reads_no_press_enter_and_says_what_it_says_without_a_terminal() {
+async fn with_prompts_off_login_reads_no_press_enter_at_a_terminal_and_says_what_it_says_without_one() {
     // Without a terminal (stdin closed, as on a CI runner) login prints the sign-in URL and "Press
     // ENTER to open in the browser...", which nothing answers, and waits for the browser. With
     // prompts off it does that at a terminal too: it never reads the terminal. Ctrl-D is the key
@@ -3750,17 +3758,64 @@ async fn with_prompts_off_login_reads_no_press_enter_and_says_what_it_says_witho
         terminal.press("\u{4}");
         std::thread::sleep(std::time::Duration::from_millis(500));
         assert_eq!(terminal.takes_typed_end_of_input(), !reads, "{setting:?}: login should read the terminal: {reads}");
-
-        let url = reqwest::Url::parse(shown.lines().find(|line| line.contains("/cli-auth?")).unwrap()).unwrap();
-        assert_eq!(url.host_str(), Some("127.0.0.1"), "tests sign in at their local stub only: {url}");
-        assert_eq!(reqwest::get(url.clone()).await.unwrap().status(), 200);
-        let (rest, code) = terminal.finish();
-        assert_eq!(code, Some(0), "{setting:?} {rest:?}");
-        let mut shown = shown;
-        for (key, value) in url.query_pairs() {
-            shown = shown.replace(&format!("{key}={value}"), &format!("{key}=[{key}]"));
-        }
-        assert_eq!(shown, browser_sign_in("No API key found. Starting browser login...", &stub), "{setting:?}");
-        assert!(plain(&rest).ends_with(&signed_in("demo-account", &stub, "acct-alpha")), "{setting:?} {rest:?}");
+        sign_in_at_the_shown_url(terminal, &shown, &stub, &format!("{setting:?}")).await;
     }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn with_prompts_off_login_still_reads_a_stdin_that_is_no_terminal() {
+    // Without a terminal, login reads stdin whatever it is, as the TS CLI does: `echo | vendo login`
+    // opens the browser. A pipe is no prompt, so prompts off leave that as it is. The pipe holds a
+    // byte and no line end and stays open until `vendo` has exited, so the read never ends and no
+    // browser opens: whether login read it shows in what the pipe still holds.
+    use std::io::Write;
+    for setting in [None, Some(("CI", "true")), Some(("VENDO_NO_INPUT", "1"))] {
+        let server = sign_in_stub(&[NEW_KEY], 401).await;
+        let stub = server.uri();
+        let sandbox = Sandbox::without_api_keys(&stub);
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        writer.write_all(b"x").unwrap();
+        let held = reader.try_clone().unwrap();
+        let mut cmd = sandbox.command(&["login"]);
+        cmd.envs(setting);
+        // After the writer, so dropped first: a failed assertion stops `vendo` before the pipe closes.
+        let mut terminal = OnTerminal::spawn(cmd, (40, 120), "", Some(reader.into()), None);
+        let shown = plain(&terminal.wait_for("Waiting for authorization...\r\n"));
+        let asked = std::time::Instant::now();
+        while unread(&held) > 0 && asked.elapsed() < std::time::Duration::from_secs(10) {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(unread(&held), 0, "{setting:?}: login should read the pipe");
+        sign_in_at_the_shown_url(terminal, &shown, &stub, &format!("{setting:?}")).await;
+        drop(writer);
+    }
+}
+
+/// How many bytes `pipe` holds that nothing has read yet.
+#[cfg(unix)]
+fn unread(pipe: &std::io::PipeReader) -> usize {
+    use std::os::fd::AsRawFd;
+    let mut held: libc::c_int = 0;
+    // SAFETY: FIONREAD writes one int into `held`.
+    assert_eq!(unsafe { libc::ioctl(pipe.as_raw_fd(), libc::FIONREAD as _, &mut held) }, 0);
+    held as usize
+}
+
+/// The browser's part of a login on `terminal` that has shown `shown` up to "Waiting for
+/// authorization...": visit the sign-in URL on the stub, then check that login showed what it shows
+/// without a terminal and ends signed in.
+#[cfg(unix)]
+async fn sign_in_at_the_shown_url(mut terminal: OnTerminal, shown: &str, stub: &str, case: &str) {
+    let url = reqwest::Url::parse(shown.lines().find(|line| line.contains("/cli-auth?")).unwrap()).unwrap();
+    assert_eq!(url.host_str(), Some("127.0.0.1"), "tests sign in at their local stub only: {url}");
+    assert_eq!(reqwest::get(url.clone()).await.unwrap().status(), 200);
+    let (rest, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{case} {rest:?}");
+    let mut shown = shown.to_string();
+    for (key, value) in url.query_pairs() {
+        shown = shown.replace(&format!("{key}={value}"), &format!("{key}=[{key}]"));
+    }
+    assert_eq!(shown, browser_sign_in("No API key found. Starting browser login...", stub), "{case}");
+    assert!(plain(&rest).ends_with(&signed_in("demo-account", stub, "acct-alpha")), "{case} {rest:?}");
 }

@@ -20,7 +20,10 @@
 //! `http://127.0.0.1:<port>/callback?key=&account=&account_id=&state=`.
 //! The server requires `state` to match `^[a-f0-9]{32}$`.
 
-use std::{io::Write, time::Duration};
+use std::{
+    io::{IsTerminal, Write},
+    time::Duration,
+};
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value, json};
@@ -348,10 +351,11 @@ async fn browser_flow(base_url: &str, json: bool) -> Result<Callback> {
         let _ = std::io::stdout().flush();
     }
     // Any stdin answers, a terminal or not, as in the TS CLI. With prompts off (`CI`,
-    // `VENDO_NO_INPUT`; VE-3826) nothing reads it: login then does what it does where stdin is
-    // closed, as on a CI runner without a terminal. The line above still shows, and no browser
-    // opens.
-    if !prompts_off() {
+    // `VENDO_NO_INPUT`; VE-3826) a terminal is not read: login then does what it does without a
+    // terminal, where stdin is closed on a CI runner. The line above still shows, and no browser
+    // opens. A stdin that is no terminal (a pipe, a file) is no prompt and is read as before, so
+    // `echo | CI=true vendo login` opens the browser as `echo | vendo login` does.
+    if !prompts_off() || !std::io::stdin().is_terminal() {
         let url = auth_url.clone();
         std::thread::spawn(move || {
             let mut line = String::new();
