@@ -5809,6 +5809,609 @@ async fn refresh_source_json_chosen_from_the_list_keeps_its_response_on_stdout_a
     assert_eq!(posted[0], posted[1]);
 }
 
+// ── VE-3881, jobs, models, metrics and the catalog ───────────────────────────
+// A job, model or metric missing its ID is chosen from its list, newest first as `vendo jobs list`,
+// `vendo models list` and `vendo metrics list` list them (the metrics without the archived ones, as
+// `metrics list` leaves them out); `catalog get` and the hidden `catalog credential-schema` ask for a
+// platform ready to connect, as `apps create --type` does; `metrics create` asks for its name and
+// its definition file's path as one-line questions. The metrics and the platforms are the key's: no
+// account is needed for them.
+
+const JOB_RUNNING: &str = "1f2e3d4c-0000-4000-8000-000000000031";
+const JOB_FAILED: &str = "2e3d4c5b-0000-4000-8000-000000000032";
+const JOB_QUEUED: &str = "3d4c5b6a-0000-4000-8000-000000000033";
+const MODEL_ORDERS: &str = "4c5b6a79-0000-4000-8000-000000000041";
+const MODEL_LTV: &str = "5b6a7988-0000-4000-8000-000000000042";
+const METRIC_ROAS: &str = "6a798897-0000-4000-8000-000000000051";
+const METRIC_REVENUE: &str = "798897a6-0000-4000-8000-000000000052";
+const METRIC_CTR: &str = "8897a6b5-0000-4000-8000-000000000053";
+
+/// The time `minutes` ago, as the API sends it.
+fn minutes_ago(minutes: i64) -> String {
+    let at = jiff::Timestamp::now() - jiff::SignedDuration::from_mins(minutes);
+    at.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+}
+
+/// The jobs to choose from, newest first: one running for three and a half hours, one that failed
+/// a day ago after half an hour (what `jobs get` shows of it does not change while a test runs),
+/// and one queued with no platform and no time yet.
+fn jobs_to_choose() -> Vec<Value> {
+    let job = |id: &str, job_type: &str, connector: Value, status: &str, started: Value, finished: Value| {
+        json!({
+            "id": id, "jobType": job_type, "connectorType": connector, "status": status, "startedAt": started,
+            "finishedAt": finished, "createdAt": started, "rowsProcessed": null, "rowsWritten": null,
+        })
+    };
+    let (started, finished) = (json!(minutes_ago(26 * 60 + 30)), json!(minutes_ago(26 * 60)));
+    vec![
+        job(JOB_RUNNING, "import", json!("shopify"), "running", json!(minutes_ago(210)), Value::Null),
+        job(JOB_FAILED, "export", json!("bigquery"), "failed", started, finished),
+        job(JOB_QUEUED, "data_quality", Value::Null, "queued", Value::Null, Value::Null),
+    ]
+}
+
+/// [`jobs_to_choose`] as the list shows them: the table's columns, its dash for no platform and no
+/// time.
+const JOB_ROWS: [&str; 3] = [
+    "1f2e3d4c...  import        shopify   running  3h ago",
+    "2e3d4c5b...  export        bigquery  failed   1d ago",
+    "3d4c5b6a...  data_quality  —         queued   —",
+];
+
+/// The models to choose from, newest first.
+fn models_to_choose() -> Vec<Value> {
+    let model = |id: &str, name: &str, model_type: &str, valid: bool| {
+        json!({
+            "id": id, "name": name, "modelType": model_type, "isValid": valid, "lastValidatedAt": null,
+            "createdAt": null, "description": null,
+        })
+    };
+    vec![model(MODEL_ORDERS, "orders_clean", "sql", true), model(MODEL_LTV, "ltv_forecast", "bqml", false)]
+}
+
+/// [`models_to_choose`] as the list shows them.
+const MODEL_ROWS: [&str; 2] = ["4c5b6a79...  orders_clean  sql   yes", "5b6a7988...  ltv_forecast  bqml  no"];
+
+/// The metrics to choose from, newest first, as the web app's route sends them (snake_case).
+fn metrics_to_choose() -> Vec<Value> {
+    let metric = |id: &str, name: &str, format: &str, status: &str| {
+        json!({
+            "id": id, "name": name, "description": null, "format": format, "higher_is_better": true, "unit": null,
+            "status": status, "created_at": null, "updated_at": null,
+        })
+    };
+    vec![
+        metric(METRIC_ROAS, "ROAS", "multiplier", "active"),
+        metric(METRIC_REVENUE, "Total Revenue", "currency", "draft"),
+        metric(METRIC_CTR, "CTR", "percentage", "active"),
+    ]
+}
+
+/// [`metrics_to_choose`] as the list shows them.
+const METRIC_ROWS: [&str; 3] = [
+    "6a798897...  ROAS           multiplier  active",
+    "798897a6...  Total Revenue  currency    draft",
+    "8897a6b5...  CTR            percentage  active",
+];
+
+/// The catalog: the two ready platforms [`PLATFORM_ROWS`] shows, one more on request that only
+/// `catalog list --all` lists, and each one's entry with its credential fields.
+async fn serve_catalog_entries(server: &MockServer) {
+    let ready = vec![
+        platform("bigquery", "BigQuery", "self_serve", Value::Null),
+        platform("shopify", "Shopify", "self_serve", Value::Null),
+    ];
+    let on_request = platform("hubspot", "HubSpot", "request_access", json!("Ask your account manager"));
+    let meta = json!({ "selfServeTotal": 2, "requestAccessTotal": 1 });
+    serve_catalog(server, false, json!({ "data": ready, "meta": meta })).await;
+    let all = [ready, vec![on_request]].concat();
+    serve_catalog(server, true, json!({ "data": all })).await;
+    for mut entry in all {
+        let field =
+            json!({ "name": "apiKey", "label": "API key", "type": "secret", "description": "From its settings" });
+        entry["credentialFields"] = json!([field]);
+        let route = format!("{CATALOG}/{}", entry["appType"].as_str().unwrap());
+        serve(server, "GET", &route, 200, json!({ "data": entry })).await;
+    }
+}
+
+/// [`jobs_to_choose`], [`models_to_choose`] and [`metrics_to_choose`] in acct-alpha, and the catalog
+/// ([`serve_catalog_entries`]): the lists, each item for every request about one (`{ data: <job> }`,
+/// `{ metric: <metric> }`), cancelling a job and creating a metric.
+async fn jobs_models_metrics_and_catalog_stub() -> MockServer {
+    let server = MockServer::start().await;
+    let jobs = jobs_to_choose();
+    serve(&server, "GET", &format!("{V1}/jobs"), 200, page_of(jobs.clone(), 0, false)).await;
+    for job in jobs {
+        let id = job["id"].as_str().unwrap();
+        let cancelled = json!({ "data": { "id": id, "status": "canceled" } });
+        serve(&server, "POST", &format!("{V1}/jobs/{id}/cancel"), 200, cancelled).await;
+        serve(&server, "GET", &format!("{V1}/jobs/{id}"), 200, json!({ "data": job })).await;
+    }
+    serve(&server, "GET", &format!("{V1}/models"), 200, page_of(models_to_choose(), 0, false)).await;
+    for model in models_to_choose() {
+        let route = format!("{V1}/models/{}", model["id"].as_str().unwrap());
+        serve(&server, "GET", &route, 200, json!({ "data": model })).await;
+    }
+    let metrics = metrics_to_choose();
+    let listed = json!({ "metrics": metrics, "total": metrics.len(), "limit": 100, "offset": 0 });
+    serve(&server, "GET", "/api/metrics", 200, listed).await;
+    for metric in metrics {
+        Mock::given(wiremock::matchers::path_regex(format!("^/api/metrics/{}$", metric["id"].as_str().unwrap())))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "metric": metric })))
+            .mount(&server)
+            .await;
+    }
+    let created = json!({ "metric": { "id": METRIC_ROAS, "name": "ROAS", "status": "active" } });
+    serve(&server, "POST", "/api/metrics", 201, created).await;
+    serve_catalog_entries(&server).await;
+    server
+}
+
+/// `sandbox`'s profiles with their API keys and no account.
+fn without_accounts(sandbox: &Sandbox) {
+    let mut config = sandbox.config();
+    for profile in config["profiles"].as_object_mut().unwrap().values_mut() {
+        profile.as_object_mut().unwrap().remove("accountId");
+    }
+    std::fs::write(sandbox.home.path().join(".config/vendo/config.json"), config.to_string()).unwrap();
+}
+
+const METRICS_LISTED: &str = "GET /api/metrics?limit=100&offset=0";
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_missing_job_model_or_metric_is_chosen_from_its_list_and_the_command_runs_as_typed() {
+    let server = jobs_models_metrics_and_catalog_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    // (the rows, the second one's full ID, how its answer names it, the list's request). A job has
+    // no name: its short ID alone.
+    let jobs = (&JOB_ROWS[..], JOB_FAILED, "2e3d4c5b...", format!("GET {V1}/jobs?limit=100&offset=0"));
+    let models =
+        (&MODEL_ROWS[..], MODEL_LTV, "5b6a7988... (ltv_forecast)", format!("GET {V1}/models?limit=100&offset=0"));
+    let metrics = (&METRIC_ROWS[..], METRIC_REVENUE, "798897a6... (Total Revenue)", METRICS_LISTED.to_string());
+    let cases: [(&[&str], _); 12] = [
+        (&["jobs", "get"], &jobs),
+        (&["jobs", "get", "--json"], &jobs),
+        (&["jobs", "cancel", "--yes"], &jobs),
+        (&["jobs", "cancel", "--dry-run"], &jobs),
+        (&["jobs", "cancel", "--yes", "--output", "id"], &jobs),
+        (&["models", "get"], &models),
+        (&["models", "get", "--json"], &models),
+        (&["metrics", "get"], &metrics),
+        (&["metrics", "get", "--json"], &metrics),
+        (&["metrics", "update", "--name", "Revenue"], &metrics),
+        (&["metrics", "activate", "--json"], &metrics),
+        (&["metrics", "delete", "--yes"], &metrics),
+    ];
+    for (args, (rows, chosen, named, list)) in cases {
+        let case = args.join(" ");
+        let path = format!("vendo {} {}", args[0], args[1]);
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        // Titled with the command; every row, newest first, the first marked; the menu's hint.
+        let mut expected = vec![format!("? {path}")];
+        expected.extend(marked(rows));
+        expected.push("[↑↓ to move, enter to select, type to filter]".to_string());
+        assert_eq!(shown_lines(&terminal, (40, 120)), expected, "{case}");
+        // Down to the second, which Enter chooses.
+        terminal.press("\u{1b}[B");
+        terminal.wait_for(&format!("> {}", rows[1]));
+        terminal.press("\r");
+        let answer = format!("? {path} {named}");
+        terminal.wait_for(&answer[2..]);
+        let (_, code) = terminal.finish();
+        let mut asked = sent(&server).await[before..].to_vec();
+        // The same command typed with the full ID, on a pipe.
+        let typed = sandbox.run(&[&args[..2], &[*chosen][..], &args[2..]].concat());
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!((code, typed.status.code()), (Some(0), Some(0)), "{case}: {}", text(&typed.stderr));
+        assert_eq!(asked.remove(0), *list, "{case}");
+        assert_eq!(asked, typed_sent, "{case}");
+        // What it showed after the answer is what the typed command printed.
+        assert_eq!(after_answer(&terminal, &answer), printed_lines(&typed), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn typing_filters_the_jobs_models_metrics_and_platforms_by_any_column() {
+    let server = jobs_models_metrics_and_catalog_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let active = [METRIC_ROWS[0], METRIC_ROWS[2]];
+    for (args, typed, rows) in [
+        (&["jobs", "get"][..], "BIGQUERY", &JOB_ROWS[1..2]),
+        (&["jobs", "get"], "3d4c5b6a", &JOB_ROWS[2..]),
+        (&["jobs", "cancel"], "ago", &JOB_ROWS[..2]),
+        (&["jobs", "cancel"], "QUEUED", &JOB_ROWS[2..]),
+        (&["models", "get"], "LTV", &MODEL_ROWS[1..]),
+        (&["models", "get"], "yes", &MODEL_ROWS[..1]),
+        (&["metrics", "get"], "revenue", &METRIC_ROWS[1..2]),
+        (&["metrics", "activate"], "active", &active[..]),
+        (&["metrics", "delete"], "8897A6B5...", &METRIC_ROWS[2..]),
+        (&["catalog", "get"], "SHOP", &PLATFORM_ROWS[1..]),
+        (&["catalog", "credential-schema"], "big", &PLATFORM_ROWS[..1]),
+    ] {
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        terminal.press(typed);
+        terminal.wait_for(&format!("{} {typed}", args.join(" ")));
+        // The end of that frame: inquire shows the cursor again.
+        terminal.wait_for("\u{1b}[?25h");
+        assert_eq!(listed_rows(&terminal), marked(rows), "{args:?} {typed}");
+        terminal.press("\u{1b}");
+        assert_eq!(terminal.finish().1, Some(0), "{args:?} {typed}");
+    }
+    // Enter chooses the first row left.
+    let mut terminal = OnTerminal::start(&sandbox, &["metrics", "get", "--json"]);
+    terminal.wait_for("type to filter]");
+    terminal.press("ctr");
+    terminal.wait_for("vendo metrics get ctr");
+    terminal.press("\r");
+    terminal.wait_for("vendo metrics get 8897a6b5... (CTR)");
+    assert_eq!(terminal.finish().1, Some(0));
+    assert_eq!(sent(&server).await.last().unwrap(), &format!("GET /api/metrics/{METRIC_CTR}"));
+    // A job, which has no name, is answered by its short ID alone.
+    let mut terminal = OnTerminal::start(&sandbox, &["jobs", "get", "--json"]);
+    terminal.wait_for("type to filter]");
+    terminal.press("data_quality\r");
+    let (_, code) = terminal.finish();
+    assert_eq!(code, Some(0));
+    assert!(shown_lines(&terminal, (40, 120)).iter().any(|line| line == "? vendo jobs get 3d4c5b6a..."));
+    assert_eq!(sent(&server).await.last().unwrap(), &format!("GET {V1}/jobs/{JOB_QUEUED}"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn jobs_cancel_and_metrics_delete_ask_which_one_then_ask_y_n_unless_yes() {
+    let server = jobs_models_metrics_and_catalog_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    // (the words, the answer, the list's request, the question, the request once confirmed)
+    for (args, answered, list, question, request) in [
+        (
+            ["jobs", "cancel"],
+            "vendo jobs cancel 1f2e3d4c...",
+            format!("GET {V1}/jobs?limit=100&offset=0"),
+            "Cancel job 1f2e3d4c...? (y/N)",
+            format!("POST {V1}/jobs/{JOB_RUNNING}/cancel"),
+        ),
+        (
+            ["metrics", "delete"],
+            "vendo metrics delete 6a798897... (ROAS)",
+            METRICS_LISTED.to_string(),
+            "Delete metric 6a798897...? This cannot be undone. (y/N)",
+            format!("DELETE /api/metrics/{METRIC_ROAS}"),
+        ),
+    ] {
+        for (answer, done) in [("n\n", false), ("y\n", true)] {
+            let before = sent(&server).await.len();
+            let mut terminal = OnTerminal::start(&sandbox, &args);
+            terminal.wait_for("type to filter]");
+            terminal.press("\r");
+            terminal.wait_for(answered);
+            // The question names the one chosen, as it names one typed (VE-3823).
+            let (shown, code) = answer_question(terminal, answer);
+            assert_eq!(code, Some(0), "{args:?}: {shown:?}");
+            assert!(plain(&shown).contains(&format!("{question} {answer}")), "{args:?}: {shown:?}");
+            let mut expected = vec![list.clone()];
+            expected.extend(done.then(|| request.clone()));
+            assert_eq!(sent(&server).await[before..], expected, "{args:?} {answer:?}");
+        }
+        // `--yes`: no question.
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, &[&args[..], &["--yes"]].concat());
+        terminal.wait_for("type to filter]");
+        terminal.press("\r");
+        let (shown, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{args:?}: {shown:?}");
+        assert!(!shown.contains("(y/N)"), "{args:?}: {shown:?}");
+        assert_eq!(sent(&server).await[before..], [list, request], "{args:?}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn metrics_create_asks_for_the_name_then_the_definition_path_and_posts_the_files_query_spec_unchanged() {
+    let server = jobs_models_metrics_and_catalog_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let home = sandbox.home.path().to_path_buf();
+    // A QuerySpec v2 file, its keys in its own order.
+    let file = r#"{ "version": 2, "reportType": "segmentation",
+      "metricOutput": { "kind": "ratio", "numerator": "m_revenue", "denominator": "m_spend" }, "scale": 1.5 }"#;
+    std::fs::write(home.join("roas.query.json"), file).unwrap();
+    let definition = r#"{"version":2,"reportType":"segmentation","metricOutput":{"kind":"ratio","numerator":"m_revenue","denominator":"m_spend"},"scale":1.5}"#;
+    let in_home = |args: &[&str]| {
+        let mut cmd = sandbox.command(args);
+        cmd.current_dir(&home);
+        cmd
+    };
+    // Both: the name, then the path, relative to where vendo runs (Q8), each a one-line question; an
+    // empty answer is refused.
+    let args = ["metrics", "create", "--format", "multiplier"];
+    let mut terminal = OnTerminal::spawn(in_home(&args), (40, 120), "", None, None);
+    terminal.wait_for("vendo metrics create --name");
+    terminal.press("\r");
+    terminal.wait_for("A response is required.");
+    terminal.press("ROAS\r");
+    terminal.wait_for("vendo metrics create --definition");
+    terminal.press("roas.query.json\r");
+    let answer = "? vendo metrics create --definition roas.query.json";
+    terminal.wait_for(&answer[2..]);
+    let (_, code) = terminal.finish();
+    assert!(!terminal.screen.contains("type to filter"));
+    let shown = shown_lines(&terminal, (40, 120));
+    assert!(shown.iter().any(|line| line == "? vendo metrics create --name ROAS"), "{shown:#?}");
+    let asked = sent(&server).await;
+    let typed = ["metrics", "create", "--format", "multiplier", "--name", "ROAS", "--definition", "roas.query.json"];
+    let typed = in_home(&typed).output().unwrap();
+    let typed_sent = sent(&server).await[asked.len()..].to_vec();
+    assert_eq!((code, typed.status.code()), (Some(0), Some(0)), "{}", text(&typed.stderr));
+    // Nothing before the command's own request, which carries the file's QuerySpec unchanged.
+    let posted = format!(r#"POST /api/metrics {{"name":"ROAS","definition":{definition},"format":"multiplier"}}"#);
+    assert_eq!((asked, typed_sent), (vec![posted.clone()], vec![posted]));
+    assert_eq!(after_answer(&terminal, answer), printed_lines(&typed));
+
+    // One missing: that question alone. A file that is not there is the command's error after the
+    // answer, exit 1 with nothing sent, as when typed.
+    for (args, asked_for, answer, ok) in [
+        (&["metrics", "create", "--name", "ROAS"][..], "--definition", "roas.query.json", true),
+        (&["metrics", "create", "--definition", "roas.query.json", "--json"], "--name", "Return on ad spend", true),
+        (&["metrics", "create", "--name", "ROAS"], "--definition", "missing.json", false),
+    ] {
+        let case = format!("{} {asked_for} {answer}", args.join(" "));
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::spawn(in_home(args), (40, 120), "", None, None);
+        let title = format!("vendo metrics create {asked_for}");
+        terminal.wait_for(&title);
+        terminal.press(&format!("{answer}\r"));
+        let answered = format!("? {title} {answer}");
+        terminal.wait_for(&answered[2..]);
+        let (_, code) = terminal.finish();
+        let asked = sent(&server).await[before..].to_vec();
+        let typed = in_home(&[args, &[asked_for, answer][..]].concat()).output().unwrap();
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!((code, typed.status.code()), (Some(if ok { 0 } else { 1 }), code), "{case}");
+        assert_eq!((asked.len(), &asked), (usize::from(ok), &typed_sent), "{case}");
+        assert_eq!(after_answer(&terminal, &answered), printed_lines(&typed), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn metrics_update_with_no_change_asks_for_the_metric_then_says_no_updates_provided() {
+    // Q13's default (the literal decision): the metric is asked for, then the command fails as it
+    // does typed with an ID and no change, in its own words (not the "Nothing to update" of apps,
+    // sources and destinations), exit 1.
+    let server = jobs_models_metrics_and_catalog_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["metrics", "update"]);
+    terminal.wait_for("type to filter]");
+    terminal.press("\r");
+    let answer = "? vendo metrics update 6a798897... (ROAS)";
+    terminal.wait_for(&answer[2..]);
+    let (_, code) = terminal.finish();
+    let typed = sandbox.run(&["metrics", "update", METRIC_ROAS]);
+    assert_eq!((typed.status.code(), printed_lines(&typed)), (Some(1), vec!["Error: No updates provided".to_string()]));
+    assert_eq!((code, after_answer(&terminal, answer)), (Some(1), printed_lines(&typed)));
+    assert_eq!(sent(&server).await, [METRICS_LISTED]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn catalog_get_lists_only_the_ready_platforms_with_a_key_and_no_account_and_shows_the_one_chosen() {
+    let server = jobs_models_metrics_and_catalog_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    // The catalog is the key's: typed, `catalog get shopify` works without an account, and so does
+    // the list it is chosen from.
+    without_accounts(&sandbox);
+    for args in [
+        &["catalog", "get"][..],
+        &["catalog", "get", "--json"],
+        // Hidden (VE-3827); asked for as `catalog get` asks (Q10's default).
+        &["catalog", "credential-schema"],
+        &["catalog", "credential-schema", "--json"],
+    ] {
+        let case = args.join(" ");
+        let path = format!("vendo {} {}", args[0], args[1]);
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        // The platforms ready to connect, as `vendo catalog list` lists them by default: not the one
+        // on request.
+        let mut expected = vec![format!("? {path}")];
+        expected.extend(marked(&PLATFORM_ROWS));
+        expected.push("[↑↓ to move, enter to select, type to filter]".to_string());
+        assert_eq!(shown_lines(&terminal, (40, 120)), expected, "{case}");
+        terminal.press("\u{1b}[B");
+        terminal.wait_for(&format!("> {}", PLATFORM_ROWS[1]));
+        terminal.press("\r");
+        let answer = format!("? {path} shopify");
+        terminal.wait_for(&answer[2..]);
+        let (_, code) = terminal.finish();
+        let asked = sent(&server).await[before..].to_vec();
+        let typed = sandbox.run(&[&args[..2], &["shopify"][..], &args[2..]].concat());
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!((code, typed.status.code()), (Some(0), Some(0)), "{case}: {}", text(&typed.stderr));
+        assert_eq!((asked[0].as_str(), &asked[1..]), ("GET /api/v1/catalog", &typed_sent[..]), "{case}");
+        assert_eq!(typed_sent, [format!("GET {CATALOG}/shopify")], "{case}");
+        assert_eq!(after_answer(&terminal, &answer), printed_lines(&typed), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn jobs_and_models_without_an_account_are_that_error_and_metrics_are_asked_for_with_the_key_alone() {
+    let server = jobs_models_metrics_and_catalog_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    without_accounts(&sandbox);
+    let no_account = text(&sandbox.run(&["jobs", "list"]).stderr);
+    assert!(no_account.starts_with("Error: No account configured."), "{no_account}");
+    for args in [&["jobs", "get"][..], &["jobs", "cancel", "--yes"], &["models", "get"]] {
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        let (_, code) = terminal.finish();
+        let shown = shown_lines(&terminal, (40, 120)).join("\n");
+        assert_eq!((code, shown), (Some(1), no_account.trim_end().to_string()), "{args:?}");
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+    // The metrics are the key's (a web-app route, VE-3668): listed, and the one chosen is read.
+    let mut terminal = OnTerminal::start(&sandbox, &["metrics", "get", "--json"]);
+    terminal.wait_for("type to filter]");
+    assert_eq!(listed_rows(&terminal), marked(&METRIC_ROWS));
+    terminal.press("\r");
+    assert_eq!(terminal.finish().1, Some(0));
+    // And a new one's name is asked for.
+    let mut terminal = OnTerminal::start(&sandbox, &["metrics", "create"]);
+    terminal.wait_for("vendo metrics create --name");
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+    assert_eq!(sent(&server).await, [METRICS_LISTED.to_string(), format!("GET /api/metrics/{METRIC_ROAS}")]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn of_more_than_500_jobs_the_newest_500_are_listed_and_the_hint_says_so() {
+    // Six pages of 100 jobs, newest first: the list reads five, as a short-ID lookup does.
+    let server = job_pages(6, false, &[]).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["jobs", "get"]);
+    terminal.wait_for("[↑↓ to move, enter to select, type to filter · newest 500 shown]");
+    // The oldest of the 500 is found by typing, and Enter chooses it.
+    terminal.press("700001f3");
+    terminal.wait_for("> 700001f3...");
+    terminal.press("\r");
+    terminal.wait_for("vendo jobs get 700001f3...");
+    assert_eq!(terminal.finish().1, Some(0));
+    let mut pages: Vec<String> = (0..5).map(|page| format!("GET {V1}/jobs?limit=100&offset={}", page * 100)).collect();
+    pages.push(format!("GET {V1}/jobs/{}", uuid_with("700001f3", 99)));
+    assert_eq!(sent(&server).await, pages);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn esc_ctrl_c_or_ctrl_d_at_a_job_model_metric_platform_or_metric_question_leave_quietly() {
+    let server = jobs_models_metrics_and_catalog_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    // (words, the line left, what was sent, whether a list or a question is open)
+    let cases: [(&[&str], &str, Vec<String>, bool); 7] = [
+        (
+            &["jobs", "cancel"],
+            "? vendo jobs cancel <canceled>",
+            vec![format!("GET {V1}/jobs?limit=100&offset=0")],
+            true,
+        ),
+        (
+            &["models", "get"],
+            "? vendo models get <canceled>",
+            vec![format!("GET {V1}/models?limit=100&offset=0")],
+            true,
+        ),
+        (&["metrics", "delete"], "? vendo metrics delete <canceled>", vec![METRICS_LISTED.into()], true),
+        (&["metrics", "update", "--name", "X"], "? vendo metrics update <canceled>", vec![METRICS_LISTED.into()], true),
+        (&["catalog", "get"], "? vendo catalog get <canceled>", vec!["GET /api/v1/catalog".into()], true),
+        (&["metrics", "create"], "? vendo metrics create --name <canceled>", vec![], false),
+        (&["metrics", "create", "--name", "ROAS"], "? vendo metrics create --definition <canceled>", vec![], false),
+    ];
+    for (args, last, requests, list) in cases {
+        for (key, name) in [("\u{1b}", "Esc"), ("\u{3}", "Ctrl-C"), ("\u{4}", "Ctrl-D")] {
+            let case = format!("{name} {}", args.join(" "));
+            let before = sent(&server).await.len();
+            let mut terminal = OnTerminal::start(&sandbox, args);
+            terminal.wait_for(&last[2..last.len() - " <canceled>".len()]);
+            if list {
+                terminal.wait_for("type to filter]");
+            }
+            terminal.press(key);
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            let shown = shown_lines(&terminal, (40, 120));
+            assert_eq!(shown.last().map(String::as_str), Some(last), "{case}: {shown:#?}");
+            assert_eq!(sent(&server).await[before..], requests[..], "{case}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn with_no_job_model_metric_or_platform_to_choose_from_it_says_so_and_is_the_usage_error() {
+    let server = MockServer::start().await;
+    for list in ["jobs", "models"] {
+        serve(&server, "GET", &format!("{V1}/{list}"), 200, page_of(Vec::new(), 0, false)).await;
+    }
+    serve(&server, "GET", "/api/metrics", 200, json!({ "metrics": [], "total": 0, "limit": 100, "offset": 0 })).await;
+    serve_catalog(&server, false, json!({ "data": [], "meta": { "selfServeTotal": 0, "requestAccessTotal": 0 } }))
+        .await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, nothing) in [
+        (&["jobs", "get"][..], "No jobs to choose from."),
+        (&["jobs", "cancel", "--json"], "No jobs to choose from."),
+        (&["models", "get"], "No models to choose from."),
+        (&["metrics", "activate"], "No metrics to choose from."),
+        (&["metrics", "delete", "--json"], "No metrics to choose from."),
+        (&["catalog", "get"], "No platforms to choose from."),
+        (&["catalog", "credential-schema", "--json"], "No platforms to choose from."),
+    ] {
+        let typed = sandbox.run(args);
+        assert_eq!(typed.status.code(), Some(2));
+        let mut terminal = OnTerminal::start_with(&sandbox, args, WIDE, "", None);
+        let (_, code) = terminal.finish();
+        let expected = format!("{nothing}\n{}", text(&typed.stderr));
+        let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into())).join("\n");
+        assert_eq!((code, shown), (Some(2), expected.trim_end().to_string()), "{args:?}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_job_model_metric_or_platform_list_that_fails_is_the_error_and_nothing_is_asked() {
+    let server = MockServer::start().await;
+    let refusal = json!({ "error": { "code": "INTERNAL_ERROR", "message": "Database unavailable" } });
+    for route in [format!("{V1}/jobs"), format!("{V1}/models"), CATALOG.to_string()] {
+        serve(&server, "GET", &route, 500, refusal.clone()).await;
+    }
+    // The web app's routes send their error as a string, with no code (VE-3668, VE-3831).
+    serve(&server, "GET", "/api/metrics", 500, json!({ "error": "BigQuery is unavailable" })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, message) in [
+        (&["jobs", "get"][..], "Database unavailable"),
+        (&["models", "get"], "Database unavailable"),
+        (&["metrics", "update", "--name", "New"], "BigQuery is unavailable"),
+        (&["catalog", "get"], "Database unavailable"),
+    ] {
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        let (_, code) = terminal.finish();
+        let shown = shown_lines(&terminal, (40, 120));
+        assert_eq!((code, shown[0].as_str()), (Some(1), format!("Error: {message}").as_str()), "{shown:#?}");
+        assert!(!terminal.screen.contains("type to filter"), "{args:?}");
+    }
+    for (args, message, code) in [
+        (&["metrics", "get", "--json"][..], "BigQuery is unavailable", Value::Null),
+        (&["jobs", "cancel", "--json"], "Database unavailable", json!("INTERNAL_ERROR")),
+    ] {
+        let mut terminal = OnTerminal::start_with(&sandbox, args, WIDE, "", None);
+        let (_, exit) = terminal.finish();
+        let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into()));
+        assert_eq!((exit, shown.len()), (Some(1), 1), "{shown:#?}");
+        let error: Value = serde_json::from_str(&shown[0]).unwrap();
+        assert_eq!(
+            (&error["error"]["message"], &error["error"]["code"], &error["error"]["status"]),
+            (&json!(message), &code, &json!(500)),
+            "{args:?}"
+        );
+    }
+    assert_eq!(
+        sent(&server).await,
+        [
+            format!("GET {V1}/jobs?limit=100&offset=0"),
+            format!("GET {V1}/models?limit=100&offset=0"),
+            METRICS_LISTED.to_string(),
+            "GET /api/v1/catalog".to_string(),
+            METRICS_LISTED.to_string(),
+            format!("GET {V1}/jobs?limit=100&offset=0"),
+        ]
+    );
+}
+
 // ── VE-3826: CI and VENDO_NO_INPUT turn prompts off; no menu on TERM=dumb ───
 // Decided by Yalcin, 2026-10-06, CLI 1.1. `CI` or `VENDO_NO_INPUT` set to anything but empty, `0`
 // or `false` (in any case) turns every prompt off, also at a terminal: the y/N questions, the group

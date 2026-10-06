@@ -3,7 +3,8 @@
 //! Where the group menu opens ([`output::can_show_menu`]: stdin, stdout and stderr terminals,
 //! prompts not off, `TERM` not `dumb`), a command typed without a value it requires asks for it
 //! instead of stopping with clap's usage error. A value with choices opens an arrow-key list with
-//! type-to-filter ([`output::choose_value`]), loaded from the account or the catalog, or the values the
+//! type-to-filter ([`output::choose_value`]), loaded as its list command lists it (the account's apps,
+//! sources, destinations, jobs, models and metrics, the platforms ready to connect), or the values the
 //! API takes ([`DATA_TYPES`]); free text and a file's path are a one-line question
 //! ([`output::ask_text`]). Optional values are not asked. The values go into the
 //! words where they would have been typed and [`crate::cli::parse`] parses them again, so the
@@ -28,18 +29,19 @@ use crate::{
     commands::{apps::role_label, catalog},
     context::Ctx,
     jobs::Job,
-    output::{self, ValueRow, short_id},
-    short_ids::{self, Listing},
+    js_text::cell,
+    output::{self, ValueRow, js_truthy, short_id, time_ago},
+    short_ids::{self, Listing, name_of},
 };
 
 /// How a missing value is asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ask {
-    /// One of the account's apps, sources or destinations, listed as its list command lists them
-    /// (newest first); its full ID.
+    /// One of the account's apps, sources, destinations, jobs, models or metrics, listed as its list
+    /// command lists them (newest first); its full ID.
     Listed(Listed),
-    /// A platform ready to connect, listed as `vendo catalog list` lists them by default (VE-3829);
-    /// its app type.
+    /// A platform ready to connect, listed as `vendo catalog list` lists them by default (VE-3829):
+    /// for `apps create --type` and `catalog get`; its app type.
     Platform,
     /// The type of the app given with the named value (`--app`, chosen just before it or typed), the
     /// one sync type the API takes for that app (vendo-web-v2 `lib/vendo/sources/lifecycle.ts`,
@@ -48,9 +50,9 @@ enum Ask {
     TypeOfApp(&'static str),
     /// One of the data types the API takes for a destination ([`DATA_TYPES`]).
     DataType,
-    /// A one-line question; what is typed. A file's path (`--config-file`) goes in as typed, relative
-    /// to the current directory; no shell reads it, so a `~` stays as it is (Q8's default, open for
-    /// Yalcin).
+    /// A one-line question; what is typed. A file's path (`--config-file`, `--definition`) goes in as
+    /// typed, relative to the current directory; no shell reads it, so a `~` stays as it is (Q8's
+    /// default, open for Yalcin).
     Text,
 }
 
@@ -61,6 +63,11 @@ enum Listed {
     Sources,
     /// The API's integrations, which customers call destinations (VE-3828).
     Destinations,
+    Jobs,
+    Models,
+    /// The web app's metrics route (`/api/metrics`, the key's; no account needed), which leaves the
+    /// archived ones out as `vendo metrics list` does.
+    Metrics,
 }
 
 impl Listed {
@@ -69,6 +76,9 @@ impl Listed {
             Listed::Apps => Listing::Apps,
             Listed::Sources => Listing::Sources,
             Listed::Destinations => Listing::Destinations,
+            Listed::Jobs => Listing::Jobs,
+            Listed::Models => Listing::Models,
+            Listed::Metrics => Listing::Metrics,
         }
     }
 
@@ -79,13 +89,18 @@ impl Listed {
             Listed::Apps => "apps",
             Listed::Sources => "sources",
             Listed::Destinations => "destinations",
+            Listed::Jobs => "jobs",
+            Listed::Models => "models",
+            Listed::Metrics => "metrics",
         }
     }
 
     /// A row of the list, as plain text: the short ID and the columns the list command's table
-    /// shows to tell one from another (apps: name, type, role and state; sources: name, type and
-    /// status; destinations: the two apps, `—` for a missing one as the table shows it, the data
-    /// type and status).
+    /// shows to tell one from another, read as the table reads them (apps: name, type, role and
+    /// state; sources: name, type and status; destinations: the two apps, `—` for a missing one as
+    /// the table shows it, the data type and status; jobs: type, platform, status and when it
+    /// started, `—` for no platform or no time; models: name, type and valid `yes`/`no`; metrics:
+    /// name, format and status).
     fn cells(self, row: &Value) -> Vec<String> {
         let text = |key: &str| Job(row).text(key).unwrap_or_default();
         let id = short_id(&text("id"));
@@ -96,11 +111,24 @@ impl Listed {
                 vec![id, name, text("syncType"), text("integrationStatus")]
             }
             Listed::Destinations => vec![id, apps_of(row), text("dataType"), text("status")],
+            Listed::Jobs => {
+                let job = Job(row);
+                let platform = job.text("connectorType").unwrap_or_else(|| "—".into());
+                // `time_ago`, which dims the dash it gives for no time: plain here.
+                let started = job.started_or_created().filter(|at| !at.is_empty());
+                let started = started.map_or_else(|| "—".into(), |at| time_ago(Some(&at)));
+                vec![id, text("jobType"), platform, text("status"), started]
+            }
+            Listed::Models => {
+                let valid = if row.get("isValid").is_some_and(js_truthy) { "yes" } else { "no" };
+                vec![id, cell(row.get("name")), cell(row.get("modelType")), valid.into()]
+            }
+            Listed::Metrics => vec![id, cell(row.get("name")), cell(row.get("format")), cell(row.get("status"))],
         }
     }
 
     /// What the answered line names a chosen row by after its short ID, as its table names it:
-    /// `(Menu Shop)`, `(Demo Shop → Demo Warehouse)`.
+    /// `(Menu Shop)`, `(Demo Shop → Demo Warehouse)`; nothing for a job, which has no name.
     fn name(self, row: &Value) -> String {
         let text = |key: &str| Job(row).text(key).unwrap_or_default();
         match self {
@@ -110,6 +138,8 @@ impl Listed {
                 let named = ["sourceAppName", "destinationAppName"].iter().any(|key| !text(key).is_empty());
                 if named { apps_of(row) } else { String::new() }
             }
+            Listed::Jobs => String::new(),
+            Listed::Models | Listed::Metrics => name_of(row),
         }
     }
 }
@@ -143,7 +173,7 @@ const DATA_TYPES: [&str; 13] = [
 
 /// Every required value a command asks for: the command as the tree names it, the value's clap ID,
 /// and how it is asked for. A value not here keeps the usage error.
-const VALUES: [(&str, &str, Ask); 25] = [
+const VALUES: [(&str, &str, Ask); 36] = [
     ("apps get", "id", Ask::Listed(Listed::Apps)),
     ("apps pause", "id", Ask::Listed(Listed::Apps)),
     ("apps resume", "id", Ask::Listed(Listed::Apps)),
@@ -169,6 +199,18 @@ const VALUES: [(&str, &str, Ask); 25] = [
     ("destinations create", "dest_app", Ask::Listed(Listed::Apps)),
     ("destinations create", "data_type", Ask::DataType),
     ("destinations create", "config_file", Ask::Text),
+    ("jobs get", "job_id", Ask::Listed(Listed::Jobs)),
+    ("jobs cancel", "job_id", Ask::Listed(Listed::Jobs)),
+    ("models get", "id", Ask::Listed(Listed::Models)),
+    ("metrics get", "id", Ask::Listed(Listed::Metrics)),
+    ("metrics update", "id", Ask::Listed(Listed::Metrics)),
+    ("metrics activate", "id", Ask::Listed(Listed::Metrics)),
+    ("metrics delete", "id", Ask::Listed(Listed::Metrics)),
+    ("metrics create", "name", Ask::Text),
+    ("metrics create", "definition", Ask::Text),
+    ("catalog get", "app_type", Ask::Platform),
+    // Hidden (VE-3827); asked for as `catalog get` asks (Q10's default, open for Yalcin).
+    ("catalog credential-schema", "app_type", Ask::Platform),
 ];
 
 fn asked_by(command: &str, value: &str) -> Option<Ask> {
@@ -390,9 +432,9 @@ fn padded(rows: Vec<Vec<String>>) -> Vec<String> {
         .collect()
 }
 
-/// The rows of one of the account's lists in its route's order (newest first), each once: up to
-/// [`short_ids::MAX_PAGES`] pages of [`short_ids::PAGE`], the bounds of a short-ID lookup; and
-/// whether there were more than that.
+/// The rows of one of the account's lists in its route's order (newest first: `created_at`
+/// descending, models and metrics too), each once: up to [`short_ids::MAX_PAGES`] pages of
+/// [`short_ids::PAGE`], the bounds of a short-ID lookup; and whether there were more than that.
 async fn listed_rows(client: &Client, listing: Listing) -> Result<(Vec<Value>, bool), ApiError> {
     let mut listed: Vec<Value> = Vec::new();
     for page in 0..short_ids::MAX_PAGES {
@@ -452,21 +494,11 @@ mod tests {
     }
 
     /// The commands whose values are not asked for yet: they keep the usage error until their
-    /// part of VE-3881 is built (jobs, models, metrics and the catalog; measurement and the
-    /// dictionary). Empty once every value is asked for.
-    const PENDING: [&str; 16] = [
-        "jobs get",
-        "jobs cancel",
-        "catalog get",
-        "catalog credential-schema",
+    /// part of VE-3881 is built (measurement and the dictionary). Empty once every value is asked
+    /// for.
+    const PENDING: [&str; 6] = [
         "dictionary search",
         "dictionary get",
-        "metrics get",
-        "metrics create",
-        "metrics update",
-        "metrics activate",
-        "metrics delete",
-        "models get",
         "measurement methodologies get",
         "measurement rules preview",
         "measurement ltv cohort",
@@ -694,6 +726,26 @@ mod tests {
         let app = json!({ "id": id, "displayName": "Menu Shop", "appType": "shopify", "roles": ["source"], "state": "active" });
         assert_eq!(Listed::Apps.cells(&app), ["5e6f7a8b...", "Menu Shop", "shopify", "source", "active"]);
         assert_eq!(Listed::Apps.name(&app), "Menu Shop");
+        // A job: type, platform, status and when it started (or was created); it has no name.
+        let ago = (jiff::Timestamp::now() - jiff::SignedDuration::from_mins(130)).strftime("%Y-%m-%dT%H:%M:%S%.3fZ");
+        let job = json!({
+            "id": id, "jobType": "import", "connectorType": "shopify", "status": "running", "startedAt": ago.to_string(),
+        });
+        assert_eq!(Listed::Jobs.cells(&job), ["5e6f7a8b...", "import", "shopify", "running", "2h ago"]);
+        assert_eq!(Listed::Jobs.name(&job), "");
+        let queued = json!({ "id": id, "jobType": "export", "status": "queued", "startedAt": null, "createdAt": ago.to_string() });
+        assert_eq!(Listed::Jobs.cells(&queued), ["5e6f7a8b...", "export", "—", "queued", "2h ago"]);
+        // No platform, no time, or an empty one, as the table: its dash, plain.
+        let bare = json!({ "id": id, "jobType": "export", "connectorType": null, "status": "queued", "startedAt": "", "createdAt": ago.to_string() });
+        assert_eq!(Listed::Jobs.cells(&bare), ["5e6f7a8b...", "export", "—", "queued", "—"]);
+        let model = json!({ "id": id, "name": "orders_clean", "modelType": "sql", "isValid": true });
+        assert_eq!(Listed::Models.cells(&model), ["5e6f7a8b...", "orders_clean", "sql", "yes"]);
+        assert_eq!(Listed::Models.name(&model), "orders_clean");
+        let invalid = json!({ "id": id, "name": "ltv", "modelType": "bqml", "isValid": null });
+        assert_eq!(Listed::Models.cells(&invalid), ["5e6f7a8b...", "ltv", "bqml", "no"]);
+        let metric = json!({ "id": id, "name": "ROAS", "format": "multiplier", "status": "draft" });
+        assert_eq!(Listed::Metrics.cells(&metric), ["5e6f7a8b...", "ROAS", "multiplier", "draft"]);
+        assert_eq!(Listed::Metrics.name(&metric), "ROAS");
     }
 
     #[test]
