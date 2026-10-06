@@ -39,8 +39,9 @@ allow = [
 exceptions = []
 
 [bans]
-# Duplicate versions (today: supports-color 2 and 3 via owo-colors) are
-# reported, not failed.
+# Duplicate versions (today: supports-color 2 and 3 via owo-colors; syn 2 and
+# 3 at build time, syn 2 via crossterm's derive_more, which inquire's crossterm
+# features turn on) are reported, not failed.
 multiple-versions = "warn"
 deny = [
     # TLS is rustls, linked into the binary. OpenSSL would tie the Linux builds

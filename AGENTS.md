@@ -31,7 +31,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   stdin and stdout are both terminals. Otherwise they need `--yes` and stop with exit 1 before any request, where the
   TS CLI went ahead; `--json` no longer implies `--yes`. `output::confirm` owns this.
 - Stack: clap 4, reqwest (rustls), tokio, serde_json (`preserve_order`, `arbitrary_precision`), ICU4X,
-  comfy-table, indicatif.
+  comfy-table, indicatif, inquire and crossterm (the group menus).
   Toolchain: `rustup` stable (`~/.cargo/bin`); `pnpm rust:test`, `pnpm rust:build`,
   `cargo clippy --all-targets` and `cargo fmt` (120 columns, `rust/rustfmt.toml`) from `rust/`.
 - Tests: unit tests sit next to the code; `rust/tests/cli.rs` runs the built binary end to end with an isolated
@@ -116,6 +116,22 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   - `VENDO_PROFILE` selects the profile like `--profile`: `--profile` > `VENDO_PROFILE` > `activeProfile`; empty is
     unset, and an unknown name fails exactly like an unknown `--profile`. whoami and doctor name the profile as they
     do for `--profile`, without saying where the name came from.
+- Group menus (VE-3826, decided by Yalcin 2026-10-05, CLI 1.1): a group run without its command (`vendo apps`,
+  `vendo measurement ltv`, the hidden `config`; bare `vendo` is unchanged) opens an arrow-key menu of its visible
+  commands and their descriptions where `output::can_show_menu` holds: `can_prompt` (stdin and stdout terminals, the
+  rule `confirm` asks by) and stderr a terminal too, as inquire draws the menu there (`vendo apps 2>err.log` keeps
+  the usage error). ↑↓ move, typing filters by name and description, and Enter puts the chosen name where it would
+  have been typed and parses again (`cli::chosen_command`), so global options, `MOVED`, confirmations and usage
+  errors (a missing `<appId>`) apply as typed; a chosen group opens its own menu. Esc, Ctrl-C and Ctrl-D exit 0
+  (`output::quit_quietly`) and leave the title and `<canceled>`: inquire leaves the menu standing on Ctrl-C, so
+  `output::clear_menu` redraws it from the line `choose_command` saved. The menu takes the screen's height less one
+  line at most, and on a short screen its list scrolls (`output::menu_page`). Without a terminal the usage error
+  stays: the group's help on stderr, exit 2. The menu is inquire with its crossterm backend and no fuzzy matching
+  (`output::choose_command`); crossterm, inquire's version, is a direct dependency for the screen size and the
+  Ctrl-C redraw. Turning prompts off for CI, `--no-input` or `VENDO_NO_INPUT` is not decided; it would go in
+  `can_prompt` and in the two prompts that do not ask by it, the profile picker (`output::search_select_option`, on
+  a terminal stdout) and login's "Press ENTER" read. Tests drive the menu on a pseudo-terminal that is `vendo`'s
+  controlling terminal (`OnTerminal` in `rust/tests/cli.rs`; `screen` there replays what the terminal shows).
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

@@ -133,14 +133,71 @@ pub struct Parsed {
 }
 
 /// Parse with [`command`]; usage errors and `--help` exit like clap does, a usage error as
-/// JSON when the words include `--json` ([`exit_with`]).
-pub fn parse(args: Vec<OsString>) -> Parsed {
-    let cmd = command();
-    let args = rewrite_hidden_paths(&cmd, args);
-    let json_word = json_word(&args);
-    let matches = cmd.try_get_matches_from(args).unwrap_or_else(|err| exit_with(err, json_word));
-    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|err| exit_with(err, json_word));
-    Parsed { cli, json: json_flag(&matches) }
+/// JSON when the words include `--json` ([`exit_with`]). A group run without its command opens
+/// its menu on a terminal, and the command chosen there is parsed as if typed ([`chosen_command`]).
+pub fn parse(mut args: Vec<OsString>) -> Parsed {
+    loop {
+        let cmd = command();
+        let typed = rewrite_hidden_paths(&cmd, args.clone());
+        let json_word = json_word(&typed);
+        let err = match cmd.clone().try_get_matches_from(typed) {
+            Ok(matches) => {
+                let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|err| exit_with(err, json_word));
+                return Parsed { cli, json: json_flag(&matches) };
+            }
+            Err(err) => err,
+        };
+        match chosen_command(&cmd, &args, &err) {
+            Some(chosen) => args = chosen,
+            None => exit_with(err, json_word),
+        }
+    }
+}
+
+/// For a group run without its command (`vendo apps`) where someone can answer and see the menu
+/// ([`crate::output::can_show_menu`]): the group's menu, then `args` with the chosen name where
+/// it would have been typed. [`parse`] parses them like typed arguments, so the global options,
+/// `MOVED` and the command's own usage errors apply, and a chosen group opens its own menu
+/// (VE-3826). `None` keeps the usage error: another error, the root, no terminal, or a menu that
+/// cannot show.
+fn chosen_command(root: &clap::Command, args: &[OsString], err: &clap::Error) -> Option<Vec<OsString>> {
+    use clap::error::ErrorKind::{DisplayHelpOnMissingArgumentOrSubcommand, MissingSubcommand};
+    // clap says the first when nothing follows the group, the second when a global option does.
+    if !matches!(err.kind(), DisplayHelpOnMissingArgumentOrSubcommand | MissingSubcommand) {
+        return None;
+    }
+    let (group, title, at) = bare_group(root, args)?;
+    if !crate::output::can_show_menu() {
+        return None;
+    }
+    let commands: Vec<&clap::Command> = group.get_subcommands().filter(|command| !command.is_hide_set()).collect();
+    let rows: Vec<crate::output::MenuCommand> = commands
+        .iter()
+        .map(|command| crate::output::MenuCommand {
+            name: command.get_name().to_string(),
+            about: command.get_about().map(ToString::to_string).unwrap_or_default(),
+        })
+        .collect();
+    let chosen = commands[crate::output::choose_command(&title, &rows)?].get_name();
+    let mut args = args.to_vec();
+    args.insert(at, chosen.into());
+    Some(args)
+}
+
+/// The group `args` run without its command, if they name one and nothing but global options:
+/// the group, its path as the tree names it (`vendo profile` for `vendo config`), and where its
+/// command goes in `args`. Not the root: a bare `vendo` prints the help as before.
+fn bare_group<'a>(root: &'a clap::Command, args: &[OsString]) -> Option<(&'a clap::Command, String, usize)> {
+    let words = command_words(root, args);
+    let group = words.group.filter(|_| words.whole && !words.help)?;
+    let at = words.at.last()? + 1;
+    let mut path = vec![root.get_name()];
+    let mut current = root;
+    for word in &words.path {
+        current = current.find_subcommand(word)?;
+        path.push(current.get_name());
+    }
+    Some((group, path.join(" "), at))
 }
 
 /// Whether the command that runs was given its `--json` flag.
@@ -190,29 +247,7 @@ const MOVED: [(&str, &str, &[&str]); 3] =
 /// which runs `vendo help <group> [<command>…]`. A `help` after a command that is not a group is
 /// that command's argument (`vendo dictionary search help`) and stays.
 fn rewrite_hidden_paths(root: &clap::Command, mut args: Vec<OsString>) -> Vec<OsString> {
-    // The command words, each naming a command of the group before it, and where they are.
-    // Global options may sit between them.
-    let (mut at, mut path, mut help) = (Vec::new(), Vec::new(), false);
-    let mut group = Some(root);
-    let mut i = 1;
-    while let (Some(current), Some(word)) = (group, args.get(i).and_then(|arg| arg.to_str())) {
-        match word {
-            "--debug" => {}
-            "--profile" => i += 1,
-            _ if word.starts_with("--profile=") => {}
-            _ if word.starts_with('-') => break,
-            "help" if !help => {
-                at.push(i);
-                help = true;
-            }
-            _ => {
-                at.push(i);
-                path.push(word.to_string());
-                group = current.find_subcommand(word).filter(|command| command.has_subcommands());
-            }
-        }
-        i += 1;
-    }
+    let CommandWords { at, mut path, help, .. } = command_words(root, &args);
     let moved = MOVED.iter().find(|(from, name, _)| path.len() >= 2 && path[0] == *from && path[1] == *name);
     if let Some((_, _, target)) = moved {
         // `vendo help config reset` shows `vendo help logout`: a flag is not a command.
@@ -227,6 +262,48 @@ fn rewrite_hidden_paths(root: &clap::Command, mut args: Vec<OsString>) -> Vec<Os
     }
     args.splice(at[0]..at[0], words);
     args
+}
+
+/// The command words at the start of `args`, each naming a command of the group before it, as
+/// clap reads them; the global options may sit between them. Read up to any other option, or a
+/// word after a command that is not a group.
+struct CommandWords<'a> {
+    /// Where each command word is, `help` included.
+    at: Vec<usize>,
+    /// The command words but `help`, as typed.
+    path: Vec<String>,
+    /// Whether one of them is `help`.
+    help: bool,
+    /// The group the words end in (the root when there are none); `None` once a word is not a
+    /// group or names no command.
+    group: Option<&'a clap::Command>,
+    /// Whether the words and global options are all there is.
+    whole: bool,
+}
+
+fn command_words<'a>(root: &'a clap::Command, args: &[OsString]) -> CommandWords<'a> {
+    let mut words = CommandWords { at: Vec::new(), path: Vec::new(), help: false, group: Some(root), whole: false };
+    let mut i = 1;
+    while let (Some(current), Some(word)) = (words.group, args.get(i).and_then(|arg| arg.to_str())) {
+        match word {
+            "--debug" => {}
+            "--profile" => i += 1,
+            _ if word.starts_with("--profile=") => {}
+            _ if word.starts_with('-') => return words,
+            "help" if !words.help => {
+                words.at.push(i);
+                words.help = true;
+            }
+            _ => {
+                words.at.push(i);
+                words.path.push(word.to_string());
+                words.group = current.find_subcommand(word).filter(|command| command.has_subcommands());
+            }
+        }
+        i += 1;
+    }
+    words.whole = i == args.len();
+    words
 }
 
 #[derive(Debug, PartialEq)]
@@ -2006,6 +2083,54 @@ mod tests {
         ] {
             assert_eq!(rewrite(unchanged), unchanged, "{unchanged:?}");
         }
+    }
+
+    #[test]
+    fn a_group_run_without_its_command_is_found_with_where_its_command_goes() {
+        // VE-3826: the menu's group and title, and where the chosen command goes in the arguments.
+        let cmd = command();
+        let bare = |args: &[&str]| {
+            bare_group(&cmd, &os(args)).map(|(group, title, at)| (group.get_name().to_string(), title, at))
+        };
+        for (args, group, title, at) in [
+            (&["vendo", "apps"][..], "apps", "vendo apps", 2),
+            (&["vendo", "--profile", "beta", "apps"], "apps", "vendo apps", 4),
+            (&["vendo", "--profile=beta", "--debug", "apps"], "apps", "vendo apps", 4),
+            (&["vendo", "apps", "--debug"], "apps", "vendo apps", 2),
+            (&["vendo", "apps", "--profile", "beta"], "apps", "vendo apps", 2),
+            (&["vendo", "measurement"], "measurement", "vendo measurement", 2),
+            (&["vendo", "measurement", "--debug", "ltv"], "ltv", "vendo measurement ltv", 4),
+            // Old names open the group they name, titled as the tree names it.
+            (&["vendo", "config"], "profile", "vendo profile", 2),
+            (&["vendo", "int"], "destinations", "vendo destinations", 2),
+        ] {
+            assert_eq!(bare(args), Some((group.to_string(), title.to_string(), at)), "{args:?}");
+        }
+        for args in [
+            // The root prints the help as before.
+            &["vendo"][..],
+            &["vendo", "--debug"],
+            // A command, or no command.
+            &["vendo", "apps", "list"],
+            &["vendo", "apps", "get"],
+            &["vendo", "bogus"],
+            &["vendo", "apps", "bogus"],
+            // Anything but a global option.
+            &["vendo", "apps", "--json"],
+            &["vendo", "apps", "-h"],
+            &["vendo", "apps", "--"],
+            &["vendo", "apps", "--profile"],
+            &["vendo", "help", "apps"],
+            &["vendo", "apps", "help"],
+        ] {
+            assert_eq!(bare(args), None, "{args:?}");
+        }
+        // The chosen command where it goes parses as if typed, the global options with it.
+        let (_, _, at) = bare_group(&cmd, &os(&["vendo", "apps", "--debug"])).unwrap();
+        let mut args = vec!["vendo", "apps", "--debug"];
+        args.insert(at, "list");
+        let cli = parse(&args).unwrap();
+        assert!(cli.debug && matches!(cli.command, Command::Apps { command: AppsCommand::List { .. } }));
     }
 
     #[test]

@@ -842,15 +842,30 @@ fn prompt(question: &str) -> Answer {
 
 /// Ctrl-C or Ctrl-D at a prompt: Node's readline closed and the question
 /// never resolved, so the TS CLI exited 0 with nothing printed or changed.
-fn quit_quietly() -> ! {
+/// Leaving a menu ([`choose_command`]) ends the same way.
+pub fn quit_quietly() -> ! {
     std::process::exit(0)
 }
 
 /// Whether someone can answer a question: it is shown on stdout and read from
 /// stdin, so both must be terminals. Never in unit tests, for the same reason
-/// as [`stdout_is_tty`].
-fn can_prompt() -> bool {
+/// as [`stdout_is_tty`]. [`confirm`] asks by it (VE-3823), and the menu of a
+/// group run without its command by it and stderr ([`can_show_menu`], VE-3826).
+/// Not every prompt does: the profile picker ([`search_select_option`]) asks
+/// whenever stdout is a terminal, and login's "Press ENTER to open in the
+/// browser" reads stdin whatever it is. A setting that turns prompts off (`CI`,
+/// `--no-input`, `VENDO_NO_INPUT`; not decided) would need those places too.
+pub fn can_prompt() -> bool {
     !cfg!(test) && std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+/// Whether a group run without its command opens its menu ([`choose_command`]):
+/// someone can answer ([`can_prompt`]), and stderr, where inquire draws the
+/// menu, is a terminal too. With stderr redirected (`vendo apps 2>err.log`)
+/// the menu would wait for keys with nothing on the screen, so the usage error
+/// stays.
+pub fn can_show_menu() -> bool {
+    can_prompt() && std::io::stderr().is_terminal()
 }
 
 /// What happens before a delete, cancel or reset (VE-3823).
@@ -892,6 +907,144 @@ pub fn confirm(yes: bool, question: &str, what: &str) -> anyhow::Result<bool> {
         },
         Consent::Refused => Err(anyhow::anyhow!("{what} Re-run with --yes to confirm.")),
     }
+}
+
+/// A row of [`choose_command`]'s menu.
+pub struct MenuCommand {
+    pub name: String,
+    pub about: String,
+}
+
+/// A row as the menu shows it: names padded to one width, as the help's `Commands:` list does.
+struct MenuRow<'a> {
+    command: &'a MenuCommand,
+    width: usize,
+}
+
+impl std::fmt::Display for MenuRow<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let MenuCommand { name, about } = self.command;
+        write!(f, "{name:<width$}  {about}", width = self.width)
+    }
+}
+
+/// The arrow-key menu of a group run without its command (VE-3826): `title`, then every command
+/// with its description; ↑↓ move, typing filters by name and description, Enter chooses, and
+/// the chosen name replaces the menu after the title. Esc, Ctrl-C and Ctrl-D leave quietly
+/// ([`quit_quietly`]), like Ctrl-C at a question, the menu replaced by the title and
+/// `<canceled>`. On a screen too short for every command the list scrolls ([`menu_page`]).
+/// `None` when the menu cannot run (no commands, the terminal refused it). Only where
+/// [`can_show_menu`]; inquire reads the keys from stdin and draws on stderr.
+pub fn choose_command(title: &str, commands: &[MenuCommand]) -> Option<usize> {
+    use crossterm::{cursor, queue, style::Print};
+    use inquire::{InquireError, Select};
+    let width = commands.iter().map(|command| command.name.chars().count()).max()?;
+    let rows: Vec<MenuRow> = commands.iter().map(|command| MenuRow { command, width }).collect();
+    let row_widths: Vec<usize> = rows.iter().map(|row| row.to_string().chars().count()).collect();
+    let (page, height) = menu_page(title, &row_widths, Select::<MenuRow>::DEFAULT_HELP_MESSAGE, screen_size());
+    let menu = Select::new(title, rows).with_page_size(page).with_formatter(&|row| row.value.command.name.clone());
+    // Room below the cursor for the menu and the line after it, so that drawing it never scrolls
+    // the screen, and its first line saved (DECSC) for [`clear_menu`].
+    let below = u16::try_from(height).unwrap_or(u16::MAX);
+    let mut stderr = std::io::stderr();
+    let _ = queue!(stderr, Print("\n".repeat(below.into())), cursor::MoveUp(below), cursor::SavePosition)
+        .and_then(|()| stderr.flush());
+    match menu.raw_prompt() {
+        Ok(chosen) => Some(chosen.index),
+        Err(InquireError::OperationCanceled) => quit_quietly(),
+        Err(InquireError::OperationInterrupted) => {
+            let _ = clear_menu(&mut stderr, title, inquire::ui::RenderConfig::default());
+            quit_quietly()
+        }
+        Err(_) => None,
+    }
+}
+
+/// How many commands the menu lists at once, and the most lines it then takes, on a screen of
+/// `columns` × `lines`; `rows` are the commands' widths as the menu shows them. inquire wraps a
+/// line wider than the screen but does not fit the menu to the screen's height, and a menu
+/// taller than the screen drew over itself. So the list holds as many commands as fit between
+/// the title and the hint, counting the ones that take the most lines, and scrolls (`^`, `v`);
+/// at least one. The screen's last line stays free for the line after the menu: Enter or Esc
+/// there scrolled the answer off a full screen.
+fn menu_page(title: &str, rows: &[usize], hint: Option<&str>, (columns, lines): (usize, usize)) -> (usize, usize) {
+    let height = |width: usize| width.div_ceil(columns).max(1);
+    let lines = lines.saturating_sub(1);
+    // `? <title> ` and the cursor's space; the hint in brackets; a row after `> ` (or `^ `, `v `).
+    let mut used = height(title.chars().count() + 4) + hint.map_or(0, |hint| height(hint.chars().count() + 2));
+    let mut tallest: Vec<usize> = rows.iter().map(|width| height(width + 2)).collect();
+    tallest.sort_unstable_by(|a, b| b.cmp(a));
+    let mut page = 0;
+    for row in tallest {
+        if page > 0 && used + row > lines {
+            break;
+        }
+        used += row;
+        page += 1;
+    }
+    (page, used)
+}
+
+/// The terminal's columns and lines as inquire reads them, and 80 × 24 when they are unknown,
+/// as inquire assumes.
+fn screen_size() -> (usize, usize) {
+    match crossterm::terminal::size() {
+        Ok((columns @ 1.., lines @ 1..)) => (columns.into(), lines.into()),
+        _ => (80, 24),
+    }
+}
+
+/// Ctrl-C leaves the screen as Esc and Ctrl-D do. For those two inquire redraws the menu as its
+/// title and `<canceled>`; for Ctrl-C it returns with the whole menu standing, and at the bottom
+/// of the screen with the cursor on the hint, which the shell's next prompt overwrote. So: back to
+/// the menu's first line, saved by [`choose_command`], clear from there down, and write inquire's
+/// line for Esc.
+fn clear_menu(out: &mut impl Write, title: &str, config: inquire::ui::RenderConfig) -> std::io::Result<()> {
+    use crossterm::{
+        cursor, queue,
+        terminal::{Clear, ClearType},
+    };
+    queue!(out, cursor::RestorePosition, Clear(ClearType::FromCursorDown))?;
+    write_styled(out, config.prompt_prefix)?;
+    write!(out, " ")?;
+    write_styled(out, inquire::ui::Styled::new(title).with_style_sheet(config.prompt))?;
+    write!(out, " ")?;
+    write_styled(out, config.canceled_prompt_indicator)?;
+    writeln!(out)?;
+    out.flush()
+}
+
+/// `styled` as inquire's crossterm terminal writes it.
+fn write_styled(out: &mut impl Write, styled: inquire::ui::Styled<&str>) -> std::io::Result<()> {
+    use crossterm::{
+        queue,
+        style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
+    };
+    use inquire::ui::Attributes;
+    let inquire::ui::Styled { content, style } = styled;
+    if let Some(color) = style.fg {
+        queue!(out, SetForegroundColor(color.into()))?;
+    }
+    if let Some(color) = style.bg {
+        queue!(out, SetBackgroundColor(color.into()))?;
+    }
+    if style.att.contains(Attributes::BOLD) {
+        queue!(out, SetAttribute(Attribute::Bold))?;
+    }
+    if style.att.contains(Attributes::ITALIC) {
+        queue!(out, SetAttribute(Attribute::Italic))?;
+    }
+    queue!(out, Print(content))?;
+    if style.fg.is_some() {
+        queue!(out, SetForegroundColor(Color::Reset))?;
+    }
+    if style.bg.is_some() {
+        queue!(out, SetBackgroundColor(Color::Reset))?;
+    }
+    if !style.att.is_empty() {
+        queue!(out, SetAttribute(Attribute::Reset))?;
+    }
+    Ok(())
 }
 
 /// While a prompt reads the terminal, its interrupt key (Ctrl-C) arrives as
@@ -1345,6 +1498,64 @@ mod tests {
         assert_eq!(consent(true, false), Consent::Given);
         assert_eq!(consent(false, true), Consent::Ask);
         assert_eq!(consent(false, false), Consent::Refused);
+    }
+
+    #[test]
+    fn the_menu_lists_as_many_commands_as_the_screen_holds() {
+        let hint = Some("↑↓ to move, enter to select, type to filter");
+        // The widths of `vendo apps`' rows, and of `vendo destinations`', whose refresh-source row
+        // takes two lines on 80 columns.
+        let apps = [23, 39, 25, 22, 29, 37, 26, 23];
+        let destinations = [37, 39, 37, 105, 35, 43, 50, 74, 36];
+        // Every command with the title and the hint, if they fit with a line to spare.
+        assert_eq!(menu_page("vendo apps", &apps, hint, (120, 40)), (8, 10));
+        assert_eq!(menu_page("vendo apps", &apps, hint, (80, 11)), (8, 10));
+        assert_eq!(menu_page("vendo destinations", &destinations, hint, (80, 13)), (9, 12));
+        // Else as many as fit, the rows taking the most lines counted, and the list scrolls.
+        assert_eq!(menu_page("vendo apps", &apps, hint, (80, 10)), (7, 9));
+        assert_eq!(menu_page("vendo apps", &apps, hint, (120, 6)), (3, 5));
+        assert_eq!(menu_page("vendo destinations", &destinations, hint, (80, 12)), (8, 11));
+        assert_eq!(menu_page("vendo destinations", &destinations, hint, (80, 8)), (4, 7));
+        // On 40 columns the hint takes two lines and refresh-source three.
+        assert_eq!(menu_page("vendo destinations", &destinations, hint, (40, 8)), (1, 6));
+        // At least one, however short the screen.
+        assert_eq!(menu_page("vendo apps", &apps, hint, (80, 2)), (1, 3));
+    }
+
+    #[test]
+    fn the_canceled_line_is_styled_as_inquire_styles_it() {
+        use inquire::ui::{Attributes, Color, Styled};
+        let write = |styled| {
+            let mut out = Vec::new();
+            write_styled(&mut out, styled).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+        assert_eq!(write(Styled::new("?").with_fg(Color::LightGreen)), "\x1b[38;5;10m?\x1b[39m");
+        assert_eq!(write(Styled::new("<canceled>").with_fg(Color::DarkRed)), "\x1b[38;5;1m<canceled>\x1b[39m");
+        assert_eq!(write(Styled::new("vendo apps")), "vendo apps");
+        assert_eq!(write(Styled::new("b").with_attr(Attributes::BOLD)), "\x1b[1mb\x1b[0m");
+    }
+
+    #[test]
+    fn ctrl_c_redraws_the_menu_as_esc_leaves_it() {
+        // Back to the menu's first line (DECRC), clear from there down, then the title and `<canceled>`.
+        let mut out = Vec::new();
+        clear_menu(&mut out, "vendo apps", inquire::ui::RenderConfig::empty()).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "\x1b8\x1b[J? vendo apps <canceled>\n");
+        let mut out = Vec::new();
+        clear_menu(&mut out, "vendo apps", inquire::ui::RenderConfig::default_colored()).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "\x1b8\x1b[J\x1b[38;5;10m?\x1b[39m vendo apps \x1b[38;5;1m<canceled>\x1b[39m\n"
+        );
+    }
+
+    #[test]
+    fn menu_rows_line_up_like_the_help_commands_list() {
+        let commands = [("list", "List all apps"), ("diagnose", "Show apps that need attention")]
+            .map(|(name, about)| MenuCommand { name: name.to_string(), about: about.to_string() });
+        let rows: Vec<String> = commands.iter().map(|command| MenuRow { command, width: 8 }.to_string()).collect();
+        assert_eq!(rows, ["list      List all apps", "diagnose  Show apps that need attention"]);
     }
 
     #[test]

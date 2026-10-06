@@ -1564,6 +1564,13 @@ fn logging_out_of_one_profile_still_needs_no_yes() {
 /// terminal end that `vendo` gets as stdin, stdout or stderr.
 #[cfg(unix)]
 fn pseudo_terminal() -> (std::fs::File, std::os::fd::OwnedFd) {
+    // Wide enough that no menu row wraps (VE-3826): a new pseudo-terminal has no size.
+    pseudo_terminal_sized(40, 120)
+}
+
+/// [`pseudo_terminal`] of `lines` × `columns`.
+#[cfg(unix)]
+fn pseudo_terminal_sized(lines: u16, columns: u16) -> (std::fs::File, std::os::fd::OwnedFd) {
     use std::os::fd::{FromRawFd, OwnedFd};
     // SAFETY: posix_openpt, grantpt, unlockpt and ptsname on a descriptor this
     // function owns; the name is copied before anything else can call ptsname.
@@ -1576,46 +1583,128 @@ fn pseudo_terminal() -> (std::fs::File, std::os::fd::OwnedFd) {
         let name = std::ffi::CStr::from_ptr(libc::ptsname(controller)).to_owned();
         let terminal = libc::open(name.as_ptr(), libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC);
         assert!(terminal >= 0, "open {name:?} failed");
+        let size = libc::winsize { ws_row: lines, ws_col: columns, ws_xpixel: 0, ws_ypixel: 0 };
+        assert_eq!(libc::ioctl(controller, libc::TIOCSWINSZ as _, &size), 0, "TIOCSWINSZ failed");
         (std::fs::File::from_raw_fd(controller), OwnedFd::from_raw_fd(terminal))
     }
 }
 
-/// Run `vendo` with stdin, stdout and stderr on a pseudo-terminal, like a
-/// person at a terminal; `answer` is typed once the `(y/N)` question shows.
-/// Returns what the terminal showed and the exit code.
+/// `vendo` with stdin, stdout and stderr on a pseudo-terminal, like a person at
+/// a terminal: the test waits for what the screen shows and types keys.
 #[cfg(unix)]
-fn answer_on_terminal(sandbox: &Sandbox, args: &[&str], answer: &str) -> (String, Option<i32>) {
-    use std::io::{Read, Write};
-    let (controller, terminal) = pseudo_terminal();
-    let mut cmd = sandbox.command(args);
-    cmd.env("NO_COLOR", "1")
-        .stdin(terminal.try_clone().unwrap())
-        .stdout(terminal.try_clone().unwrap())
-        .stderr(terminal);
-    let mut child = cmd.spawn().unwrap();
-    // Close the test's copies of the terminal end, so reading ends when `vendo` exits.
-    drop(cmd);
-    let (tx, rx) = std::sync::mpsc::channel();
-    let mut reader = controller.try_clone().unwrap();
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
-        while let Ok(n @ 1..) = reader.read(&mut buf) {
-            if tx.send(buf[..n].to_vec()).is_err() {
-                break;
+struct OnTerminal {
+    controller: std::fs::File,
+    child: std::process::Child,
+    output: std::sync::mpsc::Receiver<Vec<u8>>,
+    /// Everything the terminal showed so far, as `vendo` wrote it.
+    screen: String,
+    /// The end of what [`OnTerminal::wait_for`] last found.
+    seen: usize,
+}
+
+#[cfg(unix)]
+impl OnTerminal {
+    fn start(sandbox: &Sandbox, args: &[&str]) -> Self {
+        Self::start_with(sandbox, args, (40, 120), "", None)
+    }
+
+    /// [`OnTerminal::start`] on a terminal of `lines` × `columns` that already shows `before`, as
+    /// a shell's earlier output; `stderr` elsewhere than the terminal when given.
+    fn start_with(
+        sandbox: &Sandbox,
+        args: &[&str],
+        (lines, columns): (u16, u16),
+        before: &str,
+        stderr: Option<Stdio>,
+    ) -> Self {
+        use std::{
+            io::{Read, Write},
+            os::unix::process::CommandExt,
+        };
+        let (controller, terminal) = pseudo_terminal_sized(lines, columns);
+        std::fs::File::from(terminal.try_clone().unwrap()).write_all(before.as_bytes()).unwrap();
+        let mut cmd = sandbox.command(args);
+        cmd.env("NO_COLOR", "1")
+            .stdin(terminal.try_clone().unwrap())
+            .stdout(terminal.try_clone().unwrap())
+            .stderr(stderr.unwrap_or_else(|| terminal.into()));
+        // The terminal is `vendo`'s own, as in a terminal window: its session's controlling
+        // terminal, which `/dev/tty` opens, not the one running the tests (or none, in CI).
+        // SAFETY: setsid and ioctl only, between fork and exec.
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setsid() < 0 || libc::ioctl(libc::STDIN_FILENO, libc::TIOCSCTTY as _, 0) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let child = cmd.spawn().unwrap();
+        // Close the test's copies of the terminal end, so reading ends when `vendo` exits.
+        drop(cmd);
+        let (tx, output) = std::sync::mpsc::channel();
+        let mut reader = controller.try_clone().unwrap();
+        std::thread::spawn(move || {
+            // Whole characters only: a read can end inside one (the hint's arrows).
+            let (mut buf, mut read) = ([0u8; 4096], Vec::new());
+            while let Ok(n @ 1..) = reader.read(&mut buf) {
+                read.extend_from_slice(&buf[..n]);
+                let whole = match std::str::from_utf8(&read) {
+                    Err(err) if err.error_len().is_none() => err.valid_up_to(),
+                    _ => read.len(),
+                };
+                if tx.send(read.drain(..whole).collect()).is_err() {
+                    break;
+                }
+            }
+        });
+        OnTerminal { controller, child, output, screen: String::new(), seen: 0 }
+    }
+
+    /// Waits until the screen shows `expected` after what the last wait found, and returns what
+    /// it showed from there up to and including `expected`. Fails after 20 seconds without it.
+    fn wait_for(&mut self, expected: &str) -> String {
+        loop {
+            if let Some(at) = self.screen[self.seen..].find(expected) {
+                let end = self.seen + at + expected.len();
+                let shown = self.screen[self.seen..end].to_string();
+                self.seen = end;
+                return shown;
+            }
+            match self.output.recv_timeout(std::time::Duration::from_secs(20)) {
+                Ok(chunk) => self.screen.push_str(&text(&chunk)),
+                Err(_) => {
+                    let _ = self.child.kill();
+                    panic!("the terminal never showed {expected:?}; it showed {:?}", &self.screen[self.seen..]);
+                }
             }
         }
-    });
-    let mut screen = String::new();
-    let mut typed = false;
-    while let Ok(chunk) = rx.recv_timeout(std::time::Duration::from_secs(20)) {
-        screen.push_str(&text(&chunk));
-        if !typed && screen.contains("(y/N) ") {
-            (&controller).write_all(answer.as_bytes()).unwrap();
-            typed = true;
-        }
     }
-    let _ = child.kill();
-    (screen, child.wait().unwrap().code())
+
+    fn press(&mut self, keys: &str) {
+        use std::io::Write;
+        (&self.controller).write_all(keys.as_bytes()).unwrap();
+    }
+
+    /// Reads until `vendo` exits: everything the terminal showed after the last wait, and the exit code.
+    fn finish(&mut self) -> (String, Option<i32>) {
+        while let Ok(chunk) = self.output.recv_timeout(std::time::Duration::from_secs(20)) {
+            self.screen.push_str(&text(&chunk));
+        }
+        let _ = self.child.kill();
+        (self.screen[self.seen..].to_string(), self.child.wait().unwrap().code())
+    }
+}
+
+/// Run `vendo` on a pseudo-terminal ([`OnTerminal`]); `answer` is typed once
+/// the `(y/N)` question shows. Returns what the terminal showed and the exit code.
+#[cfg(unix)]
+fn answer_on_terminal(sandbox: &Sandbox, args: &[&str], answer: &str) -> (String, Option<i32>) {
+    let mut terminal = OnTerminal::start(sandbox, args);
+    let question = terminal.wait_for("(y/N) ");
+    terminal.press(answer);
+    let (rest, code) = terminal.finish();
+    (question + &rest, code)
 }
 
 #[cfg(unix)]
@@ -3068,4 +3157,336 @@ async fn methodologies_get_takes_the_short_id_its_list_shows() {
     assert_eq!(sent(&server).await.len(), 2);
     let out = sandbox.run(&["measurement", "methodologies", "get", "5e6f7a8b"]);
     assert_eq!((out.status.code(), stderr_line(&out)), (Some(1), "Error: Methodology 5e6f7a8b not found".to_string()));
+}
+
+// ── VE-3826: a bare group opens a menu of its commands on a terminal ────────
+// Decided by Yalcin, 2026-10-05, CLI 1.1: where a person can answer and see it (stdin and stdout
+// terminals, the rule `delete` asks by, and stderr, where the menu is drawn), `vendo apps` opens an
+// arrow-key menu of the apps commands with type-to-filter, and Enter runs the chosen command as if
+// it had been typed. Without a terminal nothing prompts: the group's help and exit 2, as before
+// (snapshots.rs checks every group). A chosen command that needs an argument fails as it does when
+// typed without it.
+
+/// What the terminal shows without escape sequences (cursor moves, clearing, styles) and with
+/// plain line ends.
+fn plain(screen: &str) -> String {
+    let mut out = String::new();
+    let mut chars = screen.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\u{1b}' => {
+                // CSI: `ESC [`, parameters, one final byte from `@` to `~`. Anything else: one more char.
+                if chars.next_if_eq(&'[').is_some() {
+                    while chars.next().is_some_and(|c| !('@'..='~').contains(&c)) {}
+                } else {
+                    chars.next();
+                }
+            }
+            '\r' => {}
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// What a terminal of `lines` × `columns` shows after `output`, its lines without trailing spaces,
+/// and where its cursor is (line, column): enough of a VT100 to follow the menu (text that wraps at
+/// the last column, CR, LF that scrolls at the bottom, cursor moves, erasing, saving and restoring
+/// the cursor). Colours and modes change nothing.
+fn screen(output: &str, lines: usize, columns: usize) -> (Vec<String>, (usize, usize)) {
+    let mut shown = vec![vec![' '; columns]; lines];
+    let (mut line, mut column, mut saved, mut wrap): (usize, usize, _, _) = (0, 0, (0, 0), false);
+    let line_feed = |shown: &mut Vec<Vec<char>>, line: &mut usize| {
+        if *line + 1 == lines {
+            shown.remove(0);
+            shown.push(vec![' '; columns]);
+        } else {
+            *line += 1;
+        }
+    };
+    let mut chars = output.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\u{1b}' => match chars.next() {
+                Some('7') => saved = (line, column),
+                Some('8') => ((line, column), wrap) = (saved, false),
+                Some('[') => {
+                    // Parameters, then one final character from `@` to `~`.
+                    let (mut parameters, mut end) = (String::new(), None);
+                    for c in chars.by_ref() {
+                        if ('@'..='~').contains(&c) {
+                            end = Some(c);
+                            break;
+                        }
+                        parameters.push(c);
+                    }
+                    let n: usize = parameters.parse().unwrap_or(0);
+                    match end {
+                        Some('A') => line = line.saturating_sub(n.max(1)),
+                        Some('B') => line = (line + n.max(1)).min(lines - 1),
+                        Some('C') => column = (column + n.max(1)).min(columns - 1),
+                        Some('D') => column = column.saturating_sub(n.max(1)),
+                        Some('G') => column = (n.max(1) - 1).min(columns - 1),
+                        Some('K') if n == 2 => shown[line].fill(' '),
+                        Some('K') => shown[line][column..].fill(' '),
+                        Some('J') => {
+                            shown[line][column..].fill(' ');
+                            shown[line + 1..].iter_mut().for_each(|line| line.fill(' '));
+                        }
+                        _ => continue,
+                    }
+                    wrap = false;
+                }
+                _ => {}
+            },
+            '\r' => (column, wrap) = (0, false),
+            '\n' => {
+                line_feed(&mut shown, &mut line);
+                wrap = false;
+            }
+            c => {
+                if wrap {
+                    line_feed(&mut shown, &mut line);
+                    (column, wrap) = (0, false);
+                }
+                shown[line][column] = c;
+                if column + 1 == columns {
+                    wrap = true;
+                } else {
+                    column += 1;
+                }
+            }
+        }
+    }
+    (shown.iter().map(|line| line.iter().collect::<String>().trim_end().to_string()).collect(), (line, column))
+}
+
+/// The rows of `vendo <group> --help`'s `Commands:` list, without their indent: what its menu lists.
+fn command_rows(sandbox: &Sandbox, group: &[&str]) -> Vec<String> {
+    let screen = text(&sandbox.run(&[group, &["--help"]].concat()).stdout);
+    let list = screen.split("Commands:\n").nth(1).unwrap().split("\n\n").next().unwrap();
+    list.lines().map(|line| line.trim().to_string()).collect()
+}
+
+const MENU_APP: &str = "a1b2c3d4-0000-4000-8000-000000000001";
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_bare_group_on_a_terminal_opens_a_menu_and_runs_the_chosen_command() {
+    let server = MockServer::start().await;
+    let app = json!({
+        "id": MENU_APP, "appType": "shopify", "displayName": "Menu Shop", "permissions": ["performance_data"],
+        "roles": ["source"], "state": "active", "accessStatus": "connected", "lastSyncAt": null,
+    });
+    serve(&server, "GET", "/api/v1/accounts/acct-beta/apps", 200, json!({ "data": [app] })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    // `--profile` before the group stays with the command that runs.
+    let mut terminal = OnTerminal::start(&sandbox, &["--profile", "beta", "apps"]);
+    // Every apps command, with its description, as the group's help lists them.
+    let rows = command_rows(&sandbox, &["apps"]);
+    assert_eq!(rows.len(), 8, "{rows:?}");
+    let menu = plain(&terminal.wait_for(rows.last().unwrap()));
+    for row in &rows {
+        assert!(menu.contains(row.as_str()), "{row:?} is not in the menu:\n{menu}");
+    }
+    // Typing filters the menu, by name and description in any case: with `get` highlighted, "LIS"
+    // leaves only `list`, which Enter runs. The chosen command replaces the menu after the title.
+    terminal.press("\u{1b}[B\u{1b}[B");
+    terminal.press("LIS");
+    terminal.wait_for("vendo apps LIS");
+    terminal.press("\r");
+    terminal.wait_for("vendo apps list");
+    // `vendo --profile beta apps list` runs against the stub.
+    let (ran, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{ran}");
+    let ran = plain(&ran);
+    assert!(ran.contains("a1b2c3d4...") && ran.contains("Menu Shop") && ran.contains("shopify"), "{ran}");
+    assert_eq!(sent(&server).await, ["GET /api/v1/accounts/acct-beta/apps?limit=20&offset=0"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_arrow_keys_move_through_the_menu() {
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["apps"]);
+    terminal.wait_for("Update an app");
+    // Down, down, up: the second command, `diagnose`.
+    terminal.press("\u{1b}[B");
+    terminal.press("\u{1b}[B");
+    terminal.press("\u{1b}[A");
+    terminal.press("\r");
+    terminal.wait_for("vendo apps diagnose");
+    let (ran, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{ran}");
+    let mut requests = sent(&server).await;
+    requests.sort();
+    assert_eq!(
+        requests,
+        ["apps", "connections", "sources"].map(|list| format!("GET /api/v1/accounts/acct-alpha/{list}?limit=100"))
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn esc_ctrl_c_or_ctrl_d_leave_the_menu_quietly() {
+    // Like Ctrl-C or Ctrl-D at a question (VE-3823): exit 0, and nothing runs or fails. All three
+    // leave the same screen: the title and `<canceled>` where the menu was, nothing of the menu,
+    // and the cursor on the next line, where the shell's prompt goes. On an empty screen, and at
+    // the bottom of a full one. (inquire left the whole menu standing for Ctrl-C, and the cursor
+    // on its hint at the bottom of the screen.)
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let earlier: String = (1..=30).map(|n| format!("line {n}\n")).collect();
+    for (size, before) in [((40, 120), ""), ((16, 80), earlier.as_str())] {
+        let mut screens = Vec::new();
+        for (key, name) in [("\u{1b}", "Esc"), ("\u{3}", "Ctrl-C"), ("\u{4}", "Ctrl-D")] {
+            let mut terminal = OnTerminal::start_with(&sandbox, &["apps"], size, before, None);
+            terminal.wait_for("Update an app");
+            terminal.press(key);
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{name}: {rest:?}");
+            let rest = plain(&rest).to_lowercase();
+            assert!(!rest.contains("error") && !rest.contains("usage"), "{name}: {rest:?}");
+            let (shown, cursor) = screen(&terminal.screen, size.0.into(), size.1.into());
+            let last = shown.iter().rposition(|line| !line.is_empty()).unwrap();
+            assert_eq!(
+                (shown[last].as_str(), cursor),
+                ("? vendo apps <canceled>", (last + 1, 0)),
+                "{name}: {shown:#?}"
+            );
+            screens.push((shown, cursor));
+        }
+        assert!(screens.iter().all(|screen| *screen == screens[0]), "{screens:#?}");
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+#[cfg(unix)]
+#[test]
+fn choosing_a_group_opens_its_menu() {
+    // `vendo measurement` → `ltv` → the menu of `vendo measurement ltv`.
+    let sandbox = Sandbox::new(CLOSED);
+    let mut terminal = OnTerminal::start(&sandbox, &["measurement"]);
+    let menu = plain(&terminal.wait_for("Measurement signal availability"));
+    for row in command_rows(&sandbox, &["measurement"]) {
+        assert!(menu.contains(row.as_str()), "{row:?} is not in the menu:\n{menu}");
+    }
+    terminal.press("ltv\r");
+    terminal.wait_for("vendo measurement ltv");
+    let rows = command_rows(&sandbox, &["measurement", "ltv"]);
+    let menu = plain(&terminal.wait_for("Show one customer's cohort"));
+    for row in &rows[..2] {
+        assert!(menu.contains(row.as_str()), "{row:?} is not in the menu:\n{menu}");
+    }
+    terminal.press("\u{1b}");
+    let (rest, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{rest:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn the_old_config_group_opens_the_profile_menu() {
+    // `config` is the hidden old name of `profile` (VE-3827): the menu lists what `profile` does,
+    // and nothing hidden.
+    let sandbox = Sandbox::new(CLOSED);
+    let mut terminal = OnTerminal::start(&sandbox, &["config"]);
+    let rows = command_rows(&sandbox, &["profile"]);
+    assert_eq!(rows.len(), 3, "{rows:?}");
+    let menu = plain(&terminal.wait_for(rows.last().unwrap()));
+    assert!(menu.contains("vendo profile"), "titled as the tree names it: {menu}");
+    for row in &rows {
+        assert!(menu.contains(row.as_str()), "{row:?} is not in the menu:\n{menu}");
+    }
+    assert!(!menu.contains("current") && !menu.contains("reset"), "{menu}");
+    terminal.press("\r");
+    let (ran, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{ran}");
+    let ran = plain(&ran);
+    assert!(ran.contains("alpha") && ran.contains("beta"), "{ran}");
+}
+
+#[cfg(unix)]
+#[test]
+fn the_menu_lists_only_visible_commands() {
+    // `catalog credential-schema` is hidden (VE-3827).
+    let sandbox = Sandbox::new(CLOSED);
+    let mut terminal = OnTerminal::start(&sandbox, &["catalog"]);
+    let menu = plain(&terminal.wait_for("Get details for a specific platform"));
+    assert!(!menu.contains("credential-schema"), "{menu}");
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_chosen_command_missing_its_argument_is_the_usage_error_it_is_when_typed() {
+    let sandbox = Sandbox::new(CLOSED);
+    let typed = sandbox.run(&["apps", "get"]);
+    assert_eq!(typed.status.code(), Some(2));
+    let mut terminal = OnTerminal::start(&sandbox, &["apps"]);
+    terminal.wait_for("Update an app");
+    terminal.press("get app\r");
+    terminal.wait_for("vendo apps get");
+    let (rest, code) = terminal.finish();
+    assert_eq!(code, Some(2), "{rest:?}");
+    assert!(plain(&rest).ends_with(&text(&typed.stderr)), "{rest:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_bare_group_needs_stdin_stdout_and_stderr_on_a_terminal_to_open_the_menu() {
+    let sandbox = Sandbox::new(CLOSED);
+    let help = text(&sandbox.run(&["apps", "--help"]).stdout);
+    // Keys from a terminal, but stdout goes to a pipe (`vendo apps | less`): no menu, as `delete`
+    // does not ask there.
+    let (_controller, terminal) = pseudo_terminal();
+    let out = sandbox.command(&["apps"]).stdin(terminal).output().unwrap();
+    assert_eq!((out.status.code(), text(&out.stdout), text(&out.stderr)), (Some(2), String::new(), help.clone()));
+    // Shown on a terminal, but the keys would come from a pipe.
+    let (_controller, terminal) = pseudo_terminal();
+    let out = sandbox.command(&["apps"]).stdin(Stdio::piped()).stdout(terminal).output().unwrap();
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(2), help.clone()));
+    // Keys and stdout on the terminal, but stderr, where the menu is drawn, goes to a file or
+    // nowhere (`vendo apps 2>err.log`): the menu would wait for keys with nothing on the screen.
+    let log = tempfile::NamedTempFile::new().unwrap();
+    for stderr in [Stdio::from(log.reopen().unwrap()), Stdio::null()] {
+        let mut terminal = OnTerminal::start_with(&sandbox, &["apps"], (40, 120), "", Some(stderr));
+        assert_eq!(terminal.finish(), (String::new(), Some(2)));
+    }
+    assert_eq!(std::fs::read_to_string(log.path()).unwrap(), help);
+}
+
+#[cfg(unix)]
+#[test]
+fn on_a_short_terminal_the_menu_scrolls_its_list() {
+    // A menu taller than the screen drew over itself: the title went, rows went missing or showed
+    // twice, two of them marked `>`. It lists as many commands as fit between the title and the
+    // hint, with a line to spare, and scrolls; the one marked `>` is the one Enter runs.
+    let sandbox = Sandbox::new(CLOSED);
+    for (group, (lines, columns), down, chosen) in [
+        ("apps", (6, 120), 5, "delete"),
+        // refresh-source's row takes two lines on 80 columns.
+        ("destinations", (8, 80), 3, "refresh-source"),
+    ] {
+        let mut terminal = OnTerminal::start_with(&sandbox, &[group], (lines, columns), "", None);
+        terminal.wait_for("type to filter]");
+        terminal.press(&"\u{1b}[B".repeat(down));
+        terminal.wait_for(&format!("> {chosen} "));
+        // The end of that frame: inquire shows the cursor again.
+        terminal.wait_for("\u{1b}[?25h");
+        let (shown, _) = screen(&terminal.screen, lines.into(), columns.into());
+        let hint = shown.iter().rposition(|line| !line.is_empty()).unwrap();
+        assert_eq!(shown[0], format!("? vendo {group}"), "{shown:#?}");
+        assert_eq!(shown[hint], "[↑↓ to move, enter to select, type to filter]", "{shown:#?}");
+        assert!(hint < shown.len() - 1, "{shown:#?}");
+        let marked: Vec<&String> = shown.iter().filter(|line| line.starts_with('>')).collect();
+        assert!(marked.len() == 1 && marked[0].starts_with(&format!("> {chosen} ")), "{shown:#?}");
+        // Both need an ID, so Enter ends in the usage error for the command shown.
+        terminal.press("\r");
+        terminal.wait_for(&format!("vendo {group} {chosen}"));
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(2), "{rest:?}");
+        assert!(plain(&rest).contains(&format!("Usage: vendo {group} {chosen} <")), "{rest:?}");
+    }
 }

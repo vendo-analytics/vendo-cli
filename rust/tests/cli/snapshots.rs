@@ -266,6 +266,44 @@ fn bare_vendo_prints_the_root_help_and_exits_2() {
     assert_eq!(text(&bare.stderr), text(&help.stdout));
 }
 
+/// Every group as typed, depth first in help order: `apps`, `measurement ltv`.
+fn groups(sandbox: &Sandbox, path: &[&str], found: &mut Vec<Vec<String>>) {
+    let screen = text(&sandbox.run(&[path, &["--help"]].concat()).stdout);
+    let names = subcommands(&screen);
+    if !path.is_empty() && !names.is_empty() {
+        found.push(path.iter().map(|word| word.to_string()).collect());
+    }
+    for name in &names {
+        groups(sandbox, &[path, &[name.as_str()]].concat(), found);
+    }
+}
+
+#[test]
+fn a_bare_group_without_a_terminal_prints_its_help_and_exits_2() {
+    // On a terminal a bare group opens a menu of its commands (VE-3826); without one (a pipe, CI,
+    // an agent) it is the usage error it was: the group's help screen on stderr, exit 2.
+    let sandbox = Sandbox::new(CLOSED);
+    let mut found = Vec::new();
+    groups(&sandbox, &[], &mut found);
+    // The hidden old names of `destinations` and `profile` (VE-3827, VE-3828).
+    found.extend([vec!["integrations".to_string()], vec!["int".to_string()], vec!["config".to_string()]]);
+    assert!(found.len() >= 16, "{found:?}");
+    for group in &found {
+        let group: Vec<&str> = group.iter().map(String::as_str).collect();
+        let help = sandbox.run(&[&group[..], &["--help"]].concat());
+        let bare = sandbox.run(&group);
+        assert_eq!((bare.status.code(), text(&bare.stdout)), (Some(2), String::new()), "vendo {group:?}");
+        assert_eq!(text(&bare.stderr), text(&help.stdout), "vendo {group:?}");
+    }
+    // With a global option after it, clap's other wording of the same error, as before.
+    let bare = sandbox.run(&["apps", "--debug"]);
+    assert_eq!((bare.status.code(), text(&bare.stdout)), (Some(2), String::new()));
+    assert_eq!(
+        text(&bare.stderr),
+        "error: 'vendo apps' requires a subcommand but one was not provided\n  [subcommands: list, diagnose, get, pause, resume, delete, create, update]\n\nUsage: vendo apps [OPTIONS] <COMMAND>\n\nFor more information, try '--help'.\n"
+    );
+}
+
 #[test]
 fn moved_commands_print_their_targets_help() {
     // `config` moved under `profile`, `profile current` and `config show` became `whoami`, and
