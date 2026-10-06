@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps resume
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <appId>
+
+Usage: vendo apps resume <appId>
+
+For more information, try '--help'.
+
+$ vendo apps resume --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <appId>","code":null,"status":null,"requestId":null}}

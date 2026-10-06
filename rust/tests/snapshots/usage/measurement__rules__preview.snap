@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement rules preview
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  --from <date>
+  --to <date>
+
+Usage: vendo measurement rules preview --from <date> --to <date>
+
+For more information, try '--help'.
+
+$ vendo measurement rules preview --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  --from <date>\n  --to <date>","code":null,"status":null,"requestId":null}}

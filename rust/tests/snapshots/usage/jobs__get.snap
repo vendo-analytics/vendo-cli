@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo jobs get
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <jobId>
+
+Usage: vendo jobs get <jobId>
+
+For more information, try '--help'.
+
+$ vendo jobs get --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <jobId>","code":null,"status":null,"requestId":null}}

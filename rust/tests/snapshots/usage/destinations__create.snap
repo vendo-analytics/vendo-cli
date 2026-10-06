@@ -1,0 +1,19 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations create
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  --dest-app <appId>
+  --data-type <type>
+  --config-file <path>
+
+Usage: vendo destinations create --dest-app <appId> --data-type <type> --config-file <path>
+
+For more information, try '--help'.
+
+$ vendo destinations create --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  --dest-app <appId>\n  --data-type <type>\n  --config-file <path>","code":null,"status":null,"requestId":null}}

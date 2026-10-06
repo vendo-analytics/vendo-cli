@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo metrics create
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  --name <name>
+  --definition <file>
+
+Usage: vendo metrics create --name <name> --definition <file>
+
+For more information, try '--help'.
+
+$ vendo metrics create --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  --name <name>\n  --definition <file>","code":null,"status":null,"requestId":null}}

@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps update
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <appId>
+
+Usage: vendo apps update <appId>
+
+For more information, try '--help'.
+
+$ vendo apps update --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <appId>","code":null,"status":null,"requestId":null}}

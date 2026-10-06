@@ -405,6 +405,87 @@ fn completions_offer_no_moved_command_and_no_group_help() {
     }
 }
 
+// ── usage errors for a missing value ────────────────────────────────────────
+// VE-3881: at a terminal a command missing a required value asks for it. Without one (a pipe, CI,
+// an agent) it is clap's usage error, exit 2, exactly as before: `usage/` records it for every
+// command that requires a value, as text and with `--json`, and nothing is sent.
+
+/// The values a command's help screen says it requires: the words after `[OPTIONS]` on its
+/// `Usage:` line that are not in brackets, each option with its value (`--type <appType>`), in
+/// order. Empty for a command that requires none, and for a group (`<COMMAND>`).
+fn required_values(screen: &str) -> Vec<String> {
+    let usage = screen.lines().find_map(|line| line.strip_prefix("Usage: ")).expect("a help screen has a Usage line");
+    let Some((_, words)) = usage.split_once(" [OPTIONS]") else { return Vec::new() };
+    let mut values: Vec<String> = Vec::new();
+    for word in words.split_whitespace().filter(|word| !word.starts_with('[')) {
+        match values.last_mut() {
+            Some(option) if option.starts_with("--") && !option.contains(' ') => *option = format!("{option} {word}"),
+            _ => values.push(word.to_string()),
+        }
+    }
+    if values.iter().any(|value| value == "<COMMAND>") { Vec::new() } else { values }
+}
+
+/// Every command that requires a value, as typed after `vendo` (`apps get`), with the values it
+/// requires: the commands the help screens list, walked depth first in help order, and the hidden
+/// ones ([`HIDDEN_COMMANDS`]).
+pub(super) fn commands_requiring_values(sandbox: &Sandbox) -> Vec<(Vec<String>, Vec<String>)> {
+    let mut paths: Vec<Vec<String>> =
+        listed_paths(sandbox, &[]).iter().map(|path| path.split(' ').map(str::to_string).collect()).collect();
+    paths.extend(HIDDEN_COMMANDS.iter().map(|path| path.iter().map(|word| word.to_string()).collect()));
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let args: Vec<&str> = path.iter().map(String::as_str).chain(["--help"]).collect();
+            let values = required_values(&text(&sandbox.run(&args).stdout));
+            (!values.is_empty()).then_some((path, values))
+        })
+        .collect()
+}
+
+#[test]
+fn the_usage_line_reader_finds_the_required_values() {
+    let usage = |line: &str| required_values(&format!("About\n\n{line}\n\nOptions:\n"));
+    assert_eq!(usage("Usage: vendo apps get [OPTIONS] <appId>"), ["<appId>"]);
+    assert_eq!(
+        usage("Usage: vendo apps create [OPTIONS] --type <appType> --name <displayName>"),
+        ["--type <appType>", "--name <displayName>"]
+    );
+    assert!(usage("Usage: vendo jobs tail [OPTIONS] [jobId]").is_empty());
+    assert!(usage("Usage: vendo apps list [OPTIONS]").is_empty());
+    assert!(usage("Usage: vendo apps [OPTIONS] <COMMAND>").is_empty());
+}
+
+#[tokio::test]
+async fn without_a_terminal_a_missing_value_is_the_usage_error() {
+    let server = MockServer::start().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut recorder = Recorder::new("usage", "");
+    let commands = commands_requiring_values(&sandbox);
+    // 37 commands, the hidden `catalog credential-schema` among them, requiring 43 values: 11
+    // options in 5 commands, and one argument in each of the other 32.
+    let values: usize = commands.iter().map(|(_, values)| values.len()).sum();
+    let options = commands.iter().flat_map(|(_, values)| values).filter(|value| value.starts_with("--")).count();
+    assert_eq!((commands.len(), values, options), (37, 43, 11), "{commands:?}");
+    assert!(commands.iter().any(|(path, _)| path == &["catalog", "credential-schema"]), "{commands:?}");
+    for (path, _) in &commands {
+        let mut shown = String::new();
+        for json in [false, true] {
+            let args: Vec<&str> = path.iter().map(String::as_str).chain(json.then_some("--json")).collect();
+            let out = sandbox.run(&args);
+            assert_eq!((out.status.code(), text(&out.stdout)), (Some(2), String::new()), "vendo {}", args.join(" "));
+            if json {
+                shown.push('\n');
+            }
+            shown.push_str(&format!("$ vendo {}\nexit: 2\n--- stderr ---\n{}", args.join(" "), text(&out.stderr)));
+        }
+        // `usage/apps__get.snap` for `vendo apps get`.
+        recorder.check(&path.join("__"), &shown);
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), 0, "nothing is sent without a terminal");
+    recorder.finish();
+}
+
 // ── command output ──────────────────────────────────────────────────────────
 
 /// The groups of `output/`, one test each. A Session's recorder only owns its

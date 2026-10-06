@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement methodologies get
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <methodologyId>
+
+Usage: vendo measurement methodologies get <methodologyId>
+
+For more information, try '--help'.
+
+$ vendo measurement methodologies get --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <methodologyId>","code":null,"status":null,"requestId":null}}

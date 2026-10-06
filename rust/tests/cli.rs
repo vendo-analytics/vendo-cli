@@ -4675,6 +4675,44 @@ fn the_profile_picker_asks_only_when_stdin_and_stdout_are_terminals() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn with_prompts_off_or_no_screen_to_ask_on_a_missing_value_is_the_usage_error() {
+    // VE-3881: a command missing a required value asks for it only where the group menu opens.
+    // With prompts off, on `TERM=dumb`, with stderr redirected or a stdin no key can be read from,
+    // it is clap's usage error, byte for byte what a pipe gets (`usage/` records those), exit 2,
+    // and nothing is sent: every command that requires a value.
+    let server = MockServer::start().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let commands = snapshots::commands_requiring_values(&sandbox);
+    assert_eq!(commands.len(), 37);
+    for (path, _) in &commands {
+        let args: Vec<&str> = path.iter().map(String::as_str).collect();
+        let piped = sandbox.run(&args);
+        assert_eq!(piped.status.code(), Some(2), "vendo {}", args.join(" "));
+        let expected = text(&piped.stderr);
+        for setting in [("CI", "1"), ("VENDO_NO_INPUT", "1"), ("TERM", "dumb")] {
+            let (screen, code) = OnTerminal::start_env(&sandbox, &args, &[setting]).finish();
+            assert_eq!((code, plain(&screen)), (Some(2), expected.clone()), "{setting:?} vendo {}", args.join(" "));
+        }
+        let log = tempfile::NamedTempFile::new().unwrap();
+        let mut terminal = OnTerminal::start_with(&sandbox, &args, (40, 120), "", Some(log.reopen().unwrap().into()));
+        assert_eq!(terminal.finish(), (String::new(), Some(2)), "2>file vendo {}", args.join(" "));
+        assert_eq!(std::fs::read_to_string(log.path()).unwrap(), expected, "2>file vendo {}", args.join(" "));
+        let pseudo_terminal = pseudo_terminal_sized(40, 120);
+        let write_only = {
+            use std::os::unix::{ffi::OsStrExt, fs::OpenOptionsExt};
+            let name = std::ffi::OsStr::from_bytes(pseudo_terminal.2.as_bytes());
+            std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOCTTY).open(name).unwrap()
+        };
+        let mut terminal =
+            OnTerminal::launch_on(pseudo_terminal, sandbox.command(&args), "", Some(write_only.into()), None, true);
+        let (screen, code) = terminal.finish();
+        assert_eq!((code, plain(&screen)), (Some(2), expected), "0>write-only vendo {}", args.join(" "));
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn with_prompts_off_login_reads_no_press_enter_at_a_terminal_and_says_what_it_says_without_one() {
     // Without a terminal (stdin closed, as on a CI runner) login prints the sign-in URL and "Press
     // ENTER to open in the browser...", which nothing answers, and waits for the browser. With

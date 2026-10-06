@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations delete
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <destinationId>
+
+Usage: vendo destinations delete <destinationId>
+
+For more information, try '--help'.
+
+$ vendo destinations delete --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <destinationId>","code":null,"status":null,"requestId":null}}
