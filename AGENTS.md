@@ -138,9 +138,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `menu` cargo feature: built with `--no-default-features` the CLI has no menu (`cli::menu_choice`), so a bare group
   is the usage error at a terminal too. Yalcin accepted the menu's size (+132,496 bytes, +2.09%, on the macOS arm64
   release binary when it came in) on condition that it stays under 150 KB at each release (2026-10-06):
-  `scripts/menu-size.sh` builds the release binary without and with the feature and fails when the menu adds more
-  than 153,600 bytes. On macOS arm64 the code segment grows in 16 KB pages, so there the difference moves in steps of
-  16,384 bytes. Tests drive the menu on a
+  `scripts/menu-size.sh` builds the release binary without and with the feature and fails when the menu adds
+  150,000 bytes or more (the decision sheet counts KB in thousands). On macOS arm64 the code segment grows in 16 KB
+  pages, so there the difference moves in steps of 16,384 bytes. Tests drive the menu on a
   pseudo-terminal that is `vendo`'s controlling terminal (`OnTerminal` in `rust/tests/cli.rs`; `screen` there replays
   what the terminal shows). `OnTerminal` keeps its own copy of the terminal end until `vendo` exits: macOS drops what
   the reader has not read yet when the last copy closes.
@@ -192,8 +192,8 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
 ## CI and releases (VE-3731)
 - CI (`.github/workflows/ci.yml`) runs on every pull request and push to `main`, one job per area:
   - TypeScript: `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:parity`.
-  - Rust, from `rust/`: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, the same with
-    `--no-default-features` (the build without the menu, which the menu size check builds), `cargo test --locked`.
+  - Rust, from `rust/`: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`,
+    `cargo test --locked`.
   - `cargo deny check` with `rust/deny.toml` (advisories in one job; licences, bans and sources in another).
     Locally: `cargo install cargo-deny --locked`, then `cargo deny check` from `rust/`. Allow a new licence or
     ignore an advisory only with a reason in `deny.toml`.
@@ -203,15 +203,12 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
   darwin-x64 (cross-compiled on Apple silicon), same asset names and `.sha256` files, published as a GitHub
   pre-release that never becomes "latest". The workflow checks the tag matches `rust/Cargo.toml`, runs
   `cargo test`, then for each target checks the menu's size (`scripts/menu-size.sh`, which writes the sizes with and
-  without the menu to the run's summary and fails the target when the menu adds more than 150 KB), builds,
-  smoke-tests and uploads the binary.
+  without the menu to the run's summary and fails the target when the menu adds 150,000 bytes (150 KB) or more),
+  builds, smoke-tests and uploads the binary.
 - Cutting a release candidate: bump `version` in `rust/Cargo.toml` to `X.Y.Z-rc.N` and update `rust/Cargo.lock`
   (`cargo update --workspace` from `rust/`) in one commit, merged through a PR like any change. Then tag that
   commit `cli-vX.Y.Z-rc.N` and push the tag. Agents never push tags or create releases: Yalcin approves each one.
-- Before tagging, run `scripts/menu-size.sh` on that commit: the menu must add at most 153,600 bytes (150 KB) to
-  this machine's release binary (VE-3826, Yalcin, 2026-10-06); release-rc.yml checks every target again. It leaves
-  the release binary, with the menu, in `rust/target/release/vendo` for the next step.
-- Then run `pnpm build && pnpm parity:help --rust rust/target/release/vendo` on that commit. Every help
+- Before tagging, run `pnpm build && pnpm parity:help --rust rust/target/release/vendo` on that commit. Every help
   screen must be the same, except the two accepted for VE-3823 (`logout`, `metrics delete`; Yalcin, 2026-10-06).
   This is a manual step, not a CI job (decided by Yalcin, 2026-10-05): the TypeScript CLI
   it compares against is deleted at 1.0.0 (VE-3669).

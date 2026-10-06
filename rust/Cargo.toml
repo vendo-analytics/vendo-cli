@@ -17,8 +17,8 @@ path = "src/main.rs"
 default = ["menu"]
 # The arrow-key menu a group run without its command opens on a terminal (VE-3826). Built
 # without it (`--no-default-features`), a bare group is the usage error at a terminal too, as
-# without one. Each release checks that it adds at most 150 KB, 153,600 bytes (Yalcin, 2026-10-06):
-# scripts/menu-size.sh builds both and compares, locally and in release-rc.yml for each target.
+# without one. Each release checks that it adds under 150 KB (150,000 bytes; Yalcin, 2026-10-06):
+# scripts/menu-size.sh builds both and compares, and release-rc.yml runs it for each target.
 menu = ["dep:crossterm", "dep:inquire"]
 
 [dependencies]

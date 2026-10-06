@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # What the arrow-key menu of a group run without its command adds to the release binary
 # (VE-3826). Yalcin accepted its size on 2026-10-06 on condition that it stays under 150 KB at
-# each release, so this builds the release binary without the menu (the `menu` cargo feature:
-# inquire, crossterm's key events and the menu's code) and with it, and fails when the menu adds
-# more than 153,600 bytes. release-rc.yml runs it for each target and the sizes go to the run's
-# summary; run it before tagging too:
+# each release. The decision sheet counts KB in thousands, so the menu must add under 150,000
+# bytes. This builds the release binary without the menu (the `menu` cargo feature: inquire,
+# crossterm's key events and the menu's code) and with it, and fails when the menu adds 150,000
+# bytes or more. release-rc.yml runs it for each target and the sizes go to the run's summary.
 #
 #   scripts/menu-size.sh                    # this machine's target
 #   scripts/menu-size.sh --target <triple>  # another target, as release-rc.yml builds it
@@ -13,8 +13,9 @@
 # one releases ship. Works with macOS's bash 3.2.
 set -euo pipefail
 
-LIMIT=153600 # 150 KB
-KB=$((LIMIT / 1024))
+# The menu must add under this many bytes: 150 KB, counted in thousands as the decision sheet does.
+LIMIT=150000
+KB=$((LIMIT / 1000))
 
 usage() {
   echo "Usage: scripts/menu-size.sh [--target <triple>]"
@@ -81,17 +82,17 @@ with="$(bytes "$binary")"
 
 added=$((with - without))
 percent="$(awk -v added="$added" -v without="$without" 'BEGIN { printf "%+.2f%%", added * 100 / without }')"
-if [ "$added" -gt "$LIMIT" ]; then
-  verdict="Over the limit: the menu adds more than $KB KB."
+if [ "$added" -ge "$LIMIT" ]; then
+  verdict="Over the limit: the menu must add under $KB KB ($(grouped "$LIMIT") bytes)."
 else
-  verdict="Within the limit."
+  verdict="Within the limit: the menu adds under $KB KB ($(grouped "$LIMIT") bytes)."
 fi
 
 echo
 echo "vendo release binary, $target:"
 printf '  with the menu     %12s bytes\n' "$(grouped "$with")"
 printf '  without the menu  %12s bytes\n' "$(grouped "$without")"
-printf '  the menu adds     %12s bytes (%s), limit %s bytes (%s KB)\n' \
+printf '  the menu adds     %12s bytes (%s), limit: under %s bytes (%s KB)\n' \
   "$(grouped "$added")" "$percent" "$(grouped "$LIMIT")" "$KB"
 echo "$verdict"
 
@@ -104,15 +105,15 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 | With the menu | $(grouped "$with") |
 | Without the menu | $(grouped "$without") |
 | The menu adds | $(grouped "$added") ($percent) |
-| Limit | $(grouped "$LIMIT") ($KB KB) |
+| Limit | under $(grouped "$LIMIT") ($KB KB) |
 
 $verdict
 EOF
 fi
 
-if [ "$added" -gt "$LIMIT" ]; then
+if [ "$added" -ge "$LIMIT" ]; then
   if [ "${GITHUB_ACTIONS:-}" = true ]; then
-    echo "::error::The menu adds $(grouped "$added") bytes to the $target binary, more than the $(grouped "$LIMIT") ($KB KB) accepted for VE-3826."
+    echo "::error::The menu adds $(grouped "$added") bytes to the $target binary; VE-3826 accepted under $KB KB ($(grouped "$LIMIT") bytes)."
   fi
   exit 1
 fi
