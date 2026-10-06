@@ -11,7 +11,7 @@ use clap::{Arg, ArgAction, CommandFactory, FromArgMatches, Parser, Subcommand, V
 #[derive(Parser)]
 #[command(name = "vendo", about = "Vendo CLI — manage your data pipeline from the terminal", args_override_self = true)]
 pub struct Cli {
-    /// Use a specific account profile
+    /// Use a specific account profile (or set VENDO_PROFILE)
     #[arg(long, global = true, value_name = "name", help_heading = GLOBAL_OPTIONS)]
     pub profile: Option<String>,
     /// Enable verbose request diagnostics
@@ -228,8 +228,8 @@ fn json_word(args: &[OsString]) -> bool {
 }
 
 /// A usage error with `--json` prints as [`crate::output::message_error_json`] (clap's first
-/// paragraph, without `error: `) and keeps clap's exit code, 2 (VE-3831). Help, `-h` and a group
-/// run without its command print as before.
+/// paragraph, without `error: `, and its tips, [`usage_message`]) and keeps clap's exit code, 2
+/// (VE-3831). Help, `-h` and a group run without its command print as before.
 fn exit_with(err: clap::Error, json: bool) -> ! {
     use clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand;
     if json && err.use_stderr() && err.kind() != DisplayHelpOnMissingArgumentOrSubcommand {
@@ -240,11 +240,20 @@ fn exit_with(err: clap::Error, json: bool) -> ! {
 }
 
 /// `error: unexpected argument '--bogus' found` → `unexpected argument '--bogus' found`: the
-/// first paragraph of clap's message, before its tip and usage.
+/// first paragraph of clap's message, then each of its tips on a line of its own
+/// (`tip: a similar subcommand exists: 'list'`), which an agent can correct a typo by (Yalcin,
+/// 2026-10-06). The usage and the `--help` line after them are left out.
 fn usage_message(err: &clap::Error) -> String {
     let rendered = err.render().to_string();
-    let first = rendered.split("\n\n").next().unwrap_or_default().trim_end();
-    first.strip_prefix("error: ").unwrap_or(first).to_string()
+    let mut paragraphs = rendered.split("\n\n");
+    let first = paragraphs.next().unwrap_or_default().trim_end();
+    let mut message = first.strip_prefix("error: ").unwrap_or(first).to_string();
+    let tips = paragraphs.flat_map(str::lines).map(str::trim).filter(|line| line.starts_with("tip: "));
+    for tip in tips {
+        message.push('\n');
+        message.push_str(tip);
+    }
+    message
 }
 
 /// Commands that moved to a command elsewhere in the tree in CLI 1.1 (VE-3827), where clap's

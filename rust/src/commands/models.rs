@@ -69,7 +69,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
 
 pub async fn get(ctx: &Ctx, model_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
-    let model_id = resolve(&client, Listing::Models, model_id).await;
+    let model_id = resolve(&client, Listing::Models, model_id).await?;
     let res = run_action("Fetching model...", client.get(&format!("/models/{model_id}"), &[])).await?;
     if json {
         print_json(&res);

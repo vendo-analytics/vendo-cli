@@ -29,8 +29,8 @@ pub struct ListArgs {
 
 pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
     let client = ctx.client()?;
-    let source = resolve_opt(&client, Listing::Sources, args.source).await;
-    let integration = resolve_opt(&client, Listing::Destinations, args.integration).await;
+    let source = resolve_opt(&client, Listing::Sources, args.source).await?;
+    let integration = resolve_opt(&client, Listing::Destinations, args.integration).await?;
     let res = run_action(
         "Fetching jobs...",
         client.get(
@@ -74,7 +74,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
 
 pub async fn get(ctx: &Ctx, job_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
-    let job_id = resolve(&client, Listing::Jobs, job_id).await;
+    let job_id = resolve(&client, Listing::Jobs, job_id).await?;
     let res = run_action("Fetching job...", client.get(&format!("/jobs/{job_id}"), &[])).await?;
     if json {
         print_json(&res);
@@ -119,7 +119,7 @@ pub async fn cancel(
     }
     let client = ctx.client()?;
     // After the consent, which names the ID as typed (VE-3823).
-    let job_id = &resolve(&client, Listing::Jobs, job_id).await;
+    let job_id = &resolve(&client, Listing::Jobs, job_id).await?;
     let res = run_action("Cancelling job...", client.post(&format!("/jobs/{job_id}/cancel"), None)).await?;
     match resolve_output_mode(json, output.as_deref()) {
         OutputMode::Json => print_json(&res),
@@ -156,8 +156,8 @@ pub async fn watch(
     };
     let client = ctx.client()?;
     let scope = WatchScope {
-        source_id: resolve_opt(&client, Listing::Sources, source).await,
-        integration_id: resolve_opt(&client, Listing::Destinations, integration).await,
+        source_id: resolve_opt(&client, Listing::Sources, source).await?,
+        integration_id: resolve_opt(&client, Listing::Destinations, integration).await?,
     };
     let stop = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -246,14 +246,14 @@ async fn follow(
 ) -> Result<()> {
     let (resource_id, kind) = match target {
         TailTarget::Job(job_id) => {
-            let job_id = resolve(client, Listing::Jobs, &job_id).await;
+            let job_id = resolve(client, Listing::Jobs, &job_id).await?;
             watch::tail_job(client, screen, &job_id, interval, MAX_WAIT).await?;
             return Ok(());
         }
         TailTarget::Resource(resource_id, kind) => (resource_id, kind),
     };
     let listing = if kind == ResourceKind::Source { Listing::Sources } else { Listing::Destinations };
-    let resource_id = resolve(client, listing, &resource_id).await;
+    let resource_id = resolve(client, listing, &resource_id).await?;
     let next = if next {
         let baseline = watch::latest_job_for_resource(client, &resource_id, kind).await?;
         NextJob {

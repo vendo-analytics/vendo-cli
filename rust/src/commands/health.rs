@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::{
     client::payload,
     commands::completions::{self, Setup},
-    config::{EffectiveConfig, Source, mask_api_key},
+    config::{EffectiveConfig, Source, mask_api_key, vendo_profile_overrides},
     context::Ctx,
     identity::{Identity, IdentityError, fetch_identity},
     jobs::Job,
@@ -233,6 +233,16 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
 
     checks.push(match config.selected_profile.as_ref().filter(|name| !name.is_empty()) {
         Some(name) if config.selected_profile_exists => check("Selected profile", Ok, name.clone(), None),
+        // Switching profiles does not help while VENDO_PROFILE names the missing one (Yalcin, 2026-10-06).
+        Some(name) if config.selected_by_vendo_profile => check(
+            "Selected profile",
+            Warn,
+            format!("{name} (not found in config)"),
+            Some(&format!(
+                "{}: run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.",
+                vendo_profile_overrides(name)
+            )),
+        ),
         Some(name) => check(
             "Selected profile",
             Warn,
@@ -478,6 +488,7 @@ mod tests {
             config_path: PathBuf::from("/h/.config/vendo/config.json"),
             selected_profile: profile.map(|p| p.0.to_string()),
             selected_profile_exists: profile.is_some_and(|p| p.1),
+            selected_by_vendo_profile: false,
             api_key: api_key.map(Into::into),
             api_key_source: if api_key.is_some() { Source::Profile } else { Source::Missing },
             base_url: DEFAULT_BASE_URL.into(),

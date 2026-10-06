@@ -55,6 +55,8 @@ pub struct EffectiveConfig {
     pub config_path: PathBuf,
     pub selected_profile: Option<String>,
     pub selected_profile_exists: bool,
+    /// `VENDO_PROFILE` chose `selected_profile` (no `--profile`), so errors and hints name it (VE-3831).
+    pub selected_by_vendo_profile: bool,
     pub api_key: Option<String>,
     pub api_key_source: Source,
     pub base_url: String,
@@ -166,9 +168,19 @@ impl ConfigStore {
         config
     }
 
+    /// `VENDO_PROFILE`'s name when it chose the profile: set, not empty, and no `--profile`
+    /// (VE-3831). It never changes the saved `activeProfile` (Yalcin, 2026-10-06): `profile set`,
+    /// `logout` and `login` act on profiles without making one active or unsetting it.
+    pub fn vendo_profile(&self) -> Option<&str> {
+        match self.profile_override {
+            Some(_) => None,
+            None => self.env.profile.as_deref(),
+        }
+    }
+
     /// The profile commands use: `--profile` wins, then `VENDO_PROFILE` (VE-3831), then
-    /// `activeProfile`. A name that no profile has is still the selection, so it fails the same
-    /// way from either place.
+    /// `activeProfile`. A name that no profile has is still the selection; when `VENDO_PROFILE`
+    /// gave it, [`require_api_key`] says so.
     pub fn selected_profile_name(&self, config: &Map<String, Value>) -> Option<String> {
         self.profile_override
             .clone()
@@ -191,6 +203,7 @@ impl ConfigStore {
             config_exists: self.path.exists(),
             config_path: self.path.clone(),
             selected_profile_exists: profile.is_some(),
+            selected_by_vendo_profile: self.vendo_profile().is_some(),
             selected_profile: selected,
             api_key,
             api_key_source,
@@ -224,19 +237,31 @@ impl ConfigStore {
         self.profile_summaries().into_iter().filter(|p| p.account_id.as_deref() == Some(account_id)).collect()
     }
 
-    /// Save a named profile (replacing it) and make it active. Used by login.
+    /// Save a named profile (replacing it) and make it active, unless `VENDO_PROFILE` chose the
+    /// profile ([`Self::vendo_profile`]). Used by login.
     pub fn save_profile(&self, name: &str, profile: Map<String, Value>) -> Result<()> {
         let config = self.read();
         let mut profiles = profiles_map(&config);
         profiles.insert(name.to_string(), Value::Object(profile));
-        self.save(vec![
-            ("profiles", Some(Value::Object(profiles))),
-            ("activeProfile", Some(Value::String(name.to_string()))),
-        ])
+        self.save(self.with_active(vec![("profiles", Some(Value::Object(profiles)))], Some(name)))
+    }
+
+    /// `updates` and `activeProfile` set to `active` (`None` unsets it), unless `VENDO_PROFILE`
+    /// chose the profile, which leaves `activeProfile` as saved.
+    fn with_active<'a>(
+        &self,
+        mut updates: Vec<(&'a str, Option<Value>)>,
+        active: Option<&str>,
+    ) -> Vec<(&'a str, Option<Value>)> {
+        if self.vendo_profile().is_none() {
+            updates.push(("activeProfile", active.map(|name| Value::String(name.to_string()))));
+        }
+        updates
     }
 
     /// `vendo profile set`: write the given values into the selected profile,
-    /// creating `default` when none is selected. Returns the profile name.
+    /// creating `default` when none is selected, and make it active unless `VENDO_PROFILE`
+    /// chose it. Returns the profile name.
     pub fn save_resolved_values(&self, updates: ConfigValueUpdates) -> Result<String> {
         let config = self.read();
         let name = self.selected_profile_name(&config).unwrap_or_else(|| "default".to_string());
@@ -253,10 +278,7 @@ impl ConfigStore {
             }
         }
         profiles.insert(name.clone(), Value::Object(profile));
-        self.save(vec![
-            ("profiles", Some(Value::Object(profiles))),
-            ("activeProfile", Some(Value::String(name.clone()))),
-        ])?;
+        self.save(self.with_active(vec![("profiles", Some(Value::Object(profiles)))], Some(&name)))?;
         Ok(name)
     }
 
@@ -265,8 +287,9 @@ impl ConfigStore {
         self.save(vec![("activeProfile", Some(Value::String(name.to_string())))])
     }
 
-    /// Remove the selected profile (logout). Returns its name, or `None` when
-    /// no profile is selected (an empty name counts as none) or it doesn't exist.
+    /// Remove the selected profile (logout) and unset `activeProfile`, which `VENDO_PROFILE`
+    /// leaves as saved. Returns its name, or `None` when no profile is selected (an empty name
+    /// counts as none) or it doesn't exist.
     pub fn clear_active_profile(&self) -> Result<Option<String>> {
         let config = self.read();
         let Some(name) = self.selected_profile_name(&config).filter(|name| !name.is_empty()) else { return Ok(None) };
@@ -274,7 +297,7 @@ impl ConfigStore {
         if profiles.shift_remove(&name).is_none() {
             return Ok(None);
         }
-        self.save(vec![("profiles", Some(Value::Object(profiles))), ("activeProfile", None)])?;
+        self.save(self.with_active(vec![("profiles", Some(Value::Object(profiles)))], None))?;
         Ok(Some(name))
     }
 
@@ -317,12 +340,26 @@ pub fn mask_api_key(key: &str) -> String {
     format!("{head}...{tail}")
 }
 
+/// The key commands send. Without one, the error says why: a `VENDO_PROFILE` that names no
+/// profile is named, with how to fix it (Yalcin, 2026-10-06); otherwise there is no key.
 pub fn require_api_key(effective: &EffectiveConfig) -> Result<String> {
-    effective.api_key.clone().ok_or_else(|| {
-        anyhow::anyhow!(
+    if let Some(key) = &effective.api_key {
+        return Ok(key.clone());
+    }
+    match effective.selected_profile.as_deref() {
+        Some(name) if effective.selected_by_vendo_profile && !effective.selected_profile_exists => bail!(
+            "Profile \"{name}\" not found (VENDO_PROFILE selects it).\n  Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile."
+        ),
+        _ => bail!(
             "No API key configured. Run `vendo login` or `vendo profile set --api-key <key>` or set VENDO_API_KEY."
-        )
-    })
+        ),
+    }
+}
+
+/// What hints about switching profiles, or checking one with `vendo whoami`, add while
+/// `VENDO_PROFILE` chose the profile (Yalcin, 2026-10-06).
+pub fn vendo_profile_overrides(name: &str) -> String {
+    format!("VENDO_PROFILE={name} overrides the active profile in this shell")
 }
 
 fn profile_of<'a>(config: &'a Map<String, Value>, name: &str) -> Option<&'a Map<String, Value>> {
@@ -631,19 +668,58 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_vendo_profile_is_unresolved_like_an_unknown_flag() {
+    fn an_unknown_vendo_profile_is_unresolved_and_its_error_names_it() {
         let f = fixture(Some(json!({ "profiles": { "alpha": { "apiKey": "a" } }, "activeProfile": "alpha" })));
         let from_env = with_env_profile(&f, None, Some("missing")).effective();
         let from_flag = with_env_profile(&f, Some("missing"), None).effective();
-        for e in [&from_env, &from_flag] {
+        let flag_over_env = with_env_profile(&f, Some("missing"), Some("alpha")).effective();
+        for e in [&from_env, &from_flag, &flag_over_env] {
             assert_eq!(e.selected_profile.as_deref(), Some("missing"));
             assert!(!e.selected_profile_exists);
             assert_eq!((e.api_key.as_deref(), e.api_key_source), (None, Source::Missing));
         }
+        assert_eq!((from_env.selected_by_vendo_profile, from_flag.selected_by_vendo_profile), (true, false));
+        assert!(!flag_over_env.selected_by_vendo_profile);
+        // Decided by Yalcin, 2026-10-06: the error names the profile and VENDO_PROFILE, and how to fix it.
         assert_eq!(
             require_api_key(&from_env).unwrap_err().to_string(),
-            require_api_key(&from_flag).unwrap_err().to_string()
+            "Profile \"missing\" not found (VENDO_PROFILE selects it).\n  Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile."
         );
+        for e in [&from_flag, &flag_over_env] {
+            assert!(require_api_key(e).unwrap_err().to_string().starts_with("No API key configured."));
+        }
+        // A key from VENDO_API_KEY is still sent, as with an unknown --profile.
+        let env = EnvVars { api_key: Some("env_key".into()), profile: Some("missing".into()), ..Default::default() };
+        let e = ConfigStore::new(f.path.clone(), None, env).effective();
+        assert_eq!(require_api_key(&e).unwrap(), "env_key");
+    }
+
+    #[test]
+    fn vendo_profile_never_changes_the_saved_active_profile() {
+        let config =
+            json!({ "profiles": { "alpha": { "apiKey": "a" }, "beta": { "apiKey": "b" } }, "activeProfile": "alpha" });
+        let f = fixture(Some(config.clone()));
+        let s = with_env_profile(&f, None, Some("beta"));
+        assert_eq!(s.vendo_profile(), Some("beta"));
+        // profile set writes to beta, login saves its profile, logout removes beta: alpha stays active.
+        s.save_resolved_values(ConfigValueUpdates { account_id: Some("b-1".into()), ..Default::default() }).unwrap();
+        s.save_profile("gamma", Map::new()).unwrap();
+        assert_eq!(s.clear_active_profile().unwrap().as_deref(), Some("beta"));
+        assert_eq!(
+            on_disk(&f),
+            json!({ "profiles": { "alpha": { "apiKey": "a" }, "gamma": {} }, "activeProfile": "alpha" })
+        );
+        // Removing the active profile through VENDO_PROFILE leaves activeProfile as saved too.
+        assert_eq!(with_env_profile(&f, None, Some("alpha")).clear_active_profile().unwrap().as_deref(), Some("alpha"));
+        assert_eq!(on_disk(&f), json!({ "profiles": { "gamma": {} }, "activeProfile": "alpha" }));
+        // --profile, which wins over VENDO_PROFILE, makes the profile it writes active as before.
+        let f = fixture(Some(config));
+        let s = with_env_profile(&f, Some("beta"), Some("alpha"));
+        assert_eq!(s.vendo_profile(), None);
+        s.save_resolved_values(ConfigValueUpdates { account_id: Some("b-1".into()), ..Default::default() }).unwrap();
+        assert_eq!(on_disk(&f)["activeProfile"], "beta");
+        s.clear_active_profile().unwrap();
+        assert_eq!(on_disk(&f), json!({ "profiles": { "alpha": { "apiKey": "a" } } }));
     }
 
     #[test]

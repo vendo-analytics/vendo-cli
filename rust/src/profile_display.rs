@@ -142,6 +142,17 @@ pub fn switch_profile_selection(ctx: &Ctx, profiles: &[ProfileSummary], opts: Sw
             target.base_url
         ))
     );
+    // An explicit switch changes the saved active profile, which VENDO_PROFILE still overrides in
+    // this shell (Yalcin, 2026-10-06).
+    if let Some(name) = ctx.store.vendo_profile().filter(|name| *name != target.name) {
+        println!(
+            "{}",
+            dim(&format!(
+                "  VENDO_PROFILE={name} still overrides it in this shell: unset VENDO_PROFILE to use {} here.",
+                target.name
+            ))
+        );
+    }
     println!("{}", dim(&format!("  Verify with {}.", opts.verify_hint)));
     Ok(())
 }

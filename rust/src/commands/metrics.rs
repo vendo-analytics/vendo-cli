@@ -93,7 +93,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
 
 pub async fn get(ctx: &Ctx, metric_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
-    let metric_id = resolve(&client, Listing::Metrics, metric_id).await;
+    let metric_id = resolve(&client, Listing::Metrics, metric_id).await?;
     let res = run_action("Fetching metric...", web_app::metrics_get(&client, &metric_id)).await?;
     if json {
         print_json(&data_of_metric(&res));
@@ -206,7 +206,7 @@ pub async fn update(ctx: &Ctx, metric_id: &str, args: UpdateArgs) -> Result<()> 
         bail!("No updates provided");
     }
     let client = ctx.client()?;
-    let metric_id = resolve(&client, Listing::Metrics, metric_id).await;
+    let metric_id = resolve(&client, Listing::Metrics, metric_id).await?;
     let res =
         run_action("Updating metric...", web_app::metrics_update(&client, &metric_id, Value::Object(body))).await?;
     if args.json {
@@ -220,7 +220,7 @@ pub async fn update(ctx: &Ctx, metric_id: &str, args: UpdateArgs) -> Result<()> 
 
 pub async fn activate(ctx: &Ctx, metric_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
-    let metric_id = resolve(&client, Listing::Metrics, metric_id).await;
+    let metric_id = resolve(&client, Listing::Metrics, metric_id).await?;
     let body = json!({ "status": "active" });
     let res = run_action("Activating metric...", web_app::metrics_update(&client, &metric_id, body)).await?;
     if json {
@@ -241,7 +241,7 @@ pub async fn delete(ctx: &Ctx, metric_id: &str, yes: bool, json: bool) -> Result
     }
     let client = ctx.client()?;
     // After the consent, which names the ID as typed (VE-3823).
-    let metric_id = resolve(&client, Listing::Metrics, metric_id).await;
+    let metric_id = resolve(&client, Listing::Metrics, metric_id).await?;
     let res = run_action("Deleting metric...", web_app::metrics_remove(&client, &metric_id)).await?;
     if json {
         print_json(&json!({ "data": res }));

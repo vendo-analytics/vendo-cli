@@ -104,7 +104,7 @@ pub async fn state_action(ctx: &Ctx, resource: Resource, id: &str, action: &str,
         return Ok(());
     }
     let client = ctx.client()?;
-    let id = &resolve(&client, resource.listing, id).await;
+    let id = &resolve(&client, resource.listing, id).await?;
     let res = run_action(
         &format!("{gerund} {}...", resource.singular),
         client.post(&format!("{}/{id}/{action}", resource.api_path), None),
@@ -130,7 +130,7 @@ pub async fn delete(ctx: &Ctx, resource: Resource, id: &str, yes: bool, opts: Ac
     }
     let client = ctx.client()?;
     // After the consent, which names the ID as typed (VE-3823).
-    let id = &resolve(&client, resource.listing, id).await;
+    let id = &resolve(&client, resource.listing, id).await?;
     let res = run_action(
         &format!("Deleting {}...", resource.singular),
         client.delete(&format!("{}/{id}", resource.api_path), &[]),
@@ -156,7 +156,7 @@ pub async fn sync(
     dry_run_fields: fn(&Value) -> Vec<(&'static str, String)>,
 ) -> Result<()> {
     let client = ctx.client()?;
-    let id = &resolve(&client, resource.listing, id).await;
+    let id = &resolve(&client, resource.listing, id).await?;
     let kind = resource.kind();
     let field = opts.output.clone().unwrap_or_else(|| "id".to_string());
 

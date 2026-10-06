@@ -15,7 +15,7 @@ exit: 0
       "name": "--profile",
       "short": null,
       "valueName": "name",
-      "description": "Use a specific account profile",
+      "description": "Use a specific account profile (or set VENDO_PROFILE)",
       "required": false,
       "default": null,
       "possibleValues": [],

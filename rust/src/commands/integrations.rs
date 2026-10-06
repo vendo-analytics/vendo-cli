@@ -87,7 +87,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
 
 pub async fn get(ctx: &Ctx, integration_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
-    let integration_id = &resolve(&client, Listing::Destinations, integration_id).await;
+    let integration_id = &resolve(&client, Listing::Destinations, integration_id).await?;
     let path = format!("/integrations/{integration_id}");
     if json {
         let res = run_action("Fetching destination...", client.get(&path, &[])).await?;
@@ -178,7 +178,7 @@ pub async fn refresh_source(
 ) -> Result<std::process::ExitCode> {
     let window = resolve_refresh_window(from.as_deref(), to.as_deref(), jiff::Timestamp::now().as_millisecond())?;
     let client = ctx.client()?;
-    let integration_id = resolve(&client, Listing::Destinations, integration_id).await;
+    let integration_id = resolve(&client, Listing::Destinations, integration_id).await?;
     let body = json!({ "requestedStart": window.requested_start, "requestedEnd": window.requested_end });
     let res = run_action(
         "Checking source data availability...",
@@ -246,9 +246,9 @@ pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
 
     let client = ctx.client()?;
     // Short app IDs, looked up in place (VE-3831).
-    body.insert("destinationAppId".into(), json!(resolve(&client, Listing::Apps, &args.dest_app).await));
+    body.insert("destinationAppId".into(), json!(resolve(&client, Listing::Apps, &args.dest_app).await?));
     if let Some(source_app) = &args.source_app {
-        body.insert("sourceAppId".into(), json!(resolve(&client, Listing::Apps, source_app).await));
+        body.insert("sourceAppId".into(), json!(resolve(&client, Listing::Apps, source_app).await?));
     }
     let res = run_action("Creating destination...", client.post("/integrations", Some(Value::Object(body)))).await?;
     let mode = resolve_output_mode(args.json, args.output.as_deref());
@@ -301,7 +301,7 @@ pub async fn update(ctx: &Ctx, integration_id: &str, args: UpdateArgs) -> Result
         bail!("Nothing to update — pass at least one flag.");
     }
     let client = ctx.client()?;
-    let integration_id = &resolve(&client, Listing::Destinations, integration_id).await;
+    let integration_id = &resolve(&client, Listing::Destinations, integration_id).await?;
     let res = run_action(
         "Updating destination...",
         client.patch(&format!("/integrations/{integration_id}"), Value::Object(body)),

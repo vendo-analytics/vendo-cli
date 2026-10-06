@@ -34,7 +34,7 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    config::{DEFAULT_BASE_URL, EffectiveConfig, Source},
+    config::{DEFAULT_BASE_URL, EffectiveConfig, Source, vendo_profile_overrides},
     context::Ctx,
     identity::{IdentityError, fetch_identity},
     output::{bold, dim, green, print_json, print_success, prompts_off, run_action, yellow},
@@ -84,7 +84,8 @@ pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
         let verified = Check::Verified(identity.me.display_name().to_string());
         let name = identity.me.account_slug.or(identity.me.account_name).unwrap_or_else(|| account_id.clone());
         ctx.store.save_profile(&name, profile(&api_key, Some(&account_id), &base_url))?;
-        let summary = Summary { profile: Some(name), base_url, account_id: Some(account_id) };
+        let note = not_made_active(ctx, &name);
+        let summary = Summary { profile: Some(name), base_url, account_id: Some(account_id), note };
         return finish(&summary, verified, NOTHING_CHANGED, args.json);
     }
 
@@ -104,6 +105,7 @@ pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
                         profile: config.selected_profile.clone(),
                         base_url: config.base_url.clone(),
                         account_id: config.account_id.clone(),
+                        note: None,
                     };
                     return finish(&summary, check, NOTHING_CHANGED, args.json);
                 }
@@ -117,9 +119,29 @@ pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
     let signed_in = run_browser_login(ctx, &base_url, args.json).await?;
     let account_id = signed_in.account_id.filter(|id| !id.is_empty());
     let check = check_key(ctx, &signed_in.key, account_id.as_deref(), &base_url).await;
-    let saved = format!("The new key is saved in profile {}: run `vendo whoami` to check it again.", signed_in.account);
-    let summary = Summary { profile: Some(signed_in.account), base_url, account_id };
+    let saved = match ctx.store.vendo_profile().filter(|name| *name != signed_in.account) {
+        // `vendo whoami` would check the profile VENDO_PROFILE names.
+        Some(name) => format!(
+            "The new key is saved in profile {0}: run `vendo --profile {0} whoami` to check it again ({1}).",
+            signed_in.account,
+            vendo_profile_overrides(name)
+        ),
+        None => format!("The new key is saved in profile {}: run `vendo whoami` to check it again.", signed_in.account),
+    };
+    let note = not_made_active(ctx, &signed_in.account);
+    let summary = Summary { profile: Some(signed_in.account), base_url, account_id, note };
     finish(&summary, check, &saved, args.json)
+}
+
+/// With `VENDO_PROFILE` in effect, login saves its profile without making it active (Yalcin,
+/// 2026-10-06), and says so.
+fn not_made_active(ctx: &Ctx, saved: &str) -> Option<String> {
+    let name = ctx.store.vendo_profile()?;
+    let mut note = format!("Profile {saved} was saved but not made active: {}.", vendo_profile_overrides(name));
+    if name != saved {
+        note.push_str(&format!(" Use it with VENDO_PROFILE={saved}."));
+    }
+    Some(note)
 }
 
 /// `--api-key` and `--account` read as the TS CLI did (`opts.apiKey ||
@@ -225,17 +247,22 @@ async fn check_key(ctx: &Ctx, api_key: &str, account_id: Option<&str>, base_url:
 const NOTHING_CHANGED: &str =
     "Nothing was changed: check your connection (`vendo doctor`) and run `vendo login` again.";
 
-/// What the summary shows: the profile the key is in, its instance and account.
+/// What the summary shows: the profile the key is in, its instance and account, and why that
+/// profile is not the active one when `VENDO_PROFILE` kept it so.
 struct Summary {
     profile: Option<String>,
     base_url: String,
     account_id: Option<String>,
+    note: Option<String>,
 }
 
 /// Print the setup summary and, when the check did not fail, the next steps; with `--json` the
 /// summary as JSON. A failed check is an error that ends with `unverified`.
 fn finish(summary: &Summary, check: Check, unverified: &str, json: bool) -> Result<()> {
     if json {
+        if let Some(note) = &summary.note {
+            say(json, &dim(note));
+        }
         print_json(&summary_json(summary, &check));
     } else {
         for line in summary_lines(summary, &check) {
@@ -282,6 +309,9 @@ fn summary_lines(summary: &Summary, check: &Check) -> Vec<String> {
             Check::Incomplete => format!("  Auth:        {} (account ID still required)", yellow("incomplete")),
         },
     ];
+    if let Some(note) = &summary.note {
+        lines.extend([String::new(), dim(note)]);
+    }
     if matches!(check, Check::Failed(_)) {
         return lines;
     }
@@ -624,6 +654,7 @@ mod tests {
             profile: Some("acme".into()),
             base_url: DEFAULT_BASE_URL.into(),
             account_id: id.map(Into::into),
+            note: None,
         };
         let lines = summary_lines(&summary(None), &Check::Incomplete).join("\n");
         assert!(
@@ -637,7 +668,7 @@ mod tests {
 
     #[test]
     fn the_json_summary_says_how_far_the_check_got() {
-        let summary = Summary { profile: None, base_url: DEFAULT_BASE_URL.into(), account_id: None };
+        let summary = Summary { profile: None, base_url: DEFAULT_BASE_URL.into(), account_id: None, note: None };
         let shape = |auth: &str, name: Value| {
             json!({
                 "profile": null, "baseUrl": DEFAULT_BASE_URL, "accountId": null, "auth": auth, "accountName": name,
@@ -651,10 +682,18 @@ mod tests {
 
     #[test]
     fn a_failed_check_ends_the_summary_at_the_auth_line() {
-        let summary = Summary { profile: None, base_url: DEFAULT_BASE_URL.into(), account_id: Some("a".into()) };
+        let mut summary =
+            Summary { profile: None, base_url: DEFAULT_BASE_URL.into(), account_id: Some("a".into()), note: None };
         let lines = summary_lines(&summary, &Check::Failed(IdentityError::Invalid("x".into())));
         assert!(lines.last().unwrap().contains("API check failed"), "{lines:?}");
         assert!(lines[2].contains("none selected"), "{lines:?}");
+        // A note on the profile (VENDO_PROFILE kept it from becoming active) follows the auth line.
+        summary.note = Some("Profile acme was saved but not made active.".into());
+        let lines = summary_lines(&summary, &Check::Failed(IdentityError::Invalid("x".into())));
+        assert_eq!(lines[lines.len() - 2..], ["", "Profile acme was saved but not made active."]);
+        let lines = summary_lines(&summary, &Check::Verified("Acme".into()));
+        assert_eq!(lines[6..9], ["", "Profile acme was saved but not made active.", ""]);
+        assert_eq!(lines[9], bold("Next steps"));
     }
 
     #[test]

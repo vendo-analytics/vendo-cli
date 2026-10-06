@@ -17,7 +17,7 @@ Options:
   -h, --help                       Print help
 
 Global options:
-      --profile <name>  Use a specific account profile
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
       --debug           Enable verbose request diagnostics
 
 Examples:

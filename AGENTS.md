@@ -38,7 +38,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
 - Tests: unit tests sit next to the code; `rust/tests/cli.rs` runs the built binary end to end with an isolated
   HOME, fake keys, a local stub server and a fresh update-check cache, so nothing leaves the machine (VE-3727). The
   caller's `CI`, `VENDO_NO_INPUT` and `TERM` are removed, so prompts behave as on a person's terminal on CI runners
-  too (VE-3826).
+  too (VE-3826). A test that starts many stubs in one loop should drop each with `release(server).await`: dropping
+  a wiremock `MockServer` blocks on its state outside tokio, which hangs for good once the test's task has spent
+  tokio's cooperative budget (it hung the VE-3831 refusal test).
 - Snapshots (VE-3824), the regression net once the parity harness goes at 1.0.0: `rust/tests/cli/snapshots.rs`
   records every `--help` screen, found by walking the real command tree, in `rust/tests/snapshots/help/`, and the
   table, `--json` and confirmation output of each command against the stub's synthetic account in
@@ -90,10 +92,11 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     network); `requestId` the ID the text's `Request ID:` line shows (the server's `X-Request-Id`, else the CLI's
     `cli-<uuid>`). An error the CLI raises itself (no key, a refused `--yes`, a bad flag value) has the message only.
     Exit codes are unchanged: 1, and 2 for a clap usage error, which is JSON too when the words include `--json`
-    (clap's first paragraph, without `error: `); help and a group run without its command print as before. The
-    API's `details` are not in it. `output::error_json` owns the shape; `--debug`, warnings and the update notice
-    may come before it on stderr. `destinations refresh-source --json` keeps the response on stdout when it fails
-    and adds the error.
+    (clap's first paragraph, without `error: `, then each of clap's tips on a line of its own, such as
+    `tip: a similar subcommand exists: 'list'`; Yalcin, 2026-10-06); help and a group run without its command print
+    as before. The API's `details` are not in it. `output::error_json` owns the shape; `--debug`, warnings and the
+    update notice may come before it on stderr. `destinations refresh-source --json` keeps the response on stdout
+    when it fails and adds the error.
   - `vendo commands` lists every command the help shows with its description (in the root help's order);
     `--json` prints the tree, read at runtime from the clap tree (`commands/tree.rs`): per command `name`, `path`,
     `description`, visible `aliases`, `arguments` and `options` (name, short, valueName, description, required,
@@ -102,7 +105,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   - `--json` on the commands that lacked it, built from what their text shows and never printing the API key (the
     shapes are the build's choice, for Yalcin's review with CLI 1.1): `profile list`
     (`{"profiles":[{name, active, accountId, baseUrl}]}`), `profile switch` (`{"profile":…}`, null when nothing was
-    switched; never opens the picker), `profile set` (`{"profile","configPath"}`), `logout` (`{"removed":[names]}`),
+    switched; never opens the picker), `profile set` (`{"profile","configPath"}`), `logout` (`{"removed":[names]}`;
+    not logged in, the JSON error on stderr, nothing on stdout and exit 0 like the text, Yalcin 2026-10-06),
     `login`/`init` (`{"profile","baseUrl","accountId","auth":"verified"|"unverified"|"incomplete","accountName"}`;
     what it says on the way, the sign-in URL among it, goes to stderr), `jobs tail` (nothing while polling, then the
     last `GET /jobs/<id>` response as `jobs get --json` prints it; a failed job, or a wait that times out, also
@@ -113,15 +117,30 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     `{"previousVersion","version","installPath","binaryPath"}`; a failed installer is the JSON error with its code).
     `rust/src/watch.rs`'s `JsonScreen` owns the two job shapes.
   - Short IDs: wherever a command takes the full ID of an app, source, destination, job, metric, model or
-    methodology (arguments and flags such as `--app`, `--source`), it takes the 8 characters tables show. Exactly 8
-    hex digits are looked up in that resource's list just before the request they go into (`short_ids.rs`: pages of
-    100, at most 5, an ID read on two pages counted once; for metrics, the `status=archived` list too when the
-    default list, which leaves archived metrics out, has no match); one match is used, none or several (or a list that
-    fails) send the argument as typed, so the API answers as before. Never on a full ID, a dry run that sends nothing,
-    or before a delete/cancel's consent.
+    methodology (arguments and flags such as `--app`, `--source`), it takes the 8 characters tables show, with or
+    without the `...` tables print after them (`1a2b3c4d...`; Yalcin, 2026-10-06). Exactly 8 hex digits, alone or
+    followed by `...`, are looked up in that resource's list just before the request they go into (`short_ids.rs`:
+    pages of 100, at most 5, an ID read on two pages counted once; for metrics, the `status=archived` list too when
+    the default list, which leaves archived metrics out, has no match). One match is used. Several stop the command
+    with exit 1 before its request (Yalcin, 2026-10-06): the error names the short ID as typed, how many match, each
+    match's full ID with what its table names it by (apps and sources: name and type; destinations: the two apps
+    and data type; jobs: type, platform and status; models, metrics, methodologies: name), at most 10 and then how
+    many more, and says to use the full ID; with `--json` it is the JSON error (message only). None, or a list that
+    fails, sends the argument as typed, so the API answers as before. Never on a full ID, a dry run that sends
+    nothing, or before a delete/cancel's consent.
   - `VENDO_PROFILE` selects the profile like `--profile`: `--profile` > `VENDO_PROFILE` > `activeProfile`; empty is
-    unset, and an unknown name fails exactly like an unknown `--profile`. whoami and doctor name the profile as they
-    do for `--profile`, without saying where the name came from.
+    unset. `--profile`'s help says "(or set VENDO_PROFILE)". It never changes the saved `activeProfile` (Yalcin,
+    2026-10-06; `ConfigStore::vendo_profile`): `profile set` writes to its profile, `logout` removes its profile and
+    `login` saves its profile, each leaving `activeProfile` as saved; login then says the profile was not made
+    active and that VENDO_PROFILE overrides the active profile in this shell, on stderr with `--json`. `profile
+    switch` is an explicit request: it changes `activeProfile`, then notes that VENDO_PROFILE still overrides it in
+    this shell (not with `--json`, whose `active` says so). A name no profile has fails with an error that names the
+    profile and VENDO_PROFILE and says to run `vendo profile list` or unset VENDO_PROFILE, where the CLI would
+    otherwise say "No API key configured" (`config::require_api_key`; a key in `VENDO_API_KEY` is still used, as for
+    an unknown `--profile`). Hints about switching profiles or checking with whoami (whoami's profile list, doctor's
+    missing profile, a new login key that cannot be checked) say that VENDO_PROFILE overrides the active profile
+    (`config::vendo_profile_overrides`). whoami and doctor otherwise name the profile as they do for `--profile`.
+    `--profile`, which wins over VENDO_PROFILE, works as before.
 - Group menus (VE-3826, decided by Yalcin 2026-10-05, CLI 1.1): a group run without its command (`vendo apps`,
   `vendo measurement ltv`, the hidden `config`; bare `vendo` is unchanged) opens an arrow-key menu of its visible
   commands and their descriptions where `output::can_show_menu` holds: `can_prompt` (stdin and stdout terminals and
@@ -209,7 +228,8 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
   (`cargo update --workspace` from `rust/`) in one commit, merged through a PR like any change. Then tag that
   commit `cli-vX.Y.Z-rc.N` and push the tag. Agents never push tags or create releases: Yalcin approves each one.
 - Before tagging, run `pnpm build && pnpm parity:help --rust rust/target/release/vendo` on that commit. Every help
-  screen must be the same, except the two accepted for VE-3823 (`logout`, `metrics delete`; Yalcin, 2026-10-06).
+  screen must be the same, except the two accepted for VE-3823 (`logout`, `metrics delete`; Yalcin, 2026-10-06) and
+  `--profile`'s description on the root screen, which names VENDO_PROFILE (VE-3831, Yalcin 2026-10-06).
   This is a manual step, not a CI job (decided by Yalcin, 2026-10-05): the TypeScript CLI
   it compares against is deleted at 1.0.0 (VE-3669).
 - Installing a release candidate: `VENDO_VERSION=cli-vX.Y.Z-rc.N bash install.sh` from a checkout,

@@ -8,11 +8,11 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     client::payload,
-    config::ConfigValueUpdates,
+    config::{ConfigValueUpdates, vendo_profile_overrides},
     context::Ctx,
     output::{
-        bold, confirm, dim, green, js_join, js_nullish, js_string, js_template, print_error, print_json, print_success,
-        run_action,
+        bold, confirm, dim, green, js_join, js_nullish, js_string, js_template, message_error_json, print_error,
+        print_error_json, print_json, print_success, run_action,
     },
     profile_display::{
         SwitchOptions, format_profile_list_line, print_profile_list, profile_json, switch_profile_selection,
@@ -22,9 +22,10 @@ use crate::{
 
 const NO_PROFILES: &str = "No profiles configured. Run `vendo login` to create one.";
 const NO_PROFILES_YET: &str = "No profiles yet. Run `vendo login` to create one.";
+const NOT_LOGGED_IN: &str = "Not currently logged in.";
 
 /// `logout --json`: `{ "removed": [<profile name>…] }`, the profiles the command removed from the
-/// config, none when it removed nothing (VE-3831).
+/// config, none when it removed nothing (VE-3831). Not logged in, it is the JSON error instead.
 fn print_removed(names: &[String]) {
     print_json(&json!({ "removed": names }));
 }
@@ -52,10 +53,12 @@ pub fn logout(ctx: &Ctx, all: bool, yes: bool, json: bool) -> Result<()> {
         return Ok(());
     }
     if ctx.effective().api_key.is_none() {
+        // With --json the JSON error on stderr and nothing on stdout; exit 0 either way, as the TS
+        // CLI's text did (Yalcin, 2026-10-06).
         if json {
-            print_removed(&[]);
+            print_error_json(&message_error_json(NOT_LOGGED_IN));
         } else {
-            print_error("Not currently logged in.");
+            print_error(NOT_LOGGED_IN);
         }
         return Ok(());
     }
@@ -132,6 +135,10 @@ pub async fn whoami(ctx: &Ctx, json: bool) -> Result<()> {
             "{}",
             dim("  Switch with `vendo profile switch` or target one command with `vendo --profile <name> ...`.")
         );
+        if let Some(name) = ctx.store.vendo_profile() {
+            let overrides = vendo_profile_overrides(name);
+            println!("{}", dim(&format!("  {overrides}: change or unset VENDO_PROFILE to switch here.")));
+        }
     }
     Ok(())
 }

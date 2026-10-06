@@ -281,7 +281,7 @@ pub async fn diagnose(ctx: &Ctx, json: bool) -> Result<()> {
 
 pub async fn get(ctx: &Ctx, app_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
-    let app_id = resolve(&client, Listing::Apps, app_id).await;
+    let app_id = resolve(&client, Listing::Apps, app_id).await?;
     let res = run_action("Fetching app...", client.get(&format!("/apps/{app_id}"), &[])).await?;
     if json {
         print_json(&res);
@@ -437,7 +437,7 @@ pub async fn update(ctx: &Ctx, app_id: &str, args: UpdateArgs) -> Result<()> {
     } else if let Some(role) = args.role.as_deref().filter(|r| !r.is_empty()) {
         // Role defaults are per platform: look up the app's type.
         let client = ctx.client()?;
-        let id = resolve(&client, Listing::Apps, app_id).await;
+        let id = resolve(&client, Listing::Apps, app_id).await?;
         let current = client.get(&format!("/apps/{id}"), &[]).await?;
         resolved = Some(id);
         let app_type = text(payload(&current), "appType").unwrap_or_default();
@@ -458,7 +458,7 @@ pub async fn update(ctx: &Ctx, app_id: &str, args: UpdateArgs) -> Result<()> {
     let client = ctx.client()?;
     let app_id = match resolved {
         Some(id) => id,
-        None => resolve(&client, Listing::Apps, app_id).await,
+        None => resolve(&client, Listing::Apps, app_id).await?,
     };
     let res = run_action("Updating app...", client.patch(&format!("/apps/{app_id}"), Value::Object(body))).await?;
     match resolve_output_mode(args.json, args.output.as_deref()) {
