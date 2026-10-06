@@ -23,7 +23,7 @@ pub fn run(ctx: &crate::context::Ctx, shell: Option<Shell>, json: bool) {
             "shell": name(shell),
             "script": String::from_utf8_lossy(&script(shell)),
         })),
-        // On stderr, so stdout only ever carries a script: the explanation's indented lines are
+        // On stderr, so without --json stdout only ever carries a script: the explanation's indented lines are
         // commands (the installer's among them), and `eval "$(vendo completions $shell)"` or a
         // redirect with the shell left out must get nothing, as before it could run bare.
         (None, false) => eprint!("{}", explain(login_shell().as_deref(), &ctx.home)),

@@ -67,7 +67,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   request", anything else as sent. `--json` prints the response as sent; without `--all` the request is unchanged.
 - Completions (VE-3830, CLI 1.1): `vendo completions <shell>` prints the script the installer saves. Bare, it exits 0
   and says on stderr what it does, whether completions are set up for the shell `$SHELL` names, and how to set them
-  up; stdout only ever carries a script, so an `eval` or redirect that leaves the shell out gets nothing.
+  up, and stdout stays empty: without `--json`, stdout carries nothing but a script, so an `eval` or redirect that
+  leaves the shell out gets nothing. With `--json` (VE-3831) stdout carries JSON instead and stderr stays quiet: bare,
+  `{"shell","installed"}`; with a shell, the script wrapped in `{"shell","script"}`.
   `rust/src/commands/completions.rs` owns that detection (the installer's saved script and startup-file block, or a
   line in `~/.bashrc`/`~/.zshrc` that runs `vendo completions <shell>`), and doctor's check uses it. A flag with a
   fixed set of values offers them on TAB through `Suggest` in `cli.rs`, each list citing its source: parsing still
