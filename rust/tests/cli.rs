@@ -2034,3 +2034,150 @@ async fn init_prints_exactly_what_login_prints() {
         assert_eq!(run("init", state).await, login, "{state}");
     }
 }
+
+// ── VE-3829: catalog list shows the ready platforms, --all every one ────────
+// Decided by Yalcin, 2026-10-05 (CLI 1.1). Bodies shaped like vendo-web-v2's
+// `GET /api/v1/catalog` since VE-2436: an `availability` per entry, and `meta`
+// counts taken after the category and role filters. The route has no pagination.
+
+const CATALOG: &str = "/api/v1/catalog";
+
+fn platform(app_type: &str, name: &str, availability: &str, reason: Value) -> Value {
+    json!({
+        "appType": app_type, "displayName": name, "category": "ads",
+        "description": format!("{name} connector (synthetic)"), "logoUrl": null, "supportedRoles": ["source"],
+        "lifecycle": "live", "selfServe": availability == "self_serve", "availability": availability,
+        "requestAccessReason": reason, "provider": "vendo",
+    })
+}
+
+/// `GET /api/v1/catalog`, asking for the request-access entries (`--all`) or not.
+fn catalog_request(all: bool) -> wiremock::MockBuilder {
+    let request = Mock::given(wiremock::matchers::method("GET")).and(path(CATALOG));
+    if all {
+        request.and(wiremock::matchers::query_param("include_request_access", "true"))
+    } else {
+        request.and(wiremock::matchers::query_param_is_missing("include_request_access"))
+    }
+}
+
+async fn serve_catalog(server: &MockServer, all: bool, body: Value) {
+    catalog_request(all).respond_with(ResponseTemplate::new(200).set_body_json(body)).mount(server).await;
+}
+
+const CATALOG_HEADER: [&str; 5] = ["App Type", "Name", "Category", "Roles", "Availability"];
+
+#[tokio::test]
+async fn catalog_list_shows_the_ready_platforms_and_counts_from_meta() {
+    let server = MockServer::start().await;
+    let ready = vec![
+        platform("google_ads", "Google Ads", "self_serve", Value::Null),
+        platform("meta_ads", "Meta Ads", "self_serve", Value::Null),
+    ];
+    // Two rows, but the API's counts: the footer prints those, not the rows.
+    let meta = json!({ "total": 35, "selfServeTotal": 35, "requestAccessTotal": 560 });
+    serve_catalog(&server, false, json!({ "data": ready, "meta": meta })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    assert_eq!(
+        cells(ok_output(&sandbox.run(&["catalog", "list"])).as_bytes()),
+        rows(&[
+            &CATALOG_HEADER,
+            &["google_ads", "Google Ads", "ads", "source", "ready"],
+            &["meta_ads", "Meta Ads", "ads", "source", "ready"],
+            &["35 ready · 560 more on request (vendo catalog list --all)"],
+        ])
+    );
+    // Filters go to the API, which counts within them; the CLI prints its counts as sent.
+    ok_output(&sandbox.run(&["catalog", "list", "--category", "ads", "--role", "source"]));
+    assert_eq!(sent(&server).await, [format!("GET {CATALOG}"), format!("GET {CATALOG}?category=ads&role=source")]);
+}
+
+#[tokio::test]
+async fn catalog_list_footer_leaves_out_an_empty_request_access_count() {
+    let server = MockServer::start().await;
+    let meta = json!({ "total": 1, "selfServeTotal": 1, "requestAccessTotal": 0 });
+    let body = json!({ "data": [platform("bigquery", "BigQuery", "self_serve", Value::Null)], "meta": meta });
+    serve_catalog(&server, false, body).await;
+    let out =
+        cells(ok_output(&Sandbox::new(&server.uri()).run(&["catalog", "list", "--role", "destination"])).as_bytes());
+    assert_eq!(out.last().cloned(), Some(vec!["1 ready".to_string()]));
+}
+
+#[tokio::test]
+async fn catalog_list_all_lists_every_platform_with_its_availability() {
+    let server = MockServer::start().await;
+    // `self_serve`, then `request_access` for each of the route's three reasons.
+    let every = vec![
+        platform("google_ads", "Google Ads", "self_serve", Value::Null),
+        platform("reddit_ads", "Reddit Ads", "request_access", json!("setup_unsupported")),
+        platform("snapchat_ads", "Snapchat Ads", "request_access", json!("coming_soon")),
+        platform("tiktok_ads", "TikTok Ads", "request_access", json!("request_access_required")),
+    ];
+    let meta = json!({ "total": 4, "selfServeTotal": 1, "requestAccessTotal": 3 });
+    serve_catalog(&server, true, json!({ "data": every, "meta": meta })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    assert_eq!(
+        cells(ok_output(&sandbox.run(&["catalog", "list", "--all"])).as_bytes()),
+        rows(&[
+            &CATALOG_HEADER,
+            &["google_ads", "Google Ads", "ads", "source", "ready"],
+            &["reddit_ads", "Reddit Ads", "ads", "source", "on request"],
+            &["snapchat_ads", "Snapchat Ads", "ads", "source", "on request"],
+            &["tiktok_ads", "TikTok Ads", "ads", "source", "on request"],
+            &["4 platforms"],
+        ])
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&["catalog", "list", "--all", "--output", "appType"])),
+        "google_ads\nreddit_ads\nsnapchat_ads\ntiktok_ads\n"
+    );
+    ok_output(&sandbox.run(&["catalog", "list", "--category", "ads", "--role", "source", "--all"]));
+    let all = "include_request_access=true";
+    assert_eq!(
+        sent(&server).await,
+        [
+            format!("GET {CATALOG}?{all}"),
+            format!("GET {CATALOG}?{all}"),
+            format!("GET {CATALOG}?category=ads&role=source&{all}"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn catalog_list_json_prints_the_response_as_sent_with_or_without_all() {
+    let server = MockServer::start().await;
+    let ready = r#"{"data":[{"appType":"google_ads","selfServe":true,"availability":"self_serve","requestAccessReason":null}],"meta":{"total":1,"selfServeTotal":1,"requestAccessTotal":1}}"#;
+    let every = r#"{"data":[{"appType":"google_ads","availability":"self_serve"},{"appType":"tiktok_ads","availability":"request_access"}],"meta":{"total":2,"selfServeTotal":1,"requestAccessTotal":1}}"#;
+    for (all, body) in [(false, ready), (true, every)] {
+        catalog_request(all)
+            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+            .mount(&server)
+            .await;
+    }
+    let sandbox = Sandbox::new(&server.uri());
+    // `JSON.stringify(res, null, 2)`, as every `--json` prints: the plain request and its output are
+    // what they were before `--all` existed.
+    assert_eq!(
+        ok_output(&sandbox.run(&["catalog", "list", "--json"])),
+        "{\n  \"data\": [\n    {\n      \"appType\": \"google_ads\",\n      \"selfServe\": true,\n      \"availability\": \"self_serve\",\n      \"requestAccessReason\": null\n    }\n  ],\n  \"meta\": {\n    \"total\": 1,\n    \"selfServeTotal\": 1,\n    \"requestAccessTotal\": 1\n  }\n}\n"
+    );
+    assert_eq!(
+        ok_output(&sandbox.run(&["catalog", "list", "--all", "--json"])),
+        "{\n  \"data\": [\n    {\n      \"appType\": \"google_ads\",\n      \"availability\": \"self_serve\"\n    },\n    {\n      \"appType\": \"tiktok_ads\",\n      \"availability\": \"request_access\"\n    }\n  ],\n  \"meta\": {\n    \"total\": 2,\n    \"selfServeTotal\": 1,\n    \"requestAccessTotal\": 1\n  }\n}\n"
+    );
+    assert_eq!(sent(&server).await, [format!("GET {CATALOG}"), format!("GET {CATALOG}?include_request_access=true")]);
+}
+
+#[tokio::test]
+async fn catalog_list_from_an_api_without_availability_keeps_the_count_line() {
+    // Before VE-2436 the route sent neither `availability` nor the counts: no guess from
+    // `selfServe` (the registry flag, true for nearly every entry), and today's count line.
+    let server = MockServer::start().await;
+    let old = json!({ "appType": "stripe", "displayName": "Stripe", "category": "payments",
+                      "supportedRoles": ["source"], "selfServe": true });
+    serve(&server, "GET", CATALOG, 200, json!({ "data": [old] })).await;
+    assert_eq!(
+        cells(ok_output(&Sandbox::new(&server.uri()).run(&["catalog", "list"])).as_bytes()),
+        rows(&[&CATALOG_HEADER, &["stripe", "Stripe", "payments", "source"], &["1 platform"]])
+    );
+}

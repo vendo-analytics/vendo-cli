@@ -59,6 +59,12 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   401/403 from `/me` sign in again, and any other failed check exits 1 without creating a key. With `VENDO_API_KEY`
   set it never opens a browser. Tests act as the browser (`login_at_browser` in `rust/tests/cli.rs` visits the printed
   sign-in URL on the stub); stdin stays closed, so no real browser opens.
+- Catalog (VE-3829, CLI 1.1): `vendo catalog list` shows what the API lists by default, the platforms ready to
+  connect, and ends with a footer built from the response's `meta` counts (`35 ready · 560 more on request (vendo
+  catalog list --all)`; only `35 ready` when none is on request; the plain count line when the API sends no counts).
+  `--all` sends `include_request_access=true` (the route has no pagination) and ends with the count line. The
+  Availability column says the API's `availability` in plain words: `self_serve` "ready", `request_access` "on
+  request", anything else as sent. `--json` prints the response as sent; without `--all` the request is unchanged.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

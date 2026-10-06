@@ -23,28 +23,65 @@ fn self_serve(item: &Value) -> String {
     if item.get("selfServe").is_some_and(js_truthy) { green("yes") } else { dim("no") }
 }
 
+/// The Availability column (VE-3829): the API's own `availability` in plain words. The route sends
+/// `self_serve` or `request_access` (it drops `hidden` entries); any other value prints as sent, and
+/// an API that sends none (before VE-2436) leaves the cell empty.
+fn availability(item: &Value) -> String {
+    match Job(item).text("availability").as_deref() {
+        Some("self_serve") => green("ready"),
+        Some("request_access") => dim("on request"),
+        other => other.unwrap_or_default().to_string(),
+    }
+}
+
+/// `35 ready · 560 more on request (vendo catalog list --all)`, from the counts in the response's
+/// `meta`. The API counts after `--category` and `--role`, so the footer does too. `None` when the
+/// API sends no counts (before VE-2436): the plain count line stays.
+fn ready_footer(res: &Value) -> Option<String> {
+    let count = |key: &str| res.get("meta")?.get(key)?.as_u64();
+    let (ready, on_request) = (count("selfServeTotal")?, count("requestAccessTotal")?);
+    Some(if on_request == 0 {
+        format!("{ready} ready")
+    } else {
+        format!("{ready} ready · {on_request} more on request (vendo catalog list --all)")
+    })
+}
+
 pub async fn list(
     ctx: &Ctx,
     category: Option<String>,
     role: Option<String>,
+    all: bool,
     json: bool,
     output: Option<String>,
 ) -> Result<()> {
     let client = ctx.client()?;
-    let res =
-        run_action("Fetching catalog...", client.get("/catalog", &[("category", category), ("role", role)])).await?;
+    // The route returns every entry at once (no pagination); without the flag it leaves out the
+    // request-access ones.
+    let query = [("category", category), ("role", role), ("include_request_access", all.then(|| "true".to_string()))];
+    let res = run_action("Fetching catalog...", client.get("/catalog", &query)).await?;
     let rows = payload(&res).as_array().cloned().unwrap_or_default();
     match resolve_output_mode(json, output.as_deref()) {
         OutputMode::Json => print_json(&res),
         OutputMode::Field => print_field(&rows, output.as_deref().unwrap_or_default()),
         OutputMode::Table => {
-            let mut grid = table(&["App Type", "Name", "Category", "Roles", "Self-Serve"]);
+            let mut grid = table(&["App Type", "Name", "Category", "Roles", "Availability"]);
             for item in &rows {
                 let t = |key: &str| Job(item).text(key).unwrap_or_default();
-                grid.add_row(vec![cyan(&t("appType")), t("displayName"), t("category"), roles(item), self_serve(item)]);
+                grid.add_row(vec![
+                    cyan(&t("appType")),
+                    t("displayName"),
+                    t("category"),
+                    roles(item),
+                    availability(item),
+                ]);
             }
             println!("{grid}");
-            print_count(rows.len() as u64, "platform");
+            // `--all` shows every entry, so it keeps the plain count line.
+            match if all { None } else { ready_footer(&res) } {
+                Some(footer) => println!("{}", dim(&footer)),
+                None => print_count(rows.len() as u64, "platform"),
+            }
         }
     }
     Ok(())
@@ -183,5 +220,42 @@ mod tests {
             assert_eq!(self_serve(&json!({ "selfServe": value })), want, "{value}");
         }
         assert_eq!(self_serve(&json!({})), "no");
+    }
+
+    #[test]
+    fn availability_is_the_api_value_in_plain_words() {
+        for (value, want) in [
+            (json!("self_serve"), "ready"),
+            (json!("request_access"), "on request"),
+            // Not sent today (the route drops `hidden`): shown as the API wrote it.
+            (json!("hidden"), "hidden"),
+            (json!("beta"), "beta"),
+            (json!(null), ""),
+        ] {
+            assert_eq!(availability(&json!({ "availability": value, "selfServe": true })), want, "{value}");
+        }
+        assert_eq!(availability(&json!({ "selfServe": true })), "", "no guess from selfServe");
+    }
+
+    #[test]
+    fn the_footer_takes_its_counts_from_meta() {
+        let footer = |meta: Value| ready_footer(&json!({ "data": [], "meta": meta }));
+        assert_eq!(
+            footer(json!({ "total": 35, "selfServeTotal": 35, "requestAccessTotal": 560 })).as_deref(),
+            Some("35 ready · 560 more on request (vendo catalog list --all)")
+        );
+        assert_eq!(
+            footer(json!({ "total": 2, "selfServeTotal": 2, "requestAccessTotal": 0 })).as_deref(),
+            Some("2 ready")
+        );
+        assert_eq!(
+            footer(json!({ "total": 0, "selfServeTotal": 0, "requestAccessTotal": 4 })).as_deref(),
+            Some("0 ready · 4 more on request (vendo catalog list --all)")
+        );
+        // An API without the counts (before VE-2436), or with only one of them: the plain count line.
+        assert_eq!(ready_footer(&json!({ "data": [] })), None);
+        assert_eq!(footer(json!({ "total": 3 })), None);
+        assert_eq!(footer(json!({ "selfServeTotal": 3 })), None);
+        assert_eq!(footer(json!({ "selfServeTotal": 3, "requestAccessTotal": "1" })), None);
     }
 }

@@ -27,7 +27,7 @@ use jiff::SignedDuration;
 use serde_json::{Value, json};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{method, path, query_param},
+    matchers::{method, path, query_param, query_param_is_missing},
 };
 
 use super::{
@@ -610,7 +610,8 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
             "description": format!("{name} connector (synthetic description)"),
             "logoUrl": format!("https://example.com/logos/{app_type}.svg"), "supportedRoles": roles, "lifecycle": "ga",
             "selfServe": self_serve, "availability": if self_serve { "self_serve" } else { "request_access" },
-            "requestAccessReason": if self_serve { Value::Null } else { json!("Beta (synthetic)") }, "provider": provider,
+            "requestAccessReason": if self_serve { Value::Null } else { json!("request_access_required") },
+            "provider": provider,
         })
     };
     let catalog = vec![
@@ -619,8 +620,20 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
         entry("shopify", "Shopify", "ecommerce", json!(["source"]), true, "shopify"),
         entry("tiktok_ads", "TikTok Ads", "ads", json!(["source"]), false, "tiktok"),
     ];
-    let meta = json!({ "total": 4, "selfServeTotal": 3, "requestAccessTotal": 1 });
-    serve(server, "GET", "/api/v1/catalog", 200, json!({ "data": catalog, "meta": meta })).await;
+    // As the real route answers (VE-3829): the request-access entries (TikTok Ads here) only with
+    // `include_request_access=true` (`--all`), and `meta.total` counts the entries it sent.
+    for all in [false, true] {
+        let request = Mock::given(method("GET")).and(path("/api/v1/catalog"));
+        let (request, entries) = if all {
+            (request.and(query_param("include_request_access", "true")), catalog.clone())
+        } else {
+            let ready = catalog.iter().filter(|e| e["availability"] == "self_serve").cloned().collect();
+            (request.and(query_param_is_missing("include_request_access")), ready)
+        };
+        let meta = json!({ "total": entries.len(), "selfServeTotal": 3, "requestAccessTotal": 1 });
+        let body = json!({ "data": entries, "meta": meta });
+        request.respond_with(ResponseTemplate::new(200).set_body_json(body)).mount(server).await;
+    }
     let shopify = with(
         catalog[2].clone(),
         json!({
@@ -1123,6 +1136,8 @@ async fn catalog_output() {
     let (_server, mut s) = Session::start("catalog").await;
     s.record("list", &["catalog", "list"]);
     s.record("list_json", &["catalog", "list", "--json"]);
+    s.record("list_all", &["catalog", "list", "--all"]);
+    s.record("list_all_json", &["catalog", "list", "--all", "--json"]);
     s.record("get", &["catalog", "get", "shopify"]);
     s.record("get_json", &["catalog", "get", "shopify", "--json"]);
     s.record("credential_schema", &["catalog", "credential-schema", "shopify"]);

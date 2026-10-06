@@ -264,8 +264,8 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             }
         },
         Command::Catalog { command } => match command {
-            CatalogCommand::List { category, role, json, output } => {
-                catalog::list(ctx, category, role, json, output).await.map(|_| ok)
+            CatalogCommand::List { category, role, all, json, output } => {
+                catalog::list(ctx, category, role, all, json, output).await.map(|_| ok)
             }
             CatalogCommand::Get { app_type, json } => catalog::get(ctx, &app_type, json).await.map(|_| ok),
             CatalogCommand::CredentialSchema { app_type, json } => {

@@ -945,6 +945,9 @@ pub enum CatalogCommand {
         /// Filter by role (source, destination)
         #[arg(long, value_name = "role")]
         role: Option<String>,
+        /// List every platform, including the ones on request
+        #[arg(long)]
+        all: bool,
         /// Output raw JSON
         #[arg(long)]
         json: bool,

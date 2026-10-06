@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-$ vendo catalog list --json
+$ vendo catalog list --all --json
 exit: 0
 --- stdout ---
 {
@@ -51,10 +51,25 @@ exit: 0
       "availability": "self_serve",
       "requestAccessReason": null,
       "provider": "shopify"
+    },
+    {
+      "appType": "tiktok_ads",
+      "displayName": "TikTok Ads",
+      "category": "ads",
+      "description": "TikTok Ads connector (synthetic description)",
+      "logoUrl": "https://example.com/logos/tiktok_ads.svg",
+      "supportedRoles": [
+        "source"
+      ],
+      "lifecycle": "ga",
+      "selfServe": false,
+      "availability": "request_access",
+      "requestAccessReason": "request_access_required",
+      "provider": "tiktok"
     }
   ],
   "meta": {
-    "total": 3,
+    "total": 4,
     "selfServeTotal": 3,
     "requestAccessTotal": 1
   }
