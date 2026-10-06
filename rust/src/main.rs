@@ -52,7 +52,7 @@ use crate::{
         account, apps, catalog, completions, dictionary as dictionary_cmd, health, integrations, jobs as jobs_cmd,
         login, measurement, metrics, models,
         pipeline_resource::{self as resource, ActionOpts},
-        sources, tree,
+        sources, tree, version,
     },
     context::Ctx,
 };
@@ -61,7 +61,7 @@ use crate::{
 async fn main() -> ExitCode {
     let args = match cli::preprocess(std::env::args_os().collect()) {
         Invocation::Version => {
-            println!("{}", env!("CARGO_PKG_VERSION"));
+            version::run(false);
             return ExitCode::SUCCESS;
         }
         Invocation::Run(args) => args,
@@ -347,6 +347,10 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
         Command::Doctor { json } => health::doctor(ctx, json).await,
         Command::Commands { json } => {
             tree::run(json);
+            Ok(ok)
+        }
+        Command::Version { json } => {
+            version::run(json);
             Ok(ok)
         }
         Command::SelfUpdate { install_version, json } => health::self_update(ctx, install_version, json),

@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+Print version
+
+Usage: vendo version [OPTIONS]
+
+Options:
+      --json  Output raw JSON
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo version
+  $ vendo version --json

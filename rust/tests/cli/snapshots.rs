@@ -4,8 +4,9 @@
 //!
 //! - `help/`: every `vendo … --help` screen, exactly as printed. The list
 //!   comes from walking the command lists of the real help output (the root's
-//!   sections, each group's `Commands:`), so a new command is recorded
-//!   automatically and a removed one leaves a stale snapshot that fails the run.
+//!   sections, each group's `Commands:`; all but clap's `help`, which has no
+//!   screen of its own), so a new command is recorded automatically and a
+//!   removed one leaves a stale snapshot that fails the run.
 //! - `output/`: the table and `--json` output of every command that prints
 //!   data, and the confirmation and `--json` output of write commands, run
 //!   against the local stub with the synthetic account below; and the three
@@ -136,6 +137,16 @@ fn subcommands(screen: &str) -> Vec<String> {
     names
 }
 
+/// clap's `help` command, which the root help lists with the commands since VE-3893. It has no help
+/// screen of its own (`vendo help --help` is clap's usage error, and `vendo help <command>` prints that
+/// command's screen), so the walks below leave it out, and `vendo commands` lists no `help`.
+const CLAP_HELP: &str = "help";
+
+/// [`subcommands`] less clap's `help`: the commands a walk of the help screens visits.
+fn walked(screen: &str) -> Vec<String> {
+    subcommands(screen).into_iter().filter(|name| name != CLAP_HELP).collect()
+}
+
 /// The first word the CLI no longer uses for its own objects, if `screen` has one. The customer
 /// words follow vendo-web-v2's glossary (`apps/web/CONTEXT.md`, VE-3828): destination, not
 /// integration; app, not app connection; platform, not integration type. `int` was the
@@ -160,9 +171,10 @@ fn record_help(sandbox: &Sandbox, recorder: &mut Recorder, path: &[String]) -> u
     assert_eq!(retired_word(&screen), None, "vendo {} uses a retired word", args.join(" "));
     // `help/vendo.snap` for the root, `help/measurement__ltv__list.snap` for `vendo measurement ltv list`.
     recorder.check(&if path.is_empty() { "vendo".to_string() } else { path.join("__") }, &screen);
-    let names = subcommands(&screen);
-    // `vendo help <command>` stays, but no screen lists clap's `help` (VE-3827).
-    assert!(!names.contains(&"help".to_string()), "vendo {} lists a help command", args.join(" "));
+    // `vendo help <command>` stays; only the root lists clap's `help` (VE-3827, VE-3893).
+    let lists_help = subcommands(&screen).contains(&CLAP_HELP.to_string());
+    assert_eq!(lists_help, path.is_empty(), "vendo {}: the root help alone lists help", args.join(" "));
+    let names = walked(&screen);
     let mut count = 1;
     for name in names {
         let child: Vec<String> = path.iter().cloned().chain([name]).collect();
@@ -237,7 +249,7 @@ fn the_help_walk_reads_clap_command_lists() {
 fn listed_paths(sandbox: &Sandbox, path: &[&str]) -> Vec<String> {
     let screen = text(&sandbox.run(&[path, &["--help"]].concat()).stdout);
     let mut paths = Vec::new();
-    for name in subcommands(&screen) {
+    for name in walked(&screen) {
         let below = listed_paths(sandbox, &[path, &[name.as_str()]].concat());
         if below.is_empty() {
             paths.push(name);
@@ -258,7 +270,7 @@ fn the_root_help_names_every_command_and_the_commands_under_it() {
     let sections: Vec<&str> = lines.iter().copied().filter(|line| COMMAND_LISTS.contains(line)).collect();
     assert_eq!(sections, COMMAND_LISTS[1..], "the root help's sections, in order");
     let names = subcommands(&root);
-    for name in ["login", "destinations", "measurement", "profile"] {
+    for name in ["login", "destinations", "measurement", "profile", "help", "version"] {
         assert!(names.contains(&name.to_string()), "{name}: {names:?}");
     }
     assert!(!names.contains(&"config".to_string()), "{names:?}");
@@ -283,7 +295,7 @@ fn bare_vendo_prints_the_root_help_and_exits_2() {
 /// Every group as typed, depth first in help order: `apps`, `measurement ltv`.
 fn groups(sandbox: &Sandbox, path: &[&str], found: &mut Vec<Vec<String>>) {
     let screen = text(&sandbox.run(&[path, &["--help"]].concat()).stdout);
-    let names = subcommands(&screen);
+    let names = walked(&screen);
     if !path.is_empty() && !names.is_empty() {
         found.push(path.iter().map(|word| word.to_string()).collect());
     }
@@ -491,7 +503,7 @@ async fn without_a_terminal_a_missing_value_is_the_usage_error() {
 /// The groups of `output/`, one test each. A Session's recorder only owns its
 /// own group's files, so a renamed or removed group would leave its snapshots
 /// behind unnoticed; [`every_output_snapshot_has_a_group`] catches them.
-const OUTPUT_GROUPS: [&str; 12] = [
+const OUTPUT_GROUPS: [&str; 13] = [
     "account",
     "apps",
     "catalog",
@@ -504,6 +516,7 @@ const OUTPUT_GROUPS: [&str; 12] = [
     "metrics",
     "models",
     "sources",
+    "version",
 ];
 
 #[test]
@@ -1602,6 +1615,18 @@ async fn commands_output() {
     s.finish();
 }
 
+// ── vendo version (VE-3893) ─────────────────────────────────────────────────
+
+#[tokio::test]
+async fn version_output() {
+    // What `vendo --version` prints, which the snapshots show as `[version]`, and the same with --json.
+    let (_server, mut s) = Session::start("version").await;
+    s.record("text", &["version"]);
+    assert!(s.output(&["--version"]) == s.output(&["version"]), "vendo version differs from vendo --version");
+    s.record("json", &["version", "--json"]);
+    s.finish();
+}
+
 /// What a help screen says about one command: its description, arguments, options (without
 /// `-h, --help`), the options its usage line requires, the commands it lists and its global options.
 #[derive(Debug, Default, PartialEq)]
@@ -1777,7 +1802,9 @@ fn the_command_tree_matches_the_help_screens() {
     while let Some((path, node)) = pending.pop() {
         assert_eq!(node["path"], path.join(" "));
         let args: Vec<&str> = path.iter().map(String::as_str).chain(["--help"]).collect();
-        let screen = read_help_screen(&text(&sandbox.run(&args).stdout));
+        let mut screen = read_help_screen(&text(&sandbox.run(&args).stdout));
+        // The root help lists clap's `help` (VE-3893); the tree leaves it out, as the walks do.
+        screen.commands.retain(|name| name != CLAP_HELP);
         assert_eq!(json_screen(node, &root_globals), screen, "vendo {}", args.join(" "));
         checked += 1;
         for child in node["commands"].as_array().unwrap() {

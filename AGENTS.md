@@ -42,11 +42,11 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   a wiremock `MockServer` blocks on its state outside tokio, which hangs for good once the test's task has spent
   tokio's cooperative budget (it hung the VE-3831 refusal test).
 - Snapshots (VE-3824), the regression net once the parity harness goes at 1.0.0: `rust/tests/cli/snapshots.rs`
-  records every `--help` screen, found by walking the real command tree, in `rust/tests/snapshots/help/`, the
-  table, `--json` and confirmation output of each command against the stub's synthetic account in
-  `rust/tests/snapshots/output/`, and the usage error of every command that requires a value (37 with the hidden
-  `catalog credential-schema`), as text and with `--json`, in `rust/tests/snapshots/usage/` (VE-3881). Any change to
-  them fails `cargo test`. After a deliberate change run
+  records every `--help` screen, found by walking the real command tree (all but clap's `help`, which has no screen
+  of its own), in `rust/tests/snapshots/help/`, the table, `--json` and confirmation output of each command against
+  the stub's synthetic account in `rust/tests/snapshots/output/`, and the usage error of every command that requires
+  a value (37 with the hidden `catalog credential-schema`), as text and with `--json`, in
+  `rust/tests/snapshots/usage/` (VE-3881). Any change to them fails `cargo test`. After a deliberate change run
   `INSTA_UPDATE=always cargo test --test cli` from `rust/` (it also deletes stale snapshots), review
   `git diff rust/tests/snapshots` and commit the snapshots with the change. Bare `vendo completions` for bash and
   for an unknown shell is recorded per system (VE-3830): `completions__bare_bash_macos`/`_linux` and
@@ -65,11 +65,19 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   API's "integration"; renaming a flag needs Yalcin's approval.
 - Help layout (VE-3827, CLI 1.1): `vendo --help` is one sectioned list built at runtime from the command tree;
   `HELP_SECTIONS` in `rust/src/cli.rs` places each command, and a test fails when a visible command is in none.
-  Group screens have no `help` row; `--profile`/`--debug` sit under "Global options". `whoami` is the one identity
-  command and `config` moved under `profile`; `profile set` is described as "Set values on the active profile"
-  (Yalcin, 2026-10-06). Old paths keep working, hidden, printing exactly what their command prints: clap hidden
-  aliases where clap allows (`config` = `profile`, `use` = `profile switch`), `MOVED` in `cli.rs` where it does not
-  (`profile current`/`config show` → `whoami`, `config reset` → `logout --all`). Give a new hidden path a
+  Group screens have no `help` row; `--profile`/`--debug` sit under "Global options". "Getting started" ends with
+  `help` and `version` (VE-3893, decided by Yalcin 2026-10-07). `help` is clap's own command, which the tree
+  `cli::command` returns has only once clap builds it, so its row is `CLAP_HELP` in `cli.rs` (clap's words, which a
+  test checks) with nothing under it; `vendo help <command>` prints that command's screen, and `vendo help --help`
+  stays clap's usage error (exit 2). `vendo version` prints exactly what `--version` and `-V` print, which
+  `preprocess` still reads anywhere before `--` (`commands/version.rs` prints both), and with `--json`
+  `{"version":"<v>"}`. ❓ Open for Yalcin, built with cautious defaults: the two rows last in "Getting started", their
+  descriptions in clap's words for `-h` and `-V` ("Print this message or the help of the given subcommand(s)",
+  "Print version"), `vendo commands` leaving `help` out, and `vendo help --help` left as the usage error. `whoami` is
+  the one identity command and `config` moved under `profile`; `profile set` is described as "Set values on the
+  active profile" (Yalcin, 2026-10-06). Old paths keep working, hidden, printing exactly what their command prints:
+  clap hidden aliases where clap allows (`config` = `profile`, `use` = `profile switch`), `MOVED` in `cli.rs` where it
+  does not (`profile current`/`config show` → `whoami`, `config reset` → `logout --all`). Give a new hidden path a
   byte-identity test.
 - Login (VE-3825, CLI 1.1): `vendo login` does what `init` did, and `init` is its hidden clap alias. It signs in
   through the browser when there is no working key, checks the key with `/me` and prints the setup summary. A key it
@@ -144,7 +152,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     `--json` prints the tree, read at runtime from the clap tree (`commands/tree.rs`): per command `name`, `path`,
     `description`, visible `aliases`, `arguments` and `options` (name, short, valueName, description, required,
     default, `possibleValues` that parsing enforces, `suggestedValues` that TAB offers, `global`), `commands`.
-    Hidden paths stay out. `the_command_tree_matches_the_help_screens` checks it against every help screen.
+    Hidden paths stay out, and so does clap's `help`, which the root help lists (VE-3893); `version` is in.
+    `the_command_tree_matches_the_help_screens` checks it against every help screen.
   - `--json` on the commands that lacked it, built from what their text shows and never printing the API key (the
     shapes are the build's choice, for Yalcin's review with CLI 1.1): `profile list`
     (`{"profiles":[{name, active, accountId, baseUrl}]}`), `profile switch` (`{"profile":…}`, null when nothing was

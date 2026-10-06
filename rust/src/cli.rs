@@ -54,9 +54,9 @@ fn no_help_rows(cmd: clap::Command) -> clap::Command {
 
 /// The sections of `vendo --help`, in order. Every visible command sits in exactly one: a test
 /// fails when one is missing, so a new command cannot drop out of the root help. Move a command
-/// by moving its name.
+/// by moving its name. `help` is clap's own command, listed since VE-3893 with `version`.
 pub const HELP_SECTIONS: [(&str, &[&str]); 4] = [
-    ("Getting started", &["login", "logout", "whoami", "status", "doctor", "commands"]),
+    ("Getting started", &["login", "logout", "whoami", "status", "doctor", "commands", "help", "version"]),
     ("Data pipeline", &["apps", "sources", "destinations", "jobs"]),
     ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement"]),
     ("Account", &["profile", "mcp", "completions", "self-update"]),
@@ -65,23 +65,33 @@ pub const HELP_SECTIONS: [(&str, &[&str]); 4] = [
 /// Where the root help wraps a group's list of commands (clap's own width when it wraps).
 const HELP_WIDTH: usize = 100;
 
+/// clap's `help` command, which the root help lists (VE-3893). clap adds it only when it builds
+/// the tree to parse, so the tree [`root_help_template`] reads has none: its row says what clap's
+/// command says it does, in clap's words (a test checks them), with no commands under it.
+const CLAP_HELP: (&str, &str) = ("help", "Print this message or the help of the given subcommand(s)");
+
 /// The root help: [`HELP_SECTIONS`], each group followed by the commands under it, read from
 /// the command tree so the list cannot drift from what the CLI runs. `vendo <command> --help`
 /// keeps the flags and examples. Styled like clap's own lists; clap drops the styles without colour.
 fn root_help_template(root: &clap::Command) -> String {
     let styles = root.get_styles();
     let (header, literal) = (styles.get_header(), styles.get_literal());
-    let width = root.get_subcommands().filter(|c| !c.is_hide_set()).map(|c| c.get_name().len()).max().unwrap_or(0);
+    let width = HELP_SECTIONS.iter().flat_map(|(_, names)| names.iter()).map(|name| name.len()).max().unwrap_or(0);
     let indent = " ".repeat(2 + width + 2);
     let mut sections = String::new();
     for (title, names) in HELP_SECTIONS {
         sections.push_str(&format!("{header}{title}:{header:#}\n"));
-        for command in names.iter().filter_map(|name| root.find_subcommand(name)) {
-            let (name, pad) = (command.get_name(), width - command.get_name().len());
-            let about = command.get_about().map(ToString::to_string).unwrap_or_default();
+        for &name in names {
+            let (about, paths) = match root.find_subcommand(name) {
+                Some(command) => {
+                    (command.get_about().map(ToString::to_string).unwrap_or_default(), command_paths(command))
+                }
+                None if name == CLAP_HELP.0 => (CLAP_HELP.1.to_string(), Vec::new()),
+                None => continue,
+            };
+            let pad = width - name.len();
             sections.push_str(&format!("  {literal}{name}{literal:#}{:pad$}  {about}\n", ""));
             // The commands under a group, comma-separated, wrapped below its description.
-            let paths = command_paths(command);
             let mut line = Vec::new();
             for (i, path) in paths.iter().enumerate() {
                 let item = if i + 1 < paths.len() { format!("{path},") } else { path.clone() };
@@ -556,6 +566,15 @@ pub enum Command {
     // Read from this tree at runtime, so it lists what runs (VE-3831, `commands/tree.rs`).
     #[command(after_help = "Examples:\n  $ vendo commands\n  $ vendo commands --json")]
     Commands {
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print version
+    // What `--version` and `-V` print, which `preprocess` handles before clap runs; the command lists
+    // the version in the help and takes --json like every command (VE-3893).
+    #[command(after_help = "Examples:\n  $ vendo version\n  $ vendo version --json")]
+    Version {
         /// Output raw JSON
         #[arg(long)]
         json: bool,
@@ -1927,6 +1946,20 @@ mod tests {
     }
 
     #[test]
+    fn version_is_also_a_command_that_takes_json() {
+        // VE-3893: `vendo version` prints what `--version` prints, and takes --json like every command.
+        let args = os(&["vendo", "version"]);
+        assert_eq!(preprocess(args.clone()), Invocation::Run(args));
+        assert!(matches!(parse(&["vendo", "version"]).unwrap().command, Command::Version { json: false }));
+        let cli = parse(&["vendo", "--profile", "beta", "version", "--json", "--debug"]).unwrap();
+        assert!(matches!(cli.command, Command::Version { json: true }) && cli.debug);
+        assert!(parse(&["vendo", "version", "extra"]).is_err(), "it takes no argument");
+        // `-V` and `--version` are still read before clap runs, after `version` too.
+        assert_eq!(preprocess(os(&["vendo", "version", "--version"])), Invocation::Version);
+        assert_eq!(preprocess(os(&["vendo", "version", "--json", "-V"])), Invocation::Version);
+    }
+
+    #[test]
     fn metrics_take_native_query_spec_files_and_no_legacy_authoring_flags() {
         // Port of the TS metrics-command test (VE-2637): --definition is required on create, and
         // the retired builder flags are gone.
@@ -2035,7 +2068,9 @@ mod tests {
 
     #[test]
     fn every_visible_command_is_in_exactly_one_help_section() {
-        let cmd = command();
+        // Built as clap parses with it, so clap's `help` command is among them: the root help lists it (VE-3893).
+        let mut cmd = command();
+        cmd.build();
         let mut listed: Vec<&str> = HELP_SECTIONS.iter().flat_map(|(_, names)| names.iter().copied()).collect();
         listed.sort_unstable();
         let mut commands: Vec<&str> =
@@ -2043,6 +2078,10 @@ mod tests {
         commands.sort_unstable();
         // A command missing here is missing from `vendo --help`: add it to a section of HELP_SECTIONS.
         assert_eq!(listed, commands, "HELP_SECTIONS must name every visible command once");
+        assert!(listed.contains(&"help") && listed.contains(&"version"), "{listed:?}");
+        // The root help describes clap's `help` as clap does.
+        let help = cmd.find_subcommand(CLAP_HELP.0).unwrap();
+        assert_eq!(help.get_about().map(ToString::to_string).as_deref(), Some(CLAP_HELP.1));
     }
 
     #[test]
@@ -2056,21 +2095,37 @@ mod tests {
             let end = at + lines[at..].iter().position(|line| line.is_empty()).unwrap();
             let section = &lines[at..end];
             for name in names {
-                let command = cmd.find_subcommand(name).unwrap();
+                // clap's `help`, absent until clap builds the tree, has its words and nothing under it.
+                let (about, paths) = match cmd.find_subcommand(name) {
+                    Some(command) => (command.get_about().unwrap().to_string(), command_paths(command)),
+                    None => {
+                        assert_eq!(*name, CLAP_HELP.0, "HELP_SECTIONS names a command the tree does not have");
+                        (CLAP_HELP.1.to_string(), Vec::new())
+                    }
+                };
                 // `  <name>  <about>`, then the commands under it, comma-separated, on indented lines.
                 let row = section.iter().position(|line| line.split_whitespace().next() == Some(name)).expect(name);
-                let about = command.get_about().unwrap().to_string();
                 assert!(section[row].starts_with(&format!("  {name} ")) && section[row].ends_with(&about), "{name}");
                 let below: Vec<&str> =
                     section[row + 1..].iter().take_while(|line| line.starts_with("     ")).copied().collect();
                 let joined = below.join(" ");
                 let listed: Vec<&str> = joined.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
-                assert_eq!(listed, command_paths(command), "vendo {name}");
+                assert_eq!(listed, paths, "vendo {name}");
                 assert!(below.iter().all(|line| line.len() <= HELP_WIDTH), "{name}: {below:?}");
             }
             at = end;
         }
-        // The section rows are the visible commands, in order: nothing hidden, no clap `help` row.
+        // `help` and `version` close "Getting started", in clap's words for -h and -V (VE-3893).
+        let started = lines.iter().position(|line| *line == "Getting started:").unwrap();
+        let rows: Vec<&str> = lines[started + 1..].iter().take_while(|line| !line.is_empty()).copied().collect();
+        assert_eq!(
+            rows[rows.len() - 2..],
+            [
+                "  help          Print this message or the help of the given subcommand(s)",
+                "  version       Print version"
+            ]
+        );
+        // The section rows are the visible commands, in order: nothing hidden, clap's `help` among them.
         let options = lines.iter().position(|line| *line == "Options:").unwrap();
         let rows: Vec<&str> = lines[..options]
             .iter()

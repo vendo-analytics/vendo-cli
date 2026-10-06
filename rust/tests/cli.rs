@@ -165,6 +165,37 @@ fn version_prints_the_bare_number_anywhere() {
 }
 
 #[test]
+fn vendo_version_prints_what_the_version_flag_prints() {
+    // VE-3893: the help lists `version`, which prints exactly what `--version` and `-V` print.
+    let sandbox = Sandbox::new(CLOSED);
+    let run = |args: &[&str]| {
+        let out = sandbox.run(args);
+        (out.status.code(), text(&out.stdout), text(&out.stderr))
+    };
+    let expected = (Some(0), format!("{}\n", env!("CARGO_PKG_VERSION")), String::new());
+    for args in [&["version"][..], &["--version"], &["-V"], &["--profile", "beta", "version"], &["version", "--debug"]]
+    {
+        assert_eq!(run(args), expected, "vendo {}", args.join(" "));
+    }
+    // With --json, like every command (VE-3831): the version in an object.
+    let (code, stdout, stderr) = run(&["version", "--json"]);
+    assert_eq!((code, stderr), (Some(0), String::new()));
+    assert_eq!(serde_json::from_str::<Value>(&stdout).unwrap(), json!({ "version": env!("CARGO_PKG_VERSION") }));
+    // The help works as before: `--help`, `-h` and `vendo help <command>`.
+    assert_eq!(run(&["version", "--help"]).0, Some(0));
+    for (args, same) in [
+        (&["help", "version"][..], &["version", "--help"][..]),
+        (&["version", "-h"], &["version", "--help"]),
+        (&["help"], &["--help"]),
+        (&["-h"], &["--help"]),
+        (&["help", "apps", "list"], &["apps", "list", "--help"]),
+        (&["apps", "list", "-h"], &["apps", "list", "--help"]),
+    ] {
+        assert_eq!(run(args), run(same), "vendo {}", args.join(" "));
+    }
+}
+
+#[test]
 fn empty_profile_names_and_accounts_are_unset() {
     let sandbox = Sandbox::new(CLOSED);
     for args in [

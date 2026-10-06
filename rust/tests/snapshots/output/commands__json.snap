@@ -253,6 +253,27 @@ exit: 0
       "commands": []
     },
     {
+      "name": "version",
+      "path": "version",
+      "description": "Print version",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
       "name": "apps",
       "path": "apps",
       "description": "Manage apps",

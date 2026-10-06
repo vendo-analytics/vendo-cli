@@ -176,6 +176,23 @@ mod tests {
     }
 
     #[test]
+    fn version_is_a_command_and_clap_help_is_not() {
+        // VE-3893: the root help lists `help` and `version`; the tree has `version`, which runs and takes
+        // --json, and leaves clap's `help` out as before.
+        let tree = tree(&cli::command());
+        let version = find(&tree, "version");
+        assert_eq!((&version["description"], &version["arguments"]), (&json!("Print version"), &json!([])));
+        let options: Vec<&Value> = version["options"].as_array().unwrap().iter().collect();
+        assert_eq!(options.iter().map(|o| o["name"].as_str().unwrap()).collect::<Vec<_>>(), ["--json"]);
+        let names: Vec<&str> =
+            tree["commands"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+        assert!(!names.contains(&"help"), "{names:?}");
+        let text = list(&cli::command());
+        assert!(text.lines().any(|line| line.starts_with("version ") && line.ends_with("  Print version")), "{text}");
+        assert!(!text.lines().any(|line| line.starts_with("help ")), "{text}");
+    }
+
+    #[test]
     fn a_command_lists_its_arguments_and_flags_with_values_and_defaults() {
         let tree = tree(&cli::command());
         let create = find(&tree, "apps create");
@@ -237,7 +254,9 @@ mod tests {
         let tree = tree(&cli::command());
         let names: Vec<&str> =
             tree["commands"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+        // All but clap's `help`, which the root help lists (VE-3893) and the tree leaves out.
         let sections: Vec<&str> = cli::HELP_SECTIONS.iter().flat_map(|(_, names)| names.iter().copied()).collect();
+        let sections: Vec<&str> = sections.into_iter().filter(|name| *name != "help").collect();
         assert_eq!(names, sections);
     }
 
