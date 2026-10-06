@@ -168,6 +168,11 @@ pub struct DoctorCheck {
     pub detail: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remediation: Option<String>,
+    /// The fix without its note that VENDO_PROFILE overrides the active profile, where
+    /// `remediation` ends with or starts with one: the workspace screen says that once, under its
+    /// profile list when it lists the profiles, and there shows this (each fact once; VE-3891 review).
+    #[serde(skip)]
+    pub fix_without_override: Option<String>,
     /// Its words on the screen: those of the screen Yalcin agreed where it has them, else
     /// `<name>: <detail>` as doctor printed it.
     #[serde(skip)]
@@ -178,7 +183,15 @@ pub struct DoctorCheck {
 
 fn check(name: &'static str, status: CheckStatus, detail: String, remediation: Option<&str>) -> DoctorCheck {
     let line = format!("{name}: {detail}");
-    DoctorCheck { name, status, detail, remediation: remediation.map(str::to_string), line, listed: Listed::Alone }
+    DoctorCheck {
+        name,
+        status,
+        detail,
+        remediation: remediation.map(str::to_string),
+        fix_without_override: None,
+        line,
+        listed: Listed::Alone,
+    }
 }
 
 impl DoctorCheck {
@@ -189,6 +202,20 @@ impl DoctorCheck {
 
     fn listed(mut self, listed: Listed) -> Self {
         self.listed = listed;
+        self
+    }
+
+    /// `fix`, which sends the user to `vendo workspace`: when VENDO_PROFILE chose the profile it
+    /// ends with the note that VENDO_PROFILE overrides the active profile (Yalcin, 2026-10-06), which
+    /// the screen leaves out where its profile list says it ([`DoctorCheck::fix_without_override`]).
+    fn fixed_by(mut self, fix: &str, vendo_profile: Option<&str>) -> Self {
+        self.remediation = Some(match vendo_profile {
+            Some(name) => {
+                self.fix_without_override = Some(fix.to_string());
+                format!("{} ({}).", fix.trim_end_matches('.'), vendo_profile_overrides(name))
+            }
+            None => fix.to_string(),
+        });
         self
     }
 }
@@ -306,15 +333,21 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
     checks.push(match config.selected_profile.as_ref().filter(|name| !name.is_empty()) {
         Some(name) if config.selected_profile_exists => check("Selected profile", Ok, name.clone(), None),
         // Switching profiles does not help while VENDO_PROFILE names the missing one (Yalcin, 2026-10-06).
-        Some(name) if config.selected_by_vendo_profile => check(
-            "Selected profile",
-            Warn,
-            format!("{name} (not found in config)"),
-            Some(&format!(
-                "{}: run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.",
-                vendo_profile_overrides(name)
-            )),
-        ),
+        Some(name) if config.selected_by_vendo_profile => {
+            let mut check = check(
+                "Selected profile",
+                Warn,
+                format!("{name} (not found in config)"),
+                Some(&format!(
+                    "{}: run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.",
+                    vendo_profile_overrides(name)
+                )),
+            );
+            check.fix_without_override = Some(
+                "Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.".into(),
+            );
+            check
+        }
         Some(name) => check(
             "Selected profile",
             Warn,
@@ -379,20 +412,13 @@ pub fn auth_check(result: Option<&Result<Identity, IdentityError>>, vendo_profil
             check("API auth", CheckStatus::Ok, format!("Authenticated as {name}"), None)
                 .listed_as(format!("Signed in as {name}"))
         }
-        Some(Err(IdentityError::Http { status, status_text })) => check(
-            "API auth",
-            Fail,
-            format!("HTTP {status}: {status_text}"),
-            Some(&api_auth_remediation(*status, vendo_profile)),
-        ),
-        Some(Err(other)) => check(
-            "API auth",
-            Fail,
-            other.to_string(),
-            Some(&with_override(
-                "Check network access and run `vendo workspace --debug` to inspect the failing request.",
-                vendo_profile,
-            )),
+        Some(Err(IdentityError::Http { status, status_text })) => {
+            check("API auth", Fail, format!("HTTP {status}: {status_text}"), None)
+                .fixed_by(api_auth_remediation(*status, vendo_profile.is_some()), vendo_profile)
+        }
+        Some(Err(other)) => check("API auth", Fail, other.to_string(), None).fixed_by(
+            "Check network access and run `vendo workspace --debug` to inspect the failing request.",
+            vendo_profile,
         ),
     }
 }
@@ -426,27 +452,17 @@ fn path_remediation(shell: Option<&str>) -> String {
     }
 }
 
-fn api_auth_remediation(status: u16, vendo_profile: Option<&str>) -> String {
-    match (status, vendo_profile) {
+/// The fix for an HTTP error from `/me`, before [`DoctorCheck::fixed_by`] adds the VENDO_PROFILE note.
+fn api_auth_remediation(status: u16, under_vendo_profile: bool) -> &'static str {
+    match (status, under_vendo_profile) {
         // Under VENDO_PROFILE login saves the new key without making its profile active, and a plain
         // `vendo workspace` checks the profile VENDO_PROFILE names (Yalcin, 2026-10-06).
-        (401 | 403, Some(name)) => format!(
-            "Run `vendo login` to refresh credentials, then retry `vendo --profile <profile> workspace` with the profile it saved ({}).",
-            vendo_profile_overrides(name)
-        ),
-        (401 | 403, None) => "Run `vendo login` to refresh credentials, then retry `vendo workspace`.".into(),
-        (404, _) => {
-            with_override("Verify the configured account and base URL with `vendo workspace --debug`.", vendo_profile)
+        (401 | 403, true) => {
+            "Run `vendo login` to refresh credentials, then retry `vendo --profile <profile> workspace` with the profile it saved."
         }
-        _ => with_override("Run `vendo workspace --debug` to inspect the failing request and response.", vendo_profile),
-    }
-}
-
-/// `fix`, ending with the VENDO_PROFILE note when VENDO_PROFILE chose the profile.
-fn with_override(fix: &str, vendo_profile: Option<&str>) -> String {
-    match vendo_profile {
-        Some(name) => format!("{} ({}).", fix.trim_end_matches('.'), vendo_profile_overrides(name)),
-        None => fix.to_string(),
+        (401 | 403, false) => "Run `vendo login` to refresh credentials, then retry `vendo workspace`.",
+        (404, _) => "Verify the configured account and base URL with `vendo workspace --debug`.",
+        _ => "Run `vendo workspace --debug` to inspect the failing request and response.",
     }
 }
 
@@ -763,6 +779,59 @@ mod tests {
         // Without VENDO_PROFILE, as before.
         assert_eq!(fix(403, None), "Run `vendo login` to refresh credentials, then retry `vendo workspace`.");
         assert_eq!(fix(404, None), "Verify the configured account and base URL with `vendo workspace --debug`.");
+        // The workspace screen says it once, under its profile list when it lists the profiles, and
+        // there shows each fix without it (VE-3891 review: each fact once).
+        let screen = |status: u16, vendo_profile: Option<&str>| {
+            let http = Err(IdentityError::Http { status, status_text: "x".into() });
+            auth_check(Some(&http), vendo_profile).fix_without_override
+        };
+        assert_eq!(
+            screen(401, Some("beta")).as_deref(),
+            Some(
+                "Run `vendo login` to refresh credentials, then retry `vendo --profile <profile> workspace` with the profile it saved."
+            )
+        );
+        assert_eq!(screen(403, Some("beta")), screen(401, Some("beta")));
+        assert_eq!(
+            screen(404, Some("beta")).as_deref(),
+            Some("Verify the configured account and base URL with `vendo workspace --debug`.")
+        );
+        assert_eq!(
+            screen(500, Some("beta")).as_deref(),
+            Some("Run `vendo workspace --debug` to inspect the failing request and response.")
+        );
+        assert_eq!(
+            auth_check(Some(&net), Some("beta")).fix_without_override.as_deref(),
+            Some("Check network access and run `vendo workspace --debug` to inspect the failing request.")
+        );
+        // Without VENDO_PROFILE a fix has no note to leave out.
+        assert_eq!((screen(401, None), screen(500, None)), (None, None));
+        assert_eq!(auth_check(Some(&net), None).fix_without_override, None);
+    }
+
+    #[test]
+    fn an_unknown_vendo_profile_is_a_warning_whose_fix_says_it_overrides_the_active_profile() {
+        // A warning, so it never makes `vendo workspace` exit 1 by itself (VE-3891 review).
+        let home = tempfile::tempdir().unwrap();
+        let mut config = config(Some("vendo_sk_abcdefghij"), Some("acct"), Some(("nope", false)), true);
+        config.selected_by_vendo_profile = true;
+        let checks = local_checks(&env(home.path(), "/opt/vendo/bin/vendo", "/usr/bin", Some("zsh")), &config);
+        let profile = checks.iter().find(|c| c.name == "Selected profile").unwrap();
+        assert_eq!((profile.status, profile.detail.as_str()), (CheckStatus::Warn, "nope (not found in config)"));
+        assert_eq!(
+            profile.remediation.as_deref(),
+            Some(
+                "VENDO_PROFILE=nope overrides the active profile in this shell: run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile."
+            )
+        );
+        assert_eq!(
+            profile.fix_without_override.as_deref(),
+            Some("Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.")
+        );
+        // An unknown --profile has no VENDO_PROFILE note.
+        config.selected_by_vendo_profile = false;
+        let checks = local_checks(&env(home.path(), "/opt/vendo/bin/vendo", "/usr/bin", Some("zsh")), &config);
+        assert!(checks.iter().all(|c| c.fix_without_override.is_none()), "{checks:#?}");
     }
 
     #[test]

@@ -135,8 +135,10 @@ fn screen(
         lines.push(dim(&format!("  Env overrides active: {}", overrides.join(", "))));
     }
 
-    // One profile is the one above.
-    if profiles.len() > 1 {
+    // One profile is the one above. Under the list, the note that VENDO_PROFILE overrides the
+    // active profile, which the fixes below then leave out (each fact once; VE-3891 review).
+    let listed = profiles.len() > 1;
+    if listed {
         lines.push(String::new());
         lines.push(bold("Profiles"));
         lines.extend(profile_rows(profiles));
@@ -148,7 +150,7 @@ fn screen(
 
     lines.push(String::new());
     lines.push(bold("Checks"));
-    lines.extend(check_lines(checks));
+    lines.extend(check_lines(checks, listed && vendo_profile.is_some()));
     lines
 }
 
@@ -205,8 +207,10 @@ fn without_scheme(url: &str) -> &str {
 }
 
 /// The Checks section: each check in its few words after `[ok]`, `[warn]` or `[fail]`, with the
-/// fix of each that did not pass under it, as [`DoctorCheck::listed`] places them.
-fn check_lines(checks: &[DoctorCheck]) -> Vec<String> {
+/// fix of each that did not pass under it, as [`DoctorCheck::listed`] places them. `noted`: the
+/// profile list above says that VENDO_PROFILE overrides the active profile, so each fix shows
+/// without that note ([`DoctorCheck::fix_without_override`]).
+fn check_lines(checks: &[DoctorCheck], noted: bool) -> Vec<String> {
     // Each line's status, words and the checks it shows.
     let mut rows: Vec<(CheckStatus, String, Vec<&DoctorCheck>)> = Vec::new();
     for check in checks {
@@ -229,8 +233,11 @@ fn check_lines(checks: &[DoctorCheck]) -> Vec<String> {
             CheckStatus::Fail => red("[fail]"),
         };
         lines.push(format!("  {marker} {line}"));
-        for fix in shown.iter().filter(|check| check.status != CheckStatus::Ok).filter_map(|c| c.remediation.as_ref()) {
-            lines.push(format!("         {}", dim(&format!("Fix: {fix}"))));
+        for check in shown.iter().filter(|check| check.status != CheckStatus::Ok) {
+            let without_note = check.fix_without_override.as_ref().filter(|_| noted);
+            if let Some(fix) = without_note.or(check.remediation.as_ref()) {
+                lines.push(format!("         {}", dim(&format!("Fix: {fix}"))));
+            }
         }
     }
     lines
@@ -274,7 +281,15 @@ mod tests {
     }
 
     fn checked(name: &'static str, status: CheckStatus, line: &str, listed: Listed, fix: Option<&str>) -> DoctorCheck {
-        DoctorCheck { name, status, detail: String::new(), remediation: fix.map(Into::into), line: line.into(), listed }
+        DoctorCheck {
+            name,
+            status,
+            detail: String::new(),
+            remediation: fix.map(Into::into),
+            fix_without_override: None,
+            line: line.into(),
+            listed,
+        }
     }
 
     #[test]
@@ -332,7 +347,7 @@ mod tests {
             checked("Shell completions", Ok, "Zsh completions installed", Listed::Alone, None),
         ];
         assert_eq!(
-            check_lines(&checks),
+            check_lines(&checks, false),
             [
                 "  [fail] CLI 1.1.0 at /opt/vendo, not on PATH",
                 "         Fix: Reinstall.",
@@ -345,10 +360,13 @@ mod tests {
         );
         // The worse status of the two, whichever comes first.
         let pair = |binary, path| {
-            check_lines(&[
-                checked("CLI binary", binary, "CLI", Listed::Alone, None),
-                checked("PATH", path, "on PATH", Listed::WithPrevious, None),
-            ])
+            check_lines(
+                &[
+                    checked("CLI binary", binary, "CLI", Listed::Alone, None),
+                    checked("PATH", path, "on PATH", Listed::WithPrevious, None),
+                ],
+                false,
+            )
         };
         assert_eq!(pair(Ok, Ok), ["  [ok] CLI, on PATH"]);
         assert_eq!(pair(Warn, Ok), ["  [warn] CLI, on PATH"]);
@@ -408,6 +426,45 @@ mod tests {
                 "Checks",
             ]
         );
+    }
+
+    #[test]
+    fn the_screen_says_once_that_vendo_profile_overrides_the_active_profile() {
+        // Under the profile list when it lists the profiles, and then the fixes leave it out; with one
+        // profile, which is not listed, in the fixes (VE-3891 review: each fact once).
+        let note = "VENDO_PROFILE=b overrides the active profile in this shell";
+        let mut check = checked(
+            "API auth",
+            CheckStatus::Fail,
+            "API auth: fetch failed",
+            Listed::Alone,
+            Some(&format!("Check network access ({note}).")),
+        );
+        check.fix_without_override = Some("Check network access.".into());
+        let checks = [check];
+        let config = config(Some("vendo_sk_fake_0000"), Some("acct-a"), Some("b"));
+        let two = [profile("a", false, Some("acct-a"), STAGING_BASE_URL), profile("b", true, None, STAGING_BASE_URL)];
+        let lines = screen(None, &config, &two, Some("b"), &checks);
+        assert_eq!(
+            lines[lines.len() - 5..],
+            [
+                format!("  {note}: change or unset VENDO_PROFILE to switch here."),
+                String::new(),
+                "Checks".into(),
+                "  [fail] API auth: fetch failed".into(),
+                "         Fix: Check network access.".into(),
+            ]
+        );
+        let lines = screen(None, &config, &two[1..], Some("b"), &checks);
+        assert_eq!(
+            lines[lines.len() - 3..],
+            [
+                "Checks".to_string(),
+                "  [fail] API auth: fetch failed".into(),
+                format!("         Fix: Check network access ({note}).")
+            ]
+        );
+        assert_eq!(lines.iter().filter(|line| line.contains(note)).count(), 1);
     }
 
     #[test]

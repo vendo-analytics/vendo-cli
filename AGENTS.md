@@ -199,10 +199,14 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     config either way, gives it in place of its no-key hint. A key in `VENDO_API_KEY` is still used, as for an
     unknown `--profile`. Hints about switching profiles or checking with `vendo workspace` (its profile list, its
     missing-profile check and its API-auth fixes, a new login key that cannot be checked) say that VENDO_PROFILE
-    overrides the active profile (`config::vendo_profile_overrides`); the fix for a rejected key (401/403) says to
-    check the profile login saved with `vendo --profile <profile> workspace`. `vendo workspace` otherwise names the
-    profile as it does for `--profile`, and with a VENDO_PROFILE no profile has it shows its screen (the profile's
-    check with that fix, exit 1) instead of the error. `--profile`, which wins over VENDO_PROFILE, works as before.
+    overrides the active profile (`config::vendo_profile_overrides`). The workspace screen says it once (VE-3891
+    review): under its profile list when it lists the profiles, and then its fixes leave it out
+    (`DoctorCheck::fix_without_override`; `--json`'s `remediation` keeps it). The fix for a rejected key (401/403)
+    says to check the profile login saved with `vendo --profile <profile> workspace`. `vendo workspace` otherwise
+    names the profile as it does for `--profile`, and with a VENDO_PROFILE no profile has it shows its screen instead
+    of the error: the profile's check, a warning, with that fix, and exit 1 only when a check fails, as the key's and
+    the account's do when that leaves no API key or account ID (with `VENDO_API_KEY` and `VENDO_ACCOUNT_ID` it can
+    exit 0). `--profile`, which wins over VENDO_PROFILE, works as before.
 - Workspace (VE-3891, decided by Yalcin 2026-10-07, CLI 1.1): `vendo workspace` is `whoami` and `doctor` in one
   command and one screen, each fact once (`rust/src/commands/workspace.rs`; the checks stay doctor's,
   `health::local_checks` and `health::auth_check`). First the account: the title is `/me`'s name and slug
@@ -211,8 +215,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `Account:` line is the title's slug and its `API Key:` line, which showed the key ID, is gone. Labels are today's.
   Then whoami's `Env overrides active:` line, the saved profiles when there are two or more (`Profiles`, `*` on the
   active one, the name padded, the account ID's first 8 characters and `…`, the base URL without its scheme, left
-  out for the default one) with the VENDO_PROFILE note under them, and `Checks`: each check in a few words after
-  `[ok]`, `[warn]` or `[fail]`, its fix under it (`DoctorCheck::line` and `listed`). `CLI <version> at <path>, on
+  out for the default one) with the VENDO_PROFILE note under them, which the fixes then leave out, and `Checks`:
+  each check in a few words after `[ok]`, `[warn]` or `[fail]`, its fix under it (`DoctorCheck::line` and
+  `listed`). `CLI <version> at <path>, on
   PATH` joins the binary's and PATH's checks with the worse status and both fixes; `Config <path>`, `Zsh completions
   installed`, `Signed in as <name>` are the agreed words, and a check with a problem keeps doctor's words
   (`API key: Missing`, `API auth: HTTP 401: Unauthorized`). Paths under HOME show as `~`. The profile, key, base URL
@@ -234,7 +239,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   shown whole (the preview elided them), the profile list's `…` IDs and hosts read from the preview, the profile list
   only from two profiles (whoami's rule) and without whoami's "Switch with `vendo profile switch` …" hint, no title
   without an answer from `/me`, a value the CLI lacks left out rather than shown as missing, the completions line
-  without the file it loads from, doctor's words for a check with a problem, and no `profiles` key in the JSON.
+  without the file it loads from, doctor's words for a check with a problem, no `profiles` key in the JSON, and the
+  VENDO_PROFILE note said under the profile list rather than in the fixes (VE-3891 review), whose fix for a missing
+  profile still says to run `vendo profile list`.
   Renaming "Account" to "Workspace" in the labels is not decided.
 - Group menus (VE-3826, decided by Yalcin 2026-10-05, CLI 1.1): a group run without its command (`vendo apps`,
   `vendo measurement ltv`, the hidden `config`; bare `vendo` is unchanged) opens an arrow-key menu of its visible

@@ -3277,7 +3277,9 @@ async fn an_unknown_vendo_profile_is_an_error_that_names_it_and_says_how_to_fix_
     }
     assert_eq!(sandbox.config(), saved);
     // `vendo workspace` (whoami's place, VE-3891) shows what it can instead, as doctor did: the
-    // profile's check names it and says how to fix it, and with no key the key's check fails, exit 1.
+    // profile's check, a warning, names it and says how to fix it, and with no key the key's check
+    // fails, exit 1. That VENDO_PROFILE overrides the active profile is said once, under the profile
+    // list, so the fix under the check leaves it out (VE-3891 review: each fact once).
     let out = workspace(&sandbox, &["workspace"]).env("VENDO_PROFILE", "nope").output().unwrap();
     assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
     let shown = text(&out.stdout);
@@ -3286,9 +3288,14 @@ async fn an_unknown_vendo_profile_is_an_error_that_names_it_and_says_how_to_fix_
         "{shown}"
     );
     assert!(
-        shown.contains("\n  [warn] Selected profile: nope (not found in config)\n         Fix: VENDO_PROFILE=nope overrides the active profile in this shell: run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.\n  [fail] API key: Missing\n"),
+        shown.contains("\n  VENDO_PROFILE=nope overrides the active profile in this shell: change or unset VENDO_PROFILE to switch here.\n\nChecks\n"),
         "{shown}"
     );
+    assert!(
+        shown.contains("\n  [warn] Selected profile: nope (not found in config)\n         Fix: Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.\n  [fail] API key: Missing\n"),
+        "{shown}"
+    );
+    assert_eq!(shown.matches("overrides the active profile").count(), 1, "{shown}");
     assert!(server.received_requests().await.unwrap().is_empty());
     // mcp prints the client config as ever; its hint names VENDO_PROFILE where it said there is no key.
     let out = sandbox.command(&["mcp"]).env("VENDO_PROFILE", "nope").output().unwrap();
@@ -3481,12 +3488,20 @@ async fn workspace_fixes_for_a_rejected_key_under_vendo_profile_say_it_overrides
     assert_eq!(auth_fix(sandbox.command(&["workspace", "--json"]).env("VENDO_PROFILE", "beta")), json!(fix));
     let out = sandbox.command(&["workspace"]).env("VENDO_PROFILE", "beta").output().unwrap();
     let printed = text(&out.stdout);
-    // Once, under its check: the screen has no list of next steps that repeats the fixes.
-    assert_eq!(printed.matches(fix).count(), 1, "{printed}");
+    // On the screen the profile list says once that VENDO_PROFILE overrides the active profile, so the
+    // fix under the check leaves it out (VE-3891 review: each fact once). The screen has no list of next
+    // steps that repeats the fixes.
+    let screen_fix = "Run `vendo login` to refresh credentials, then retry `vendo --profile <profile> workspace` with the profile it saved.";
     assert!(
-        printed.contains(&format!("\n  [fail] API auth: HTTP 401: Unauthorized\n         Fix: {fix}\n")),
+        printed.contains(&format!("\n  [fail] API auth: HTTP 401: Unauthorized\n         Fix: {screen_fix}\n")),
         "{printed}"
     );
+    assert!(
+        printed.contains("\n  VENDO_PROFILE=beta overrides the active profile in this shell: change or unset VENDO_PROFILE to switch here.\n\nChecks\n"),
+        "{printed}"
+    );
+    assert_eq!(printed.matches("overrides the active profile").count(), 1, "{printed}");
+    assert_eq!(printed.matches(screen_fix).count(), 1, "{printed}");
     // Without VENDO_PROFILE, or with --profile over it, as before.
     let plain = json!("Run `vendo login` to refresh credentials, then retry `vendo workspace`.");
     assert_eq!(auth_fix(&mut sandbox.command(&["workspace", "--json"])), plain);
@@ -3494,6 +3509,51 @@ async fn workspace_fixes_for_a_rejected_key_under_vendo_profile_say_it_overrides
         auth_fix(sandbox.command(&["--profile", "beta", "workspace", "--json"]).env("VENDO_PROFILE", "alpha")),
         plain
     );
+    // With one profile the screen lists no profiles, so the fix says it, once.
+    let mut config = sandbox.config();
+    config["profiles"].as_object_mut().unwrap().remove("alpha");
+    std::fs::write(sandbox.home.path().join(".config/vendo/config.json"), config.to_string()).unwrap();
+    let out = sandbox.command(&["workspace"]).env("VENDO_PROFILE", "beta").output().unwrap();
+    let alone = text(&out.stdout);
+    assert!(!alone.contains("\nProfiles\n"), "{alone}");
+    assert!(alone.contains(&format!("\n  [fail] API auth: HTTP 401: Unauthorized\n         Fix: {fix}\n")), "{alone}");
+    assert_eq!(alone.matches("overrides the active profile").count(), 1, "{alone}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_unknown_vendo_profile_is_a_warning_on_the_workspace_screen_and_a_key_from_the_env_still_counts() {
+    // The profile's check is a warning, so with VENDO_API_KEY and VENDO_ACCOUNT_ID, which are still used,
+    // every other check passes and it exits 0: exit 1 comes from a check that fails, as the key's does
+    // without them (VE-3891 review).
+    let server = MockServer::start().await;
+    let me = json!({ "data": { "accountId": "acct-env", "accountName": "Env Account" } });
+    serve(&server, "GET", "/api/v1/me", 200, me).await;
+    let stub = server.uri();
+    let installed = Installed::new(json!({
+        "profiles": {
+            "alpha": { "apiKey": "vendo_sk_fake_alpha_0000", "accountId": "acct-alpha", "baseUrl": stub },
+            "beta": { "apiKey": "vendo_sk_fake_beta_00000", "accountId": "acct-beta", "baseUrl": stub },
+        },
+        "activeProfile": "alpha",
+    }));
+    let run = |words: &[&str]| {
+        let mut cmd = installed.command(words);
+        cmd.env("VENDO_PROFILE", "ghost").env("VENDO_API_URL", &stub);
+        cmd.env("VENDO_API_KEY", "vendo_sk_fake_env_00000").env("VENDO_ACCOUNT_ID", "acct-env");
+        cmd.output().unwrap()
+    };
+    let out = run(&["workspace"]);
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), String::new()));
+    let shown = text(&out.stdout);
+    assert!(
+        shown.contains("\n  [warn] Selected profile: ghost (not found in config)\n         Fix: Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.\n  [ok] Zsh completions installed\n  [ok] Signed in as Env Account\n"),
+        "{shown}"
+    );
+    assert_eq!(shown.matches("overrides the active profile").count(), 1, "{shown}");
+    let out = run(&["workspace", "--json"]);
+    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((out.status.code(), &report["summary"]), (Some(0), &json!({ "ok": 8, "warn": 1, "fail": 0 })));
 }
 
 #[tokio::test]
