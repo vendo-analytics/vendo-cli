@@ -137,6 +137,14 @@ jobs:
         with:
           targets: ${{ matrix.triple }}
 
+      # Yalcin accepted the size of the group menu (VE-3826) on condition that it stays under
+      # 150 KB at each release: build the binary without the menu (the `menu` feature) and with
+      # it, write both sizes and the difference to the run's summary, and fail when the menu adds
+      # more than 153,600 bytes. The script builds the menu last, so the next step finds the
+      # release binary up to date.
+      - name: Check the menu's size
+        run: scripts/menu-size.sh --target "$TRIPLE"
+
       - name: Build release binary
         working-directory: rust
         run: cargo build --release --locked --target "$TRIPLE"

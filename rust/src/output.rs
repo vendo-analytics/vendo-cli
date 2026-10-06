@@ -879,6 +879,7 @@ pub fn can_prompt() -> bool {
 /// 2>err.log`) the menu would wait for keys with nothing on the screen, and
 /// `TERM=dumb` says the terminal moves no cursor (decided by Yalcin 2026-10-06),
 /// so the usage error stays. The questions still ask on `TERM=dumb`.
+#[cfg(feature = "menu")]
 pub fn can_show_menu() -> bool {
     can_prompt() && std::io::stderr().is_terminal() && std::env::var_os("TERM").is_none_or(|term| term != "dumb")
 }
@@ -925,17 +926,20 @@ pub fn confirm(yes: bool, question: &str, what: &str) -> anyhow::Result<bool> {
 }
 
 /// A row of [`choose_command`]'s menu.
+#[cfg(feature = "menu")]
 pub struct MenuCommand {
     pub name: String,
     pub about: String,
 }
 
 /// A row as the menu shows it: names padded to one width, as the help's `Commands:` list does.
+#[cfg(feature = "menu")]
 struct MenuRow<'a> {
     command: &'a MenuCommand,
     width: usize,
 }
 
+#[cfg(feature = "menu")]
 impl std::fmt::Display for MenuRow<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let MenuCommand { name, about } = self.command;
@@ -950,6 +954,7 @@ impl std::fmt::Display for MenuRow<'_> {
 /// `<canceled>`. On a screen too short for every command the list scrolls ([`menu_page`]).
 /// `None` when the menu cannot run (no commands, the terminal refused it). Only where
 /// [`can_show_menu`]; inquire reads the keys from stdin and draws on stderr.
+#[cfg(feature = "menu")]
 pub fn choose_command(title: &str, commands: &[MenuCommand]) -> Option<usize> {
     use crossterm::{cursor, queue, style::Print};
     use inquire::{InquireError, Select};
@@ -982,6 +987,7 @@ pub fn choose_command(title: &str, commands: &[MenuCommand]) -> Option<usize> {
 /// the title and the hint, counting the ones that take the most lines, and scrolls (`^`, `v`);
 /// at least one. The screen's last line stays free for the line after the menu: Enter or Esc
 /// there scrolled the answer off a full screen.
+#[cfg(feature = "menu")]
 fn menu_page(title: &str, rows: &[usize], hint: Option<&str>, (columns, lines): (usize, usize)) -> (usize, usize) {
     let height = |width: usize| width.div_ceil(columns).max(1);
     let lines = lines.saturating_sub(1);
@@ -1002,6 +1008,7 @@ fn menu_page(title: &str, rows: &[usize], hint: Option<&str>, (columns, lines): 
 
 /// The terminal's columns and lines as inquire reads them, and 80 × 24 when they are unknown,
 /// as inquire assumes.
+#[cfg(feature = "menu")]
 fn screen_size() -> (usize, usize) {
     match crossterm::terminal::size() {
         Ok((columns @ 1.., lines @ 1..)) => (columns.into(), lines.into()),
@@ -1014,6 +1021,7 @@ fn screen_size() -> (usize, usize) {
 /// of the screen with the cursor on the hint, which the shell's next prompt overwrote. So: back to
 /// the menu's first line, saved by [`choose_command`], clear from there down, and write inquire's
 /// line for Esc.
+#[cfg(feature = "menu")]
 fn clear_menu(out: &mut impl Write, title: &str, config: inquire::ui::RenderConfig) -> std::io::Result<()> {
     use crossterm::{
         cursor, queue,
@@ -1030,6 +1038,7 @@ fn clear_menu(out: &mut impl Write, title: &str, config: inquire::ui::RenderConf
 }
 
 /// `styled` as inquire's crossterm terminal writes it.
+#[cfg(feature = "menu")]
 fn write_styled(out: &mut impl Write, styled: inquire::ui::Styled<&str>) -> std::io::Result<()> {
     use crossterm::{
         queue,
@@ -1517,6 +1526,7 @@ mod tests {
         assert_eq!(consent(false, false), Consent::Refused);
     }
 
+    #[cfg(feature = "menu")]
     #[test]
     fn the_menu_lists_as_many_commands_as_the_screen_holds() {
         let hint = Some("↑↓ to move, enter to select, type to filter");
@@ -1539,6 +1549,7 @@ mod tests {
         assert_eq!(menu_page("vendo apps", &apps, hint, (80, 2)), (1, 3));
     }
 
+    #[cfg(feature = "menu")]
     #[test]
     fn the_canceled_line_is_styled_as_inquire_styles_it() {
         use inquire::ui::{Attributes, Color, Styled};
@@ -1553,6 +1564,7 @@ mod tests {
         assert_eq!(write(Styled::new("b").with_attr(Attributes::BOLD)), "\x1b[1mb\x1b[0m");
     }
 
+    #[cfg(feature = "menu")]
     #[test]
     fn ctrl_c_redraws_the_menu_as_esc_leaves_it() {
         // Back to the menu's first line (DECRC), clear from there down, then the title and `<canceled>`.
@@ -1567,6 +1579,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "menu")]
     #[test]
     fn menu_rows_line_up_like_the_help_commands_list() {
         let commands = [("list", "List all apps"), ("diagnose", "Show apps that need attention")]

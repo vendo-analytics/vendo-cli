@@ -167,6 +167,15 @@ fn chosen_command(root: &clap::Command, args: &[OsString], err: &clap::Error) ->
         return None;
     }
     let (group, title, at) = bare_group(root, args)?;
+    let chosen = menu_choice(group, &title)?;
+    let mut args = args.to_vec();
+    args.insert(at, chosen.into());
+    Some(args)
+}
+
+/// The name of the command chosen in `group`'s menu, where it can show.
+#[cfg(feature = "menu")]
+fn menu_choice<'a>(group: &'a clap::Command, title: &str) -> Option<&'a str> {
     if !crate::output::can_show_menu() {
         return None;
     }
@@ -178,10 +187,15 @@ fn chosen_command(root: &clap::Command, args: &[OsString], err: &clap::Error) ->
             about: command.get_about().map(ToString::to_string).unwrap_or_default(),
         })
         .collect();
-    let chosen = commands[crate::output::choose_command(&title, &rows)?].get_name();
-    let mut args = args.to_vec();
-    args.insert(at, chosen.into());
-    Some(args)
+    Some(commands[crate::output::choose_command(title, &rows)?].get_name())
+}
+
+/// A build without the `menu` feature has no menu (VE-3826): a group run without its command is
+/// the usage error at a terminal too, as without one. The release's size check builds it to
+/// measure what the menu adds (`scripts/menu-size.sh`).
+#[cfg(not(feature = "menu"))]
+fn menu_choice<'a>(_group: &'a clap::Command, _title: &str) -> Option<&'a str> {
+    None
 }
 
 /// The group `args` run without its command, if they name one and nothing but global options:
