@@ -2862,6 +2862,100 @@ fn completions_json_carries_the_script_or_bare_the_set_up() {
     }
 }
 
+// ── install.sh's completions (VE-3830) ──────────────────────────────────────
+
+/// Run install.sh's `install_completions` for bash in `sandbox`'s HOME, with this `vendo` as the installed
+/// binary and `uname -s` answering `system`: the summary it prints. Only the installer's functions load
+/// (its last line, `main "$@"`, is left off), so nothing is downloaded.
+#[cfg(unix)]
+fn install_bash_completions(sandbox: &Sandbox, system: &str) -> String {
+    let installer = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../install.sh")).unwrap();
+    let functions = installer.strip_suffix("main \"$@\"\n").expect("install.sh ends by running main");
+    let script = format!(
+        "{functions}\nuname() {{ printf '%s\\n' \"$FAKE_UNAME\"; }}\nINSTALL_PATH=\"$VENDO_BINARY\"\n\
+         install_completions\nprintf '%s\\n' \"$COMPLETIONS_SUMMARY\"\n"
+    );
+    let mut cmd = Command::new("bash");
+    cmd.args(["-c", &script])
+        .env("HOME", sandbox.home.path())
+        .env("SHELL", "/bin/bash")
+        .env("FAKE_UNAME", system)
+        .env("VENDO_BINARY", env!("CARGO_BIN_EXE_vendo"))
+        .env_remove("VENDO_INSTALL_COMPLETIONS")
+        .stdin(Stdio::null());
+    let out = cmd.output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    text(&out.stdout)
+}
+
+#[cfg(unix)]
+#[test]
+fn the_installer_adds_bash_completions_where_bash_reads_them() {
+    const MARKER: &str = "# >>> vendo completions >>>";
+    let login_files = [".bash_profile", ".bash_login", ".profile"];
+    // (system, login files there before, the file the block goes into besides ~/.bashrc).
+    for (system, present, expected) in [
+        // macOS Terminal opens login shells, which read the first of the login files that exists.
+        ("Darwin", &[".bash_profile"][..], Some(".bash_profile")),
+        ("Darwin", &[".profile"][..], Some(".profile")),
+        ("Darwin", &[".bash_login"][..], Some(".bash_login")),
+        ("Darwin", &[".bash_profile", ".profile"][..], Some(".bash_profile")),
+        ("Darwin", &[".bash_login", ".profile"][..], Some(".bash_login")),
+        // None there: ~/.bash_profile, created with the block.
+        ("Darwin", &[][..], Some(".bash_profile")),
+        // Linux: ~/.bashrc only, as before.
+        ("Linux", &[][..], None),
+        ("Linux", &[".profile"][..], None),
+    ] {
+        let case = format!("{system} with {present:?}");
+        let sandbox = Sandbox::new(CLOSED);
+        let home = sandbox.home.path();
+        for file in present {
+            std::fs::write(home.join(file), "export EDITOR=vi\n").unwrap();
+        }
+        let summary = install_bash_completions(&sandbox, system);
+        let script = std::fs::read_to_string(home.join(".local/share/vendo/completions/vendo.bash")).unwrap();
+        assert!(script.contains("complete -F"), "{case}: the script is saved");
+        let read = |file: &str| std::fs::read_to_string(home.join(file)).ok();
+        assert_eq!(read(".bashrc").unwrap().matches(MARKER).count(), 1, "{case}: ~/.bashrc as before");
+        for file in login_files {
+            let contents = read(file);
+            if Some(file) == expected {
+                let contents = contents.unwrap_or_else(|| panic!("{case}: {file} is written"));
+                assert_eq!(contents.matches(MARKER).count(), 1, "{case}: {file}");
+                if present.contains(&file) {
+                    assert!(contents.starts_with("export EDITOR=vi\n"), "{case}: {file} keeps what it had");
+                }
+            } else if present.contains(&file) {
+                assert_eq!(contents.as_deref(), Some("export EDITOR=vi\n"), "{case}: {file} is left alone");
+            } else {
+                assert_eq!(contents, None, "{case}: {file} is not created");
+            }
+        }
+        let loaded_from = match expected {
+            Some(file) => format!("~/.bashrc and ~/{file}"),
+            None => "~/.bashrc".to_string(),
+        };
+        assert_eq!(summary, format!("bash, loaded from {loaded_from}\n"), "{case}");
+        // A second run adds no second block.
+        assert_eq!(install_bash_completions(&sandbox, system), summary, "{case}");
+        for file in [".bashrc"].into_iter().chain(expected) {
+            assert_eq!(read(file).unwrap().matches(MARKER).count(), 1, "{case}: {file} after a second run");
+        }
+        // `vendo completions` and doctor find them where the installer says they load from, on this system.
+        if (system == "Darwin") == cfg!(target_os = "macos") {
+            let out = sandbox.command(&["completions"]).env("SHELL", "/bin/bash").output().unwrap();
+            let detail = format!("Bash completions are installed in {loaded_from}.\n");
+            assert!(text(&out.stderr).contains(&detail), "{case}: {}", text(&out.stderr));
+            let out = sandbox.command(&["completions", "--json"]).env("SHELL", "/bin/bash").output().unwrap();
+            assert_eq!(
+                serde_json::from_str::<Value>(&ok_output(&out)).unwrap(),
+                json!({ "shell": "bash", "installed": true })
+            );
+        }
+    }
+}
+
 /// A fake `bash` first on PATH that runs `script` in place of `curl … | bash`.
 #[cfg(unix)]
 fn fake_installer(sandbox: &Sandbox, script: &str, args: &[&str]) -> Output {

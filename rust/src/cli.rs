@@ -1547,10 +1547,10 @@ pub enum JobsCommand {
         after_help = "Examples:\n  $ vendo jobs list\n  $ vendo jobs list --status running\n  $ vendo jobs list --source <sourceId>\n  $ vendo jobs list --output id"
     )]
     List {
-        /// Filter by status (pending, running, completed, failed, cancelled)
+        /// Filter by status (queued, pending, running, completed, warning, failed, canceled)
         #[arg(long, value_name = "status", value_parser = JOB_STATUSES)]
         status: Option<String>,
-        /// Filter by job type (import, export)
+        /// Filter by job type (import, export, data_quality, attribution)
         #[arg(long = "type", value_name = "type", value_parser = JOB_TYPES)]
         job_type: Option<String>,
         /// Filter by source ID
@@ -1749,10 +1749,10 @@ const METRIC_STATUSES: Suggest = Suggest(&["draft", "active", "archived"]);
 const METRIC_FORMATS: Suggest = Suggest(&["number", "currency", "percentage", "multiplier"]);
 /// `measurement ltv list|cohort --granularity`: `VALID_GRANULARITIES` (`apps/web/app/api/measurement/ltv/route.ts`).
 const GRANULARITIES: Suggest = Suggest(&["daily", "weekly", "monthly"]);
-/// `jobs list --status`: the statuses `GET /api/v1/jobs` documents (`route-handlers/jobs/collection.ts`), which are
+/// `jobs list --status`, which its help lists: the statuses `GET /api/v1/jobs` documents (`route-handlers/jobs/collection.ts`), which are
 /// vendo-pipelines-v2's `JobStatus` (`app/models/job_status.py`). The API spells `canceled` with one l.
 const JOB_STATUSES: Suggest = Suggest(&["queued", "pending", "running", "completed", "warning", "failed", "canceled"]);
-/// `jobs list --type`: the job types `GET /api/v1/jobs` documents for `job_type` (`route-handlers/jobs/collection.ts`).
+/// `jobs list --type`, which its help lists: the job types `GET /api/v1/jobs` documents for `job_type` (`route-handlers/jobs/collection.ts`).
 /// `jobs.job_type` allows more (internal DAG steps), which still pass.
 const JOB_TYPES: Suggest = Suggest(&["import", "export", "data_quality", "attribution"]);
 /// `login --env`: the instances its help names, as `ConfigStore::resolve_login_base_url` reads them.
@@ -2252,6 +2252,19 @@ mod tests {
             assert!(error.starts_with("error: a value is required for '--"), "{error}");
             assert!(!error.contains("possible values"), "{error}");
         }
+    }
+
+    #[test]
+    fn jobs_help_names_the_values_tab_offers() {
+        // The API's values, as TAB offers them (Yalcin, 2026-10-06).
+        let command = command();
+        let list = command.find_subcommand("jobs").unwrap().find_subcommand("list").unwrap();
+        let help = |flag: &str| {
+            let arg = list.get_arguments().find(|arg| arg.get_long() == Some(flag)).unwrap();
+            arg.get_help().unwrap().to_string()
+        };
+        assert_eq!(help("status"), format!("Filter by status ({})", JOB_STATUSES.0.join(", ")));
+        assert_eq!(help("type"), format!("Filter by job type ({})", JOB_TYPES.0.join(", ")));
     }
 
     #[test]

@@ -116,7 +116,7 @@ install_completions() {
     return
   fi
 
-  local shell_name
+  local shell_name login_file
   shell_name="$(basename "${SHELL:-}")"
 
   case "$shell_name" in
@@ -125,6 +125,12 @@ install_completions() {
       "$INSTALL_PATH" completions bash > "${COMPLETIONS_DIR}/vendo.bash"
       ensure_bash_completion_block "${HOME}/.bashrc" "${COMPLETIONS_DIR}/vendo.bash"
       COMPLETIONS_SUMMARY="bash, loaded from $(tilde "${HOME}/.bashrc")"
+      # macOS Terminal opens each window as a login shell, which reads its login file, not ~/.bashrc.
+      if [ "$(uname -s)" = "Darwin" ]; then
+        login_file="$(bash_login_file)"
+        ensure_bash_completion_block "$login_file" "${COMPLETIONS_DIR}/vendo.bash"
+        COMPLETIONS_SUMMARY="${COMPLETIONS_SUMMARY} and $(tilde "$login_file")"
+      fi
       ;;
     zsh)
       mkdir -p "$COMPLETIONS_DIR"
@@ -141,6 +147,20 @@ install_completions() {
       COMPLETIONS_SUMMARY="skipped (unsupported shell: ${shell_name:-unknown})"
       ;;
   esac
+}
+
+# The file a bash login shell reads: the first of these that exists, as bash picks it, else
+# ~/.bash_profile, which ensure_bash_completion_block then creates. Never ~/.bash_profile
+# beside an existing ~/.profile: bash would stop reading ~/.profile.
+bash_login_file() {
+  local file
+  for file in "${HOME}/.bash_profile" "${HOME}/.bash_login" "${HOME}/.profile"; do
+    if [ -e "$file" ]; then
+      printf '%s\n' "$file"
+      return
+    fi
+  done
+  printf '%s\n' "${HOME}/.bash_profile"
 }
 
 ensure_bash_completion_block() {

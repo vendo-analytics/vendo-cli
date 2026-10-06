@@ -543,8 +543,8 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (list)
 _arguments "${_arguments_options[@]}" : \
-'--status=[Filter by status (pending, running, completed, failed, cancelled)]:status:(queued pending running completed warning failed canceled)' \
-'--type=[Filter by job type (import, export)]:type:(import export data_quality attribution)' \
+'--status=[Filter by status (queued, pending, running, completed, warning, failed, canceled)]:status:(queued pending running completed warning failed canceled)' \
+'--type=[Filter by job type (import, export, data_quality, attribution)]:type:(import export data_quality attribution)' \
 '--source=[Filter by source ID]:sourceId:_default' \
 '--integration=[Filter by destination ID]:integrationId:_default' \
 '--limit=[Number of results]:n:_default' \

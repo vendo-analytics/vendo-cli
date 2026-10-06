@@ -6,8 +6,8 @@ List sync jobs
 Usage: vendo jobs list [OPTIONS]
 
 Options:
-      --status <status>              Filter by status (pending, running, completed, failed, cancelled)
-      --type <type>                  Filter by job type (import, export)
+      --status <status>              Filter by status (queued, pending, running, completed, warning, failed, canceled)
+      --type <type>                  Filter by job type (import, export, data_quality, attribution)
       --source <sourceId>            Filter by source ID
       --integration <integrationId>  Filter by destination ID
       --limit <n>                    Number of results [default: 20]

@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::{
     client::payload,
-    commands::completions::{self, Setup},
+    commands::completions::{self, Os, Setup},
     config::{EffectiveConfig, Source, mask_api_key, vendo_profile_overrides},
     context::Ctx,
     identity::{Identity, IdentityError, fetch_identity},
@@ -167,6 +167,8 @@ pub struct DoctorEnv {
     pub path_var: String,
     pub shell: Option<String>,
     pub home: PathBuf,
+    /// Where bash reads its startup files (VE-3830).
+    pub os: Os,
 }
 
 const REINSTALL: &str =
@@ -283,7 +285,7 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
         ),
     });
 
-    checks.push(completion_check(env.shell.as_deref(), &env.home));
+    checks.push(completion_check(env.shell.as_deref(), &env.home, env.os));
     checks
 }
 
@@ -317,10 +319,10 @@ pub fn auth_check(result: Option<&Result<Identity, IdentityError>>, vendo_profil
 
 /// `vendo completions <shell>` only prints a script, so the fixes point at the installer, which
 /// sets completions up, and at bare `vendo completions`, which says how (VE-3830).
-fn completion_check(shell: Option<&str>, home: &Path) -> DoctorCheck {
-    let setup = completions::setup(shell, home);
+fn completion_check(shell: Option<&str>, home: &Path, os: Os) -> DoctorCheck {
+    let setup = completions::setup(shell, home, os);
     let (status, fix) = match setup {
-        Setup::Installed(_) => (CheckStatus::Ok, None),
+        Setup::Installed(..) => (CheckStatus::Ok, None),
         Setup::Missing(_) => (
             CheckStatus::Warn,
             Some(format!(
@@ -386,6 +388,7 @@ pub async fn doctor(ctx: &Ctx, json: bool) -> Result<ExitCode> {
         path_var: std::env::var("PATH").unwrap_or_default(),
         shell: shell.clone(),
         home: ctx.home.clone(),
+        os: Os::current(),
     };
     let mut checks = local_checks(&env, &config);
     let identity = match (&config.api_key, &config.account_id) {
@@ -530,6 +533,7 @@ mod tests {
             path_var: path_var.into(),
             shell: shell.map(Into::into),
             home: home.to_path_buf(),
+            os: Os::Other,
         }
     }
 
@@ -580,11 +584,40 @@ mod tests {
             "autoload -Uz compinit && compinit\neval \"$(vendo completions zsh)\"\n",
         )
         .unwrap();
-        let check = completion_check(Some("zsh"), home.path());
+        let check = completion_check(Some("zsh"), home.path(), Os::Other);
         assert_eq!(
             (check.status, check.detail.as_str(), check.remediation),
             (CheckStatus::Ok, "Zsh completions are installed in ~/.zshrc", None)
         );
+        // The line alone fails on a stock zsh, where nothing has run compinit before it (Yalcin, 2026-10-06).
+        std::fs::write(home.path().join(".zshrc"), "eval \"$(vendo completions zsh)\"\n").unwrap();
+        let check = completion_check(Some("zsh"), home.path(), Os::Other);
+        assert_eq!((check.status, check.detail.as_str()), (CheckStatus::Warn, "Zsh completions are not installed yet"));
+    }
+
+    #[test]
+    fn on_macos_bash_completions_load_from_the_login_file_too() {
+        // What install.sh leaves on macOS with only ~/.profile there: the block in ~/.bashrc and ~/.profile.
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        std::fs::create_dir_all(h.join(".local/share/vendo/completions")).unwrap();
+        std::fs::write(h.join(".local/share/vendo/completions/vendo.bash"), "# the script\n").unwrap();
+        std::fs::write(h.join(".profile"), "# >>> vendo completions >>>\n").unwrap();
+        let mut env = env(h, "/opt/vendo/bin/vendo", "/usr/bin", Some("bash"));
+        let check = |env: &DoctorEnv| {
+            let checks = local_checks(env, &config(None, None, None, true));
+            let check = checks.into_iter().find(|c| c.name == "Shell completions").unwrap();
+            (check.status, check.detail)
+        };
+        env.os = Os::MacOs;
+        assert_eq!(check(&env), (CheckStatus::Ok, "Bash completions are installed in ~/.profile".into()));
+        std::fs::write(h.join(".bashrc"), "# >>> vendo completions >>>\n").unwrap();
+        assert_eq!(check(&env), (CheckStatus::Ok, "Bash completions are installed in ~/.bashrc and ~/.profile".into()));
+        // Elsewhere bash reads ~/.bashrc only.
+        env.os = Os::Other;
+        assert_eq!(check(&env), (CheckStatus::Ok, "Bash completions are installed in ~/.bashrc".into()));
+        std::fs::remove_file(h.join(".bashrc")).unwrap();
+        assert_eq!(check(&env), (CheckStatus::Warn, "Bash completions are not installed yet".into()));
     }
 
     #[test]
@@ -721,6 +754,7 @@ mod tests {
                 path_var: "/h/.local/bin".into(),
                 shell: None,
                 home: PathBuf::from("/h/"),
+                os: Os::Other,
             },
             &config(None, None, None, true),
         );

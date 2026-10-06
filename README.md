@@ -8,7 +8,7 @@ Manage your [Vendo](https://vendodata.com) data pipeline from the terminal.
 curl -fsSL https://app2.vendodata.com/install.sh | bash
 ```
 
-The installer downloads the right standalone binary for your platform from this repo's [GitHub Releases](https://github.com/vendo-analytics/vendo-cli/releases), verifies its SHA-256, and installs `vendo` into `~/.local/bin`. Shell completions are installed when possible.
+The installer downloads the right standalone binary for your platform from this repo's [GitHub Releases](https://github.com/vendo-analytics/vendo-cli/releases), verifies its SHA-256, and installs `vendo` into `~/.local/bin`. Shell completions are installed when possible. For bash they load from `~/.bashrc` and, on macOS, where Terminal opens bash as a login shell, also from `~/.bash_profile` (or `~/.bash_login` or `~/.profile`, whichever of them bash reads; `~/.bash_profile` is created when none exists).
 
 Supported platforms: `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`.
 

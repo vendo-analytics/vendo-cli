@@ -83,13 +83,26 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   leaves the shell out gets nothing. With `--json` (VE-3831) stdout carries JSON instead and stderr stays quiet: bare,
   `{"shell","installed"}`; with a shell, the script wrapped in `{"shell","script"}`.
   `rust/src/commands/completions.rs` owns that detection (the installer's saved script and startup-file block, or a
-  line in `~/.bashrc`/`~/.zshrc` that runs `vendo completions <shell>`), and doctor's check uses it. A flag with a
-  fixed set of values offers them on TAB through `Suggest` in `cli.rs`, each list citing its source: parsing still
-  takes any string (the API decides), and clap sees the values only while a script is generated
-  (`cli::suggesting`), so help screens and parse errors are as they were. The scripts are generated with the shell
-  argument required, so they complete `completions` as before; `rust/tests/snapshots/output/completions__*` record
-  them whole. `completions --help` shows `[shell]` where the TS CLI shows `<shell>`, which `pnpm parity:help`
-  reports.
+  line in a startup file that runs `vendo completions <shell>`), and doctor's check uses it. Bash's startup file is
+  `~/.bashrc` and, on macOS, whose Terminal opens login shells, also its login file: the first of `~/.bash_profile`,
+  `~/.bash_login` and `~/.profile` that exists (Yalcin, 2026-10-06). There install.sh (`uname -s` Darwin) adds its
+  block to that file too, creating `~/.bash_profile` when none exists (never beside `~/.profile`, which bash would
+  stop reading), and its summary names each file (`bash, loaded from ~/.bashrc and ~/.bash_profile`); bare
+  `vendo completions` and doctor look in those files on macOS, and the bare text's bash step names the login file.
+  A zsh line counts only after compinit, which the script's `compdef` needs: an earlier line, not a comment (or a
+  command earlier on its line), that runs `compinit` or sources oh-my-zsh (`oh-my-zsh.sh`), Prezto
+  (`.zprezto/init.zsh`) or Zim (`${ZIM_HOME}/init.zsh`, `~/.zim/init.zsh`); the installer's block counts as before.
+  The bare text tells zsh users to add its lines at the end of `~/.zshrc`, after a framework's compinit. What it
+  says for bash is recorded per system
+  (`completions__…_macos`/`…_linux`), and `the_installer_adds_bash_completions_where_bash_reads_them` in
+  `rust/tests/cli.rs` runs install.sh's `install_completions` (the script without its last line, `main "$@"`) in
+  scratch HOMEs. A flag with a fixed set of values offers them on TAB through `Suggest` in `cli.rs`, each list citing
+  its source: parsing still takes any string (the API decides), and clap sees the values only while a script is
+  generated (`cli::suggesting`), so help screens and parse errors are as they were. `jobs list`'s `--status` and
+  `--type` help lists the values TAB offers (`JOB_STATUSES`, `JOB_TYPES`; Yalcin, 2026-10-06). The scripts are
+  generated with the shell argument required, so they complete `completions` as before;
+  `rust/tests/snapshots/output/completions__*` record them whole. `completions --help` shows `[shell]` where the TS
+  CLI shows `<shell>`, which `pnpm parity:help` reports.
 - Agents (VE-3831, decided by Yalcin 2026-10-05, CLI 1.1):
   - Errors with `--json`: one line of JSON on stderr, the last line, in one fixed shape (document it in cli.mdx at
     release): `{"error":{"message":"…","code":"NOT_FOUND"|null,"status":404|null,"requestId":"…"|null}}`. `message`
@@ -239,8 +252,9 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
   (`cargo update --workspace` from `rust/`) in one commit, merged through a PR like any change. Then tag that
   commit `cli-vX.Y.Z-rc.N` and push the tag. Agents never push tags or create releases: Yalcin approves each one.
 - Before tagging, run `pnpm build && pnpm parity:help --rust rust/target/release/vendo` on that commit. Every help
-  screen must be the same, except the two accepted for VE-3823 (`logout`, `metrics delete`; Yalcin, 2026-10-06) and
-  `--profile`'s description on the root screen, which names VENDO_PROFILE (VE-3831, Yalcin 2026-10-06).
+  screen must be the same, except the two accepted for VE-3823 (`logout`, `metrics delete`; Yalcin, 2026-10-06),
+  `--profile`'s description on the root screen, which names VENDO_PROFILE (VE-3831, Yalcin 2026-10-06), and
+  `jobs list`'s `--status` and `--type`, which list the API's values (VE-3830, Yalcin 2026-10-06).
   This is a manual step, not a CI job (decided by Yalcin, 2026-10-05): the TypeScript CLI
   it compares against is deleted at 1.0.0 (VE-3669).
 - Installing a release candidate: `VENDO_VERSION=cli-vX.Y.Z-rc.N bash install.sh` from a checkout,

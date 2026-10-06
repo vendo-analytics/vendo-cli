@@ -11,6 +11,9 @@
 //!   against the local stub with the synthetic account below; and the three
 //!   completion scripts, whole. A command that takes `--json` without a
 //!   snapshot of it fails the run, unless `JSON_NOT_RECORDED` says why.
+//!   What bare `vendo completions` says for bash depends on the system (bash
+//!   reads other startup files on macOS), so it is recorded per system:
+//!   `…_macos` on macOS and `…_linux` elsewhere (`Session::record_per_system`).
 //!
 //! What varies between machines or runs is replaced before comparing: the stub
 //! URL, HOME, the binary's path, the CLI version, request IDs and the few
@@ -60,6 +63,11 @@ impl Recorder {
     fn new(folder: &str, prefix: &str) -> Self {
         let dir = Path::new(SNAPSHOTS).join(folder);
         Recorder { dir, prefix: prefix.to_string(), checked: BTreeSet::new(), failed: Vec::new() }
+    }
+
+    /// Keep `name`'s snapshot without checking it here: another system checks it.
+    fn keep(&mut self, name: &str) {
+        assert!(self.checked.insert(name.to_string()), "snapshot {name} is recorded twice");
     }
 
     fn check(&mut self, name: &str, contents: &str) {
@@ -567,6 +575,14 @@ impl Session {
         adjust(&mut cmd);
         let out = cmd.output().unwrap();
         self.record_output(name, args, (out.status.code(), text(&out.stdout), text(&out.stderr)));
+    }
+
+    /// [`Session::record_with`] as `<name>_macos` on macOS and `<name>_linux` elsewhere, keeping the other
+    /// system's snapshot: for output that follows where the system's bash reads its startup files (VE-3830).
+    fn record_per_system(&mut self, name: &str, args: &[&str], adjust: impl FnOnce(&mut Command)) {
+        let (here, there) = if cfg!(target_os = "macos") { ("macos", "linux") } else { ("linux", "macos") };
+        self.recorder.keep(&format!("{}__{name}_{there}", self.group));
+        self.record_with(&format!("{name}_{here}"), args, adjust);
     }
 
     /// Check what `vendo <args>` printed, run elsewhere, against `output/<group>__<name>.snap`.
@@ -1428,9 +1444,10 @@ async fn completions_output() {
     // Bare, it says what it does, whether completions are set up for the shell `$SHELL` names, and how.
     let shell = |value: &'static str| move |cmd: &mut Command| _ = cmd.env("SHELL", value);
     s.record_with("bare_zsh", &["completions"], shell("/bin/zsh"));
-    s.record_with("bare_bash", &["completions"], shell("/bin/bash"));
+    // For bash it names the file bash reads: ~/.bash_profile on macOS, whose Terminal opens login shells.
+    s.record_per_system("bare_bash", &["completions"], shell("/bin/bash"));
     s.record_with("bare_fish", &["completions"], shell("/opt/homebrew/bin/fish"));
-    s.record_with("bare_unknown_shell", &["completions"], |cmd| _ = cmd.env_remove("SHELL"));
+    s.record_per_system("bare_unknown_shell", &["completions"], |cmd| _ = cmd.env_remove("SHELL"));
     s.record_with("bare_zsh_json", &["completions", "--json"], shell("/bin/zsh"));
     fn bare(s: &Session, shell: Option<&str>) -> (Option<i32>, Vec<u8>, Vec<u8>) {
         let mut cmd = s.sandbox.command(&["completions"]);
