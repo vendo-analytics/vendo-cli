@@ -110,7 +110,7 @@ pub async fn cancel(
         print_dry_run("cancel", "job", job_id, &[]);
         return Ok(());
     }
-    if !yes && !json && !confirm(&format!("Cancel job {}?", short_id(job_id))) {
+    if !confirm(yes, &format!("Cancel job {}?", short_id(job_id)), &format!("This cancels job {job_id}."))? {
         return Ok(());
     }
     let client = ctx.client()?;

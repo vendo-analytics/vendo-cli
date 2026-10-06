@@ -83,8 +83,13 @@ pub async fn init(ctx: &Ctx, env: Option<String>, base_url: Option<String>) -> R
     Ok(())
 }
 
-pub fn logout(ctx: &Ctx, all: bool) -> Result<()> {
+pub fn logout(ctx: &Ctx, all: bool, yes: bool) -> Result<()> {
     if all {
+        // The TS CLI removed everything without asking (VE-3823, Yalcin 2026-10-06).
+        if !confirm(yes, "Remove every saved profile?", "This removes every saved profile and its API key.")? {
+            println!("{}", dim("Cancelled."));
+            return Ok(());
+        }
         if ctx.store.delete() {
             print_success("Logged out. All profiles removed.");
         } else {
@@ -230,16 +235,17 @@ pub fn config_list(ctx: &Ctx) {
     print_profile_list(&ctx.store.profile_summaries(), false, "", NO_PROFILES);
 }
 
-pub fn config_reset(ctx: &Ctx, yes: bool) {
-    if !yes && !confirm("Delete all CLI configuration?") {
+pub fn config_reset(ctx: &Ctx, yes: bool) -> Result<()> {
+    if !confirm(yes, "Delete all CLI configuration?", "This deletes all CLI configuration.")? {
         println!("{}", dim("Cancelled."));
-        return;
+        return Ok(());
     }
     if ctx.store.delete() {
         print_success("Configuration deleted.");
     } else {
         println!("{}", dim("No configuration file found."));
     }
+    Ok(())
 }
 
 pub fn profile_list(ctx: &Ctx) {

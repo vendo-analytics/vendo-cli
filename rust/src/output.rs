@@ -759,14 +759,51 @@ fn quit_quietly() -> ! {
     std::process::exit(0)
 }
 
-/// `(y/N)` prompt. Like the TS CLI, a non-interactive stdout confirms.
-pub fn confirm(message: &str) -> bool {
-    if !stdout_is_tty() {
-        return true;
+/// Whether someone can answer a question: it is shown on stdout and read from
+/// stdin, so both must be terminals. Never in unit tests, for the same reason
+/// as [`stdout_is_tty`].
+fn can_prompt() -> bool {
+    !cfg!(test) && std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+/// What happens before a delete, cancel or reset (VE-3823).
+#[derive(Debug, PartialEq)]
+enum Consent {
+    /// `--yes`.
+    Given,
+    /// Ask the person at the terminal.
+    Ask,
+    /// No `--yes` and no one to ask: stop.
+    Refused,
+}
+
+fn consent(yes: bool, interactive: bool) -> Consent {
+    match (yes, interactive) {
+        (true, _) => Consent::Given,
+        (false, true) => Consent::Ask,
+        (false, false) => Consent::Refused,
     }
-    match prompt(&format!("{message} {} ", dim("(y/N)"))) {
-        Answer::Line(answer) => answer.trim().eq_ignore_ascii_case("y"),
-        Answer::Closed => quit_quietly(),
+}
+
+/// An answer to `(y/N)` that confirms: `answer.trim().toLowerCase() === 'y'`.
+fn accepts(answer: &str) -> bool {
+    answer.trim().eq_ignore_ascii_case("y")
+}
+
+/// Confirm a delete, cancel or reset; `Ok(false)` when the person says no.
+/// `--yes` goes ahead. At a terminal it asks `question (y/N)` as the TS CLI
+/// did; Ctrl-C or Ctrl-D there ends the command quietly. Without a terminal
+/// (a script, a pipe, an agent) and without `--yes` it fails with
+/// "`what` Re-run with --yes to confirm." before anything is changed, where
+/// the TS CLI went ahead (decided by Yalcin, 2026-10-05, VE-3823).
+pub fn confirm(yes: bool, question: &str, what: &str) -> anyhow::Result<bool> {
+    match consent(yes, can_prompt()) {
+        Consent::Given => Ok(true),
+        Consent::Ask => match prompt(&format!("{question} {} ", dim("(y/N)"))) {
+            Answer::Line(answer) => Ok(accepts(&answer)),
+            Answer::Closed => quit_quietly(),
+        },
+        Consent::Refused => Err(anyhow::anyhow!("{what} Re-run with --yes to confirm.")),
     }
 }
 
@@ -1159,6 +1196,35 @@ mod tests {
         // Without an interrupt key (stdin is not a terminal) 0x03 is just input.
         let mut piped = std::io::Cursor::new(b"\x03\n".to_vec());
         assert_eq!(read_answer(&mut piped, None), Answer::Line("\x03\n".into()));
+    }
+
+    #[test]
+    fn yes_goes_ahead_a_terminal_asks_and_otherwise_the_command_stops() {
+        // VE-3823: the TS CLI went ahead whenever stdout was not a terminal.
+        assert_eq!(consent(true, true), Consent::Given);
+        assert_eq!(consent(true, false), Consent::Given);
+        assert_eq!(consent(false, true), Consent::Ask);
+        assert_eq!(consent(false, false), Consent::Refused);
+    }
+
+    #[test]
+    fn without_a_terminal_confirm_needs_yes() {
+        // Unit tests never see a terminal, like a script or an agent.
+        assert!(!can_prompt());
+        assert!(confirm(true, "Delete app abc?", "This deletes app abc.").unwrap());
+        let err = confirm(false, "Delete app abc?", "This deletes app abc.").unwrap_err();
+        assert_eq!(format_error(&err), "This deletes app abc. Re-run with --yes to confirm.");
+    }
+
+    #[test]
+    fn only_y_confirms_at_the_question() {
+        // `answer.trim().toLowerCase() === 'y'`, as in TS.
+        for answer in ["y\n", "Y\n", " y \n", "y\r\n"] {
+            assert!(accepts(answer), "{answer:?}");
+        }
+        for answer in ["\n", "n\n", "N\n", "yes\n", "yy\n"] {
+            assert!(!accepts(answer), "{answer:?}");
+        }
     }
 
     #[test]

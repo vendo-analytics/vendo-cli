@@ -92,7 +92,7 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             login::run(ctx, api_key, account, env, base_url).await.map(|_| ok)
         }
         Command::Init { env, base_url } => account::init(ctx, env, base_url).await.map(|_| ok),
-        Command::Logout { all } => account::logout(ctx, all).map(|_| ok),
+        Command::Logout { all, yes } => account::logout(ctx, all, yes).map(|_| ok),
         Command::Config { command } => match command {
             ConfigCommand::Set { api_key, base_url, account } => {
                 account::config_set(ctx, api_key, base_url, account).map(|_| ok)
@@ -106,10 +106,7 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
                 account::config_list(ctx);
                 Ok(ok)
             }
-            ConfigCommand::Reset { yes } => {
-                account::config_reset(ctx, yes);
-                Ok(ok)
-            }
+            ConfigCommand::Reset { yes } => account::config_reset(ctx, yes).map(|_| ok),
         },
         Command::Profile { command } => match command {
             ProfileCommand::List => {
