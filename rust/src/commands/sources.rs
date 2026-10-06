@@ -1,17 +1,20 @@
 //! `vendo sources …` (port of `src/commands/sources.ts`).
 
+use std::collections::HashMap;
+
 use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
 
 use crate::{
-    client::payload,
+    browse,
+    client::{Client, payload},
     commands::pipeline_resource::{js_number_value, read_json_file, split_list},
     context::Ctx,
     jobs::{Job, format_job_progress},
     output::{
         OutputMode, bold, color_status, dim, js_color_status, js_date_parse, js_if, js_iso_string, js_join, js_nullish,
-        js_positive, js_template, js_truthy, print_field, print_json, print_label, print_list_count,
-        print_status_label, print_success, red, resolve_output_mode, run_action, short_id, table, time_ago,
+        js_positive, js_template, js_truthy, list_count, print_field, print_json, print_label, print_status_label,
+        print_success, red, resolve_output_mode, run_action, short_id, time_ago,
     },
     short_ids::{Listing, resolve, resolve_opt},
     watch::{self, ResourceKind},
@@ -63,49 +66,59 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
     })
     .await?;
     // `new Map(entries)`: for a source with several active jobs the last one wins.
-    let mut active_by_source = std::collections::HashMap::new();
+    let mut active_by_source = HashMap::new();
     for job in &active {
         if let Some(source_id) = text(job, "sourceId").filter(|s| !s.is_empty()) {
             active_by_source.insert(source_id, job.clone());
         }
     }
     let rows = payload(&res).as_array().cloned().unwrap_or_default();
-    let mut grid = table(&["ID", "Name", "Type", "Status", "Progress", "Failures", "Last Sync"]);
-    for source in &rows {
-        let id = text(source, "id").unwrap_or_default();
-        grid.add_row(vec![
-            dim(&short_id(&id)),
-            text(source, "appName").unwrap_or_else(|| dim("—")),
-            text(source, "syncType").unwrap_or_default(),
-            color_status(&text(source, "integrationStatus").unwrap_or_default()),
-            format_job_progress(active_by_source.get(&id).map(Job)),
-            failures(source).map(|n| red(&n)).unwrap_or_else(|| dim("0")),
-            time_ago(text(source, "lastSyncAt").as_deref()),
-        ]);
-    }
-    println!("{grid}");
-    print_list_count(&res, rows.len(), "source");
-    Ok(())
+    // The table, or at a terminal the same rows to choose from (VE-3894).
+    let table = browse::Table {
+        header: &["ID", "Name", "Type", "Status", "Progress", "Failures", "Last Sync"],
+        cells: rows.iter().map(|source| source_cells(source, &active_by_source)).collect(),
+        footer: list_count(&res, rows.len(), "source"),
+    };
+    browse::shown(&client, browse::Group::Sources, &rows, table, args.output.as_deref()).await
+}
+
+/// A row of the `sources list` table, its cells styled as the table shows them; `active` holds the
+/// active job of each source by its ID (Progress). A selectable list shows them plain (VE-3894).
+fn source_cells(source: &Value, active: &HashMap<String, Value>) -> Vec<String> {
+    let id = text(source, "id").unwrap_or_default();
+    vec![
+        dim(&short_id(&id)),
+        text(source, "appName").unwrap_or_else(|| dim("—")),
+        text(source, "syncType").unwrap_or_default(),
+        color_status(&text(source, "integrationStatus").unwrap_or_default()),
+        format_job_progress(active.get(&id).map(Job)),
+        failures(source).map(|n| red(&n)).unwrap_or_else(|| dim("0")),
+        time_ago(text(source, "lastSyncAt").as_deref()),
+    ]
 }
 
 pub async fn get(ctx: &Ctx, source_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
     let source_id = &resolve(&client, Listing::Sources, source_id).await?;
-    let path = format!("/sources/{source_id}");
     if json {
-        let res = run_action("Fetching source...", client.get(&path, &[])).await?;
+        let res = run_action("Fetching source...", client.get(&format!("/sources/{source_id}"), &[])).await?;
         print_json(&res);
         return Ok(());
     }
+    show(&client, source_id).await.map(|_| ())
+}
+
+/// What `sources get` shows of the source `id`, a full ID (no short-ID lookup), from its requests
+/// (the source and its active job) behind its spinner; the source as the API sent it. A selectable
+/// list shows it for the source chosen and reads the actions that apply from it (VE-3894).
+pub(crate) async fn show(client: &Client, id: &str) -> Result<Value> {
+    let path = format!("/sources/{id}");
     let (res, active) = run_action("Fetching source...", async {
-        tokio::try_join!(
-            client.get(&path, &[]),
-            watch::active_job_for_resource(&client, ResourceKind::Source, source_id)
-        )
+        tokio::try_join!(client.get(&path, &[]), watch::active_job_for_resource(client, ResourceKind::Source, id))
     })
     .await?;
     print!("{}", render_source(payload(&res), active.as_ref()));
-    Ok(())
+    Ok(payload(&res).clone())
 }
 
 /// The `sources get` text view (the TS action's `console.log` lines).

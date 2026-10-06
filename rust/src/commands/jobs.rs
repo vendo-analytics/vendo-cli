@@ -3,14 +3,16 @@
 use std::{process::ExitCode, time::Duration};
 
 use anyhow::Result;
+use serde_json::Value;
 
 use crate::{
+    browse,
     client::{Client, payload},
     context::Ctx,
     jobs::{Job, format_job_duration, format_job_progress, job_detail_lines, job_error_lines},
     output::{
-        OutputMode, arg_error, bold, color_status, confirm, dim, print_dry_run, print_field, print_json,
-        print_list_count, print_success, resolve_output_mode, run_action, short_id, table, time_ago,
+        OutputMode, arg_error, bold, color_status, confirm, dim, list_count, print_dry_run, print_field, print_json,
+        print_success, resolve_output_mode, run_action, short_id, time_ago,
     },
     short_ids::{Listing, resolve, resolve_opt},
     watch::{self, JsonScreen, MAX_WAIT, NextJob, ResourceKind, Screen, Terminal, WatchScope},
@@ -52,34 +54,52 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
         OutputMode::Json => print_json(&res),
         OutputMode::Field => print_field(&rows, args.output.as_deref().unwrap_or_default()),
         OutputMode::Table => {
-            let mut grid = table(&["ID", "Type", "Connector", "Status", "Progress", "Started", "Duration"]);
-            for value in &rows {
-                let job = Job(value);
-                grid.add_row(vec![
-                    dim(&short_id(&job.id())),
-                    job.text("jobType").unwrap_or_default(),
-                    job.text("connectorType").unwrap_or_else(|| dim("—")),
-                    color_status(&job.status()),
-                    format_job_progress(Some(job)),
-                    time_ago(job.started_or_created().as_deref()),
-                    format_job_duration(job.text("startedAt").as_deref(), job.text("finishedAt").as_deref()),
-                ]);
-            }
-            println!("{grid}");
-            print_list_count(&res, rows.len(), "job");
+            // The table, or at a terminal the same rows to choose from (VE-3894).
+            let table = browse::Table {
+                header: &["ID", "Type", "Connector", "Status", "Progress", "Started", "Duration"],
+                cells: rows.iter().map(|job| job_cells(Job(job))).collect(),
+                footer: list_count(&res, rows.len(), "job"),
+            };
+            browse::shown(&client, browse::Group::Jobs, &rows, table, args.output.as_deref()).await?;
         }
     }
     Ok(())
 }
 
+/// A row of the `jobs list` table, its cells styled as the table shows them; a selectable list shows
+/// them plain (VE-3894).
+fn job_cells(job: Job) -> Vec<String> {
+    vec![
+        dim(&short_id(&job.id())),
+        job.text("jobType").unwrap_or_default(),
+        job.text("connectorType").unwrap_or_else(|| dim("—")),
+        color_status(&job.status()),
+        format_job_progress(Some(job)),
+        time_ago(job.started_or_created().as_deref()),
+        format_job_duration(job.text("startedAt").as_deref(), job.text("finishedAt").as_deref()),
+    ]
+}
+
 pub async fn get(ctx: &Ctx, job_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
     let job_id = resolve(&client, Listing::Jobs, job_id).await?;
-    let res = run_action("Fetching job...", client.get(&format!("/jobs/{job_id}"), &[])).await?;
     if json {
-        print_json(&res);
+        print_json(&fetch(&client, &job_id).await?);
         return Ok(());
     }
+    show(&client, &job_id).await.map(|_| ())
+}
+
+/// `GET /jobs/<id>`, behind `jobs get`'s spinner.
+async fn fetch(client: &Client, id: &str) -> Result<Value> {
+    Ok(run_action("Fetching job...", client.get(&format!("/jobs/{id}"), &[])).await?)
+}
+
+/// What `jobs get` shows of the job `id`, a full ID (no short-ID lookup), from its request behind its
+/// spinner; the job as the API sent it. A selectable list shows it for the job chosen and reads the
+/// actions that apply from it (VE-3894).
+pub(crate) async fn show(client: &Client, id: &str) -> Result<Value> {
+    let res = fetch(client, id).await?;
     let job = Job(payload(&res));
     println!();
     println!(
@@ -99,7 +119,7 @@ pub async fn get(ctx: &Ctx, job_id: &str, json: bool) -> Result<()> {
             println!("{line}");
         }
     }
-    Ok(())
+    Ok(job.0.clone())
 }
 
 pub async fn cancel(

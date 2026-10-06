@@ -2,19 +2,21 @@
 //! integrations destinations (vendo-web-v2 glossary); `integrations` and `int` stay as hidden
 //! aliases, and JSON field names and API paths keep the API's name (VE-3828).
 
+use std::collections::HashMap;
+
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value, json};
 
 use crate::{
-    client::payload,
+    browse,
+    client::{Client, payload},
     commands::pipeline_resource::{js_number_value, read_json_file},
     context::Ctx,
     jobs::{Job, format_job_progress},
     output::{
         OutputMode, bold, camel_case_keys_deep, color_status, dim, js_color_status, js_if, js_positive, js_stringify,
-        js_template, js_truthy, message_error_json, print_error_json, print_field, print_json, print_label,
-        print_list_count, print_status_label, print_success, red, resolve_output_mode, run_action, short_id, table,
-        time_ago,
+        js_template, js_truthy, list_count, message_error_json, print_error_json, print_field, print_json, print_label,
+        print_status_label, print_success, red, resolve_output_mode, run_action, short_id, time_ago,
     },
     short_ids::{Listing, resolve},
     source_refresh::{Tone, resolve_refresh_window, summarize},
@@ -60,51 +62,64 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
         tokio::try_join!(client.get("/integrations", &query), watch::active_jobs(&client, 100, None, None))
     })
     .await?;
-    let mut active_by_integration = std::collections::HashMap::new();
+    let mut active_by_integration = HashMap::new();
     for job in &active {
         if let Some(id) = text(job, "integrationId").filter(|s| !s.is_empty()) {
             active_by_integration.insert(id, job.clone());
         }
     }
     let rows = payload(&res).as_array().cloned().unwrap_or_default();
-    let mut grid = table(&["ID", "Source", "Destination", "Data Type", "Status", "Progress", "Last Sync"]);
-    for int in &rows {
-        let id = text(int, "id").unwrap_or_default();
-        grid.add_row(vec![
-            dim(&short_id(&id)),
-            text(int, "sourceAppName").unwrap_or_else(|| dim("—")),
-            text(int, "destinationAppName").unwrap_or_else(|| dim("—")),
-            text(int, "dataType").unwrap_or_default(),
-            color_status(&text(int, "status").unwrap_or_default()),
-            format_job_progress(active_by_integration.get(&id).map(Job)),
-            time_ago(text(int, "lastSyncAt").as_deref()),
-        ]);
-    }
-    println!("{grid}");
-    print_list_count(&res, rows.len(), "destination");
-    Ok(())
+    // The table, or at a terminal the same rows to choose from (VE-3894).
+    let table = browse::Table {
+        header: &["ID", "Source", "Destination", "Data Type", "Status", "Progress", "Last Sync"],
+        cells: rows.iter().map(|int| integration_cells(int, &active_by_integration)).collect(),
+        footer: list_count(&res, rows.len(), "destination"),
+    };
+    browse::shown(&client, browse::Group::Destinations, &rows, table, args.output.as_deref()).await
+}
+
+/// A row of the `destinations list` table, its cells styled as the table shows them; `active` holds
+/// the active job of each destination by its ID (Progress). A selectable list shows them plain
+/// (VE-3894).
+fn integration_cells(int: &Value, active: &HashMap<String, Value>) -> Vec<String> {
+    let id = text(int, "id").unwrap_or_default();
+    vec![
+        dim(&short_id(&id)),
+        text(int, "sourceAppName").unwrap_or_else(|| dim("—")),
+        text(int, "destinationAppName").unwrap_or_else(|| dim("—")),
+        text(int, "dataType").unwrap_or_default(),
+        color_status(&text(int, "status").unwrap_or_default()),
+        format_job_progress(active.get(&id).map(Job)),
+        time_ago(text(int, "lastSyncAt").as_deref()),
+    ]
 }
 
 pub async fn get(ctx: &Ctx, integration_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
     let integration_id = &resolve(&client, Listing::Destinations, integration_id).await?;
-    let path = format!("/integrations/{integration_id}");
     if json {
+        let path = format!("/integrations/{integration_id}");
         let res = run_action("Fetching destination...", client.get(&path, &[])).await?;
         print_json(&res);
         return Ok(());
     }
+    show(&client, integration_id).await.map(|_| ())
+}
+
+/// What `destinations get` shows of the destination `id`, a full ID (no short-ID lookup), from its
+/// requests (the destination and its active job) behind its spinner; the destination as the API sent
+/// it. A selectable list shows it for the destination chosen and reads the actions that apply from it
+/// (VE-3894).
+pub(crate) async fn show(client: &Client, id: &str) -> Result<Value> {
+    let path = format!("/integrations/{id}");
     let (res, active) = run_action("Fetching destination...", async {
-        tokio::try_join!(
-            client.get(&path, &[]),
-            watch::active_job_for_resource(&client, ResourceKind::Integration, integration_id)
-        )
+        tokio::try_join!(client.get(&path, &[]), watch::active_job_for_resource(client, ResourceKind::Integration, id))
     })
     .await?;
     for line in integration_lines(payload(&res), active.as_ref()) {
         println!("{line}");
     }
-    Ok(())
+    Ok(payload(&res).clone())
 }
 
 /// The `destinations get` view, with the TS CLI's `${…}` rendering of missing (`undefined`) and null fields.

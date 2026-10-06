@@ -8856,3 +8856,749 @@ async fn an_empty_list_prints_the_table_and_its_count_at_a_terminal_too() {
     assert!(plain(&screen).ends_with("0 apps\n"), "{screen:?}");
     assert_eq!(text(&sandbox.run(&["apps", "list"]).stdout).lines().last(), Some("0 apps"));
 }
+
+// ── VE-3894: sources, destinations and jobs ──────────────────────────────────
+// `vendo sources list`, `vendo destinations list` (its hidden `integrations list` and `int list` too) and
+// `vendo jobs list` at a terminal, as `vendo apps list` above: the rows their tables show, from the
+// same requests (the sources' and destinations' with the active jobs that feed Progress), to choose
+// from. Enter shows the item as its group's `get` does, then the actions that apply to it as that
+// request returned it: for a source or destination `sync` when active, `refresh-source` for a
+// destination with a source app, `pause` when active, `resume` when inactive, `update` and `delete`;
+// for a job `tail` and `cancel` while it is queued, pending or running; then `back`.
+
+/// The sources a selectable list shows: one active, whose import [`JOB_RUNNING`] runs, one inactive
+/// that failed twice and last synced two hours ago, and one in another state with no app name.
+fn sources_to_browse() -> Vec<Value> {
+    let source = |id: &str, name: Value, sync_type: &str, state: &str, status: &str| {
+        json!({
+            "id": id, "appId": MENU_APP, "appName": name, "syncType": sync_type, "state": state,
+            "integrationStatus": status, "consecutiveFailures": 0, "lastSyncAt": null, "createdAt": null,
+        })
+    };
+    let mut failing = source(SOURCE_BQ, json!("Analytics BQ"), "bigquery", "inactive", "warning");
+    failing["consecutiveFailures"] = json!(2);
+    failing["lastSyncAt"] = json!(minutes_ago(130));
+    vec![
+        source(SOURCE_SHOP, json!("Menu Shop"), "shopify", "active", "healthy"),
+        failing,
+        source(SOURCE_BARE, Value::Null, "meta_ads", "deleted", "error"),
+    ]
+}
+
+/// The destinations a selectable list shows: one active, one inactive whose export [`JOB_QUEUED`]
+/// waits, last synced two hours ago, and one in another state with no source app.
+fn destinations_to_browse() -> Vec<Value> {
+    let destination =
+        |id: &str, source: Option<(&str, &str)>, name: &str, data_type: &str, state: &str, status: &str| {
+            json!({
+                "id": id, "sourceAppId": source.map(|(id, _)| id), "sourceAppName": source.map(|(_, name)| name),
+                "destinationAppId": CHOOSE_PIXEL, "destinationAppName": name, "dataType": data_type, "state": state,
+                "status": status, "lastSyncAt": null, "createdAt": null,
+            })
+        };
+    let waiting = Some((CHOOSE_BQ, "Analytics BQ"));
+    let mut paused = destination(DEST_AUDIENCES, waiting, "Demo Pixel", "audiences", "inactive", "paused");
+    paused["lastSyncAt"] = json!(minutes_ago(130));
+    vec![
+        destination(DEST_EVENTS, Some((MENU_APP, "Menu Shop")), "Analytics BQ", "events", "active", "active"),
+        paused,
+        destination(DEST_ONE_APP, None, "Demo Pixel", "conversions", "deleted", "error"),
+    ]
+}
+
+/// The jobs a selectable list shows, newest first: [`SOURCE_SHOP`]'s import running for three and a
+/// half hours at 45%, an export that failed a day ago after half an hour, and [`DEST_AUDIENCES`]'s
+/// queued with no platform and no time yet. A running job's duration changes every minute: each test
+/// makes its stub, and so these, just before it reads them.
+fn jobs_to_browse() -> Vec<Value> {
+    let job = |id: &str, job_type: &str, connector: Value, status: &str, started: Value, finished: Value| {
+        json!({
+            "id": id, "jobType": job_type, "connectorType": connector, "status": status, "startedAt": started,
+            "finishedAt": finished, "createdAt": started, "rowsProcessed": null, "rowsWritten": null,
+        })
+    };
+    let mut running = job(JOB_RUNNING, "import", json!("shopify"), "running", json!(minutes_ago(210)), Value::Null);
+    running["progressPct"] = json!(45);
+    running["sourceId"] = json!(SOURCE_SHOP);
+    let (started, finished) = (json!(minutes_ago(26 * 60 + 30)), json!(minutes_ago(26 * 60)));
+    let mut failed = job(JOB_FAILED, "export", json!("bigquery"), "failed", started, finished);
+    failed["errorMessage"] = json!("Rate limited");
+    failed["integrationId"] = json!(DEST_EVENTS);
+    let mut queued = job(JOB_QUEUED, "data_quality", Value::Null, "queued", Value::Null, Value::Null);
+    queued["integrationId"] = json!(DEST_AUDIENCES);
+    vec![running, failed, queued]
+}
+
+/// [`sources_to_browse`], [`destinations_to_browse`] and [`jobs_to_browse`] in acct-alpha: the lists
+/// (`jobs list` any `GET /jobs` not sorted as the active jobs are asked for), the active jobs as the API
+/// sends them (the running and queued ones; [`JOB_RUNNING`] for [`SOURCE_SHOP`], [`JOB_QUEUED`] for
+/// [`DEST_AUDIENCES`], none for another source or destination), `{ data: <item> }` for every request
+/// about one, a refresh-source that finds the data there, and cancelling a job.
+async fn pipeline_to_browse_stub() -> MockServer {
+    use wiremock::matchers::{method, path_regex, query_param};
+    let server = MockServer::start().await;
+    let jobs = jobs_to_browse();
+    let route = format!("{V1}/jobs");
+    let page = |jobs: &[&Value]| page_of(jobs.iter().map(|job| (*job).clone()).collect(), 0, false);
+    let active = || Mock::given(method("GET")).and(path(route.clone())).and(query_param("sort", "created_at:desc"));
+    for (key, id, job) in [("source_id", SOURCE_SHOP, &jobs[0]), ("integration_id", DEST_AUDIENCES, &jobs[2])] {
+        let found = ResponseTemplate::new(200).set_body_json(page(&[job]));
+        active().and(query_param(key, id)).respond_with(found).mount(&server).await;
+    }
+    let none = ResponseTemplate::new(200).set_body_json(page(&[]));
+    active().and(query_param("limit", "1")).respond_with(none).mount(&server).await;
+    let running = ResponseTemplate::new(200).set_body_json(page(&[&jobs[0], &jobs[2]]));
+    active().respond_with(running).mount(&server).await;
+    serve(&server, "GET", &route, 200, page_of(jobs.clone(), 0, false)).await;
+    for job in &jobs {
+        let id = job["id"].as_str().unwrap();
+        let cancelled = json!({ "data": { "id": id, "status": "canceled" } });
+        serve(&server, "POST", &format!("{route}/{id}/cancel"), 200, cancelled).await;
+        serve(&server, "GET", &format!("{route}/{id}"), 200, json!({ "data": job })).await;
+    }
+    for (list, items) in [("sources", sources_to_browse()), ("connections", destinations_to_browse())] {
+        serve(&server, "GET", &format!("{V1}/{list}"), 200, page_of(items.clone(), 0, false)).await;
+        for item in items {
+            let id = item["id"].as_str().unwrap();
+            // Before the catch-all below: wiremock answers with the first match mounted.
+            let refresh = format!("{V1}/{list}/{id}/refresh-source");
+            serve(&server, "POST", &refresh, 200, json!({ "data": { "status": "ready" } })).await;
+            Mock::given(path_regex(format!("^{V1}/{list}/{id}(/.*)?$")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": item })))
+                .mount(&server)
+                .await;
+        }
+    }
+    server
+}
+
+/// A list command of VE-3894's second group as its selectable list shows [`pipeline_to_browse_stub`]'s
+/// items.
+#[derive(Clone, Copy, Debug)]
+struct Browsed {
+    /// The group as the tree names it.
+    group: &'static str,
+    /// The items, in the list's order.
+    ids: [&'static str; 3],
+    /// The items as the list shows them: the table's cells as plain text, padded per column.
+    rows: [&'static str; 3],
+    /// What an answered line names each item by after its short ID; nothing for a job.
+    names: [&'static str; 3],
+    /// The table's footer, which follows the list's hint.
+    footer: &'static str,
+    /// The actions each item offers before `back`.
+    actions: [&'static [&'static str]; 3],
+}
+
+const SOURCES_BROWSED: Browsed = Browsed {
+    group: "sources",
+    ids: [SOURCE_SHOP, SOURCE_BQ, SOURCE_BARE],
+    rows: [
+        "5e6f7a8b...  Menu Shop     shopify   healthy  45%  0  —",
+        "6f7a8b9c...  Analytics BQ  bigquery  warning  —    2  2h ago",
+        "7a8b9c0d...  —             meta_ads  error    —    0  —",
+    ],
+    names: ["Menu Shop", "Analytics BQ", ""],
+    footer: "3 sources",
+    actions: [&["sync", "pause", "update", "delete"], &["resume", "update", "delete"], &["update", "delete"]],
+};
+
+const DESTINATIONS_BROWSED: Browsed = Browsed {
+    group: "destinations",
+    ids: [DEST_EVENTS, DEST_AUDIENCES, DEST_ONE_APP],
+    rows: [
+        "8b9c0d1e...  Menu Shop     Analytics BQ  events       active  —       —",
+        "9c0d1e2f...  Analytics BQ  Demo Pixel    audiences    paused  queued  2h ago",
+        "0d1e2f3a...  —             Demo Pixel    conversions  error   —       —",
+    ],
+    names: ["Menu Shop → Analytics BQ", "Analytics BQ → Demo Pixel", "— → Demo Pixel"],
+    footer: "3 destinations",
+    actions: [
+        &["sync", "refresh-source", "pause", "update", "delete"],
+        &["refresh-source", "resume", "update", "delete"],
+        &["update", "delete"],
+    ],
+};
+
+const JOBS_BROWSED: Browsed = Browsed {
+    group: "jobs",
+    ids: [JOB_RUNNING, JOB_FAILED, JOB_QUEUED],
+    rows: [
+        "1f2e3d4c...  import        shopify   running  45%     3h ago  3h 30m",
+        "2e3d4c5b...  export        bigquery  failed   —       1d ago  30m",
+        "3d4c5b6a...  data_quality  —         queued   queued  —       —",
+    ],
+    names: ["", "", ""],
+    footer: "3 jobs",
+    actions: [&["tail", "cancel"], &[], &["tail", "cancel"]],
+};
+
+const PIPELINE_BROWSED: [Browsed; 3] = [SOURCES_BROWSED, DESTINATIONS_BROWSED, JOBS_BROWSED];
+
+impl Browsed {
+    /// The open list's title.
+    fn title(self) -> String {
+        format!("? vendo {} list", self.group)
+    }
+
+    /// The end of the list's hint: the table's footer.
+    fn hint_end(self) -> String {
+        format!("type to filter · {}]", self.footer)
+    }
+
+    /// What the open list shows with the cursor on the row at `at`.
+    fn list(self, at: usize) -> Vec<String> {
+        let rows = self.rows.iter().enumerate().map(|(i, row)| format!("{} {row}", if i == at { '>' } else { ' ' }));
+        let hint = format!("[↑↓ to move, enter to select, {}", self.hint_end());
+        [vec![self.title()], rows.collect(), vec![hint]].concat()
+    }
+
+    /// How an answered line names the item at `at`: its short ID, then its name in brackets.
+    fn named(self, at: usize) -> String {
+        let short = &self.rows[at][..11];
+        if self.names[at].is_empty() { short.to_string() } else { format!("{short} ({})", self.names[at]) }
+    }
+
+    /// The requests the table sends, and `get` too: the sources' and destinations' with their active jobs.
+    fn reads(self) -> usize {
+        if self.group == "jobs" { 1 } else { 2 }
+    }
+
+    /// The items as the stub lists them, and the route it lists them at.
+    fn items(self) -> (Vec<Value>, &'static str) {
+        match self.group {
+            "sources" => (sources_to_browse(), "sources"),
+            "destinations" => (destinations_to_browse(), "connections"),
+            _ => (jobs_to_browse(), "jobs"),
+        }
+    }
+
+    /// The action menu of the item at `at`: its actions, then `back`, each described as
+    /// `vendo <group> --help` lists it.
+    fn menu(self, sandbox: &Sandbox, at: usize) -> Vec<String> {
+        let help = command_rows(sandbox, &[self.group]);
+        let about = |action: &str| match action {
+            "back" => "Back to the list".to_string(),
+            _ => help
+                .iter()
+                .find_map(|row| row.strip_prefix(action).filter(|about| about.starts_with(' ')))
+                .map(|about| about.trim().to_string())
+                .unwrap_or_else(|| panic!("{action}: {help:#?}")),
+        };
+        let names: Vec<&str> = self.actions[at].iter().copied().chain(["back"]).collect();
+        let width = names.iter().map(|name| name.len()).max().unwrap();
+        let rows: Vec<String> = names.iter().map(|name| format!("{name:<width$}  {}", about(name))).collect();
+        let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+        [vec![format!("? vendo {}", self.group)], marked(&rows), vec![HINT.to_string()]].concat()
+    }
+
+    /// Opens `vendo <args>`, this list, and waits for it.
+    fn open(self, sandbox: &Sandbox, args: &[&str]) -> OnTerminal {
+        let mut terminal = OnTerminal::start(sandbox, args);
+        terminal.wait_for(&self.hint_end());
+        terminal
+    }
+
+    /// Opens `vendo <args>`, chooses the row at `at` and waits for its action menu.
+    fn menu_of(self, sandbox: &Sandbox, args: &[&str], at: usize) -> OnTerminal {
+        let mut terminal = self.open(sandbox, args);
+        if at > 0 {
+            terminal.press(&"\u{1b}[B".repeat(at));
+            terminal.wait_for(&format!("> {}", self.rows[at]));
+        }
+        terminal.press("\r");
+        terminal.wait_for("Back to the list");
+        terminal.wait_for("type to filter]");
+        terminal
+    }
+}
+
+/// `requests` in order, for requests sent together (a list and its active jobs, an item and its
+/// active job), which reach the stub in either order.
+fn in_order(mut requests: Vec<String>) -> Vec<String> {
+    requests.sort();
+    requests
+}
+
+/// `lines` without what changes from one run to the next: the window of a refresh-source, which ends
+/// now, as it prints it and in the body of its request.
+fn without_window(lines: Vec<String>) -> Vec<String> {
+    let line = |line: String| match line.split_once("/refresh-source ") {
+        Some((request, _)) => format!("{request}/refresh-source <window>"),
+        None if line.starts_with("Window: ") => "Window: <window>".to_string(),
+        None => line,
+    };
+    lines.into_iter().map(line).collect()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn sources_destinations_and_jobs_list_at_a_terminal_list_the_tables_rows_from_the_same_requests() {
+    // Titled with the command as the tree names it (`vendo destinations list` for `int list`), every row
+    // the table shows (its cells, plain), the first marked, the table's footer after the hint. The
+    // flags go into the requests as typed, short IDs looked up as typed: the same requests as the
+    // table's, the sources' and destinations' active jobs (Progress) too, and nothing more.
+    let active_jobs = format!("GET {V1}/jobs?status=running%2Cpending%2Cqueued&limit=100&sort=created_at%3Adesc");
+    let cases: [(Browsed, &[&str], &[String]); 7] = [
+        (SOURCES_BROWSED, &["sources", "list"], &[format!("GET {V1}/sources?limit=20&offset=0"), active_jobs.clone()]),
+        (
+            SOURCES_BROWSED,
+            &["sources", "list", "--state", "active", "--limit", "5"],
+            &[format!("GET {V1}/sources?state=active&limit=5&offset=0"), active_jobs.clone()],
+        ),
+        (
+            DESTINATIONS_BROWSED,
+            &["destinations", "list"],
+            &[format!("GET {V1}/connections?limit=20&offset=0"), active_jobs.clone()],
+        ),
+        (
+            DESTINATIONS_BROWSED,
+            &["integrations", "list", "--type", "events"],
+            &[format!("GET {V1}/connections?data_type=events&limit=20&offset=0"), active_jobs.clone()],
+        ),
+        (
+            DESTINATIONS_BROWSED,
+            &["int", "list"],
+            &[format!("GET {V1}/connections?limit=20&offset=0"), active_jobs.clone()],
+        ),
+        (JOBS_BROWSED, &["jobs", "list"], &[format!("GET {V1}/jobs?limit=20&offset=0")]),
+        (
+            JOBS_BROWSED,
+            &["jobs", "list", "--source", "5e6f7a8b", "--status", "running"],
+            &[
+                format!("GET {V1}/sources?limit=100&offset=0"),
+                format!("GET {V1}/jobs?status=running&source_id={SOURCE_SHOP}&limit=20&offset=0"),
+            ],
+        ),
+    ];
+    for (browsed, args, requests) in cases {
+        let case = args.join(" ");
+        let server = pipeline_to_browse_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let piped = sandbox.run(args);
+        let piped_sent = sent(&server).await;
+        assert_eq!(in_order(piped_sent.clone()), in_order(requests.to_vec()), "{case}");
+        let mut terminal = browsed.open(&sandbox, args);
+        let shown = shown_lines(&terminal, (40, 120));
+        assert_eq!(shown, browsed.list(0), "{case}");
+        let table = table_cells(&printed_lines(&piped));
+        let listed: Vec<String> = shown[1..shown.len() - 1].iter().map(|row| row[2..].to_string()).collect();
+        assert_eq!(
+            table_cells(&listed),
+            table[1..table.len() - 1],
+            "{case}: the table's rows, without header and footer"
+        );
+        assert_eq!(table.last().unwrap(), &[browsed.footer], "{case}");
+        terminal.press("\u{1b}");
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{case}: {rest:?}");
+        assert_eq!(in_order(sent(&server).await[piped_sent.len()..].to_vec()), in_order(piped_sent), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn enter_on_a_source_destination_or_job_shows_it_as_get_does_then_the_actions_that_apply_to_it() {
+    // A source or destination: sync when active, refresh-source with a source app (destinations),
+    // pause when active, resume when inactive, neither in another state, then update and delete. A
+    // job: tail and cancel while queued or running, nothing once it failed. Then back, each described
+    // as the group's help describes it.
+    for browsed in PIPELINE_BROWSED {
+        for at in 0..3 {
+            let case = format!("{} {}", browsed.group, browsed.ids[at]);
+            let server = pipeline_to_browse_stub().await;
+            let sandbox = Sandbox::new(&server.uri());
+            let mut terminal = browsed.menu_of(&sandbox, &[browsed.group, "list"], at);
+            let asked = sent(&server).await;
+            // What `vendo <group> get <full id>` sends and prints on a pipe.
+            let typed = sandbox.run(&[browsed.group, "get", browsed.ids[at]]);
+            let typed_sent = sent(&server).await[asked.len()..].to_vec();
+            assert_eq!(asked.len(), browsed.reads() * 2, "{case}: {asked:#?}");
+            assert_eq!(in_order(asked[browsed.reads()..].to_vec()), in_order(typed_sent), "{case}");
+            let shown = shown_from(&terminal, &format!("{} {}", browsed.title(), browsed.named(at)));
+            let menu = browsed.menu(&sandbox, at);
+            let details = &shown[1..shown.len() - menu.len()];
+            let details: Vec<String> = details.iter().filter(|line| !line.is_empty()).cloned().collect();
+            assert_eq!(details, printed_lines(&typed), "{case}");
+            assert_eq!(shown[shown.len() - menu.len()..], menu, "{case}");
+            terminal.press("\u{1b}");
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            assert_eq!(sent(&server).await.len(), asked.len() + browsed.reads(), "{case}: nothing more sent");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_chosen_source_destination_or_job_action_runs_exactly_as_typed_and_the_cli_ends_with_its_exit_code() {
+    /// The list, the words that open it, the row chosen, the keys that choose the action, the action,
+    /// what the y/N question is answered (none when it asks none), and the same command typed with the
+    /// full ID (none when nothing is sent).
+    struct Case(
+        Browsed,
+        &'static [&'static str],
+        usize,
+        &'static str,
+        &'static str,
+        Option<&'static str>,
+        &'static [&'static str],
+    );
+    let cases = [
+        // Its import runs: the sync says so, as when typed.
+        Case(SOURCES_BROWSED, &["sources", "list"], 0, "\r", "sync", None, &["sources", "sync", SOURCE_SHOP]),
+        Case(SOURCES_BROWSED, &["sources", "list"], 0, "pause\r", "pause", None, &["sources", "pause", SOURCE_SHOP]),
+        Case(SOURCES_BROWSED, &["sources", "list"], 1, "\r", "resume", None, &["sources", "resume", SOURCE_BQ]),
+        // No change to make: it fails after the choice as when typed, exit 1 (VE-3881's Q13).
+        Case(SOURCES_BROWSED, &["sources", "list"], 2, "\r", "update", None, &["sources", "update", SOURCE_BARE]),
+        // The y/N of a delete (VE-3823) asks as when typed: n sends nothing, y deletes.
+        Case(SOURCES_BROWSED, &["sources", "list"], 0, "delete\r", "delete", Some("n\n"), &[]),
+        Case(
+            SOURCES_BROWSED,
+            &["sources", "list"],
+            1,
+            "delete\r",
+            "delete",
+            Some("y\n"),
+            &["sources", "delete", SOURCE_BQ, "--yes"],
+        ),
+        // No active job: the sync is triggered.
+        Case(
+            DESTINATIONS_BROWSED,
+            &["destinations", "list"],
+            0,
+            "\r",
+            "sync",
+            None,
+            &["destinations", "sync", DEST_EVENTS],
+        ),
+        Case(
+            DESTINATIONS_BROWSED,
+            &["destinations", "list"],
+            1,
+            "\r",
+            "refresh-source",
+            None,
+            &["destinations", "refresh-source", DEST_AUDIENCES],
+        ),
+        // From the hidden aliases: the action runs as the tree names it.
+        Case(
+            DESTINATIONS_BROWSED,
+            &["int", "list"],
+            0,
+            "pause\r",
+            "pause",
+            None,
+            &["destinations", "pause", DEST_EVENTS],
+        ),
+        Case(
+            DESTINATIONS_BROWSED,
+            &["integrations", "list"],
+            1,
+            "resume\r",
+            "resume",
+            None,
+            &["destinations", "resume", DEST_AUDIENCES],
+        ),
+        Case(DESTINATIONS_BROWSED, &["destinations", "list"], 2, "delete\r", "delete", Some("n\n"), &[]),
+        Case(
+            DESTINATIONS_BROWSED,
+            &["int", "list"],
+            2,
+            "delete\r",
+            "delete",
+            Some("y\n"),
+            &["destinations", "delete", DEST_ONE_APP, "--yes"],
+        ),
+        // A job's cancel asks y/N as when typed.
+        Case(JOBS_BROWSED, &["jobs", "list"], 0, "cancel\r", "cancel", Some("n\n"), &[]),
+        Case(
+            JOBS_BROWSED,
+            &["jobs", "list"],
+            2,
+            "cancel\r",
+            "cancel",
+            Some("y\n"),
+            &["jobs", "cancel", JOB_QUEUED, "--yes"],
+        ),
+    ];
+    for Case(browsed, args, at, keys, action, answer, typed_args) in cases {
+        let case = format!("{} {action} {} {answer:?}", args.join(" "), browsed.ids[at]);
+        let server = pipeline_to_browse_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let mut terminal = browsed.menu_of(&sandbox, args, at);
+        terminal.press(keys);
+        let answered = format!("? vendo {} {action} {}", browsed.group, browsed.named(at));
+        terminal.wait_for(&answered[2..]);
+        if let Some(answer) = answer {
+            terminal.wait_for("(y/N) ");
+            terminal.press(answer);
+        }
+        let (rest, code) = terminal.finish();
+        let asked = sent(&server).await;
+        // The list and the item, then what the typed command sends, and nothing else.
+        let typed = (!typed_args.is_empty()).then(|| sandbox.run(typed_args));
+        let typed_sent = sent(&server).await[asked.len()..].to_vec();
+        let shown = 2 * browsed.reads();
+        assert!(asked[..shown].iter().all(|request| request.starts_with("GET ")), "{case}: {asked:#?}");
+        assert_eq!(without_window(asked[shown..].to_vec()), without_window(typed_sent), "{case}");
+        match typed {
+            Some(typed) => {
+                assert_eq!(code, typed.status.code(), "{case}: {rest:?}");
+                // What it showed after the answer (and the y/N question, answered) is what the typed
+                // command printed.
+                let mut after = after_answer(&terminal, &answered);
+                after.retain(|line| !line.contains("(y/N)"));
+                assert_eq!(without_window(after), without_window(printed_lines(&typed)), "{case}");
+            }
+            None => {
+                assert_eq!(code, Some(0), "{case}: {rest:?}");
+                assert_eq!(asked.len(), shown, "{case}: {asked:#?}");
+                let noun = match browsed.group {
+                    "sources" => "Delete source",
+                    "destinations" => "Delete destination",
+                    _ => "Cancel job",
+                };
+                let question = format!("{noun} {}? (y/N) n", &browsed.rows[at][..11]);
+                assert_eq!(after_answer(&terminal, &answered), [question], "{case}");
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn tail_on_a_running_job_follows_it_exactly_as_jobs_tail_does() {
+    // `jobs get`'s request finds it running, offering tail; tail's first poll finds it completed.
+    use wiremock::matchers::method;
+    let server = pipeline_to_browse_stub().await;
+    let mut done = jobs_to_browse()[0].clone();
+    done["status"] = json!("completed");
+    done["finishedAt"] = json!(minutes_ago(1));
+    done["progressPct"] = json!(100);
+    (done["rowsProcessed"], done["rowsWritten"]) = (json!(1200), json!(1200));
+    // Before the stub's own answer for it.
+    let job = || Mock::given(method("GET")).and(path(format!("{V1}/jobs/{JOB_RUNNING}")));
+    let running = ResponseTemplate::new(200).set_body_json(json!({ "data": jobs_to_browse()[0] }));
+    job().respond_with(running).up_to_n_times(1).with_priority(1).mount(&server).await;
+    let done = ResponseTemplate::new(200).set_body_json(json!({ "data": done }));
+    job().respond_with(done).with_priority(1).mount(&server).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = JOBS_BROWSED.menu_of(&sandbox, &["jobs", "list"], 0);
+    terminal.press("\r");
+    let answered = "? vendo jobs tail 1f2e3d4c...";
+    terminal.wait_for(&answered[2..]);
+    let (rest, code) = terminal.finish();
+    let asked = sent(&server).await;
+    let typed = sandbox.run(&["jobs", "tail", JOB_RUNNING]);
+    let typed_sent = sent(&server).await[asked.len()..].to_vec();
+    assert_eq!((code, typed.status.code()), (Some(0), Some(0)), "{rest:?}");
+    let item = format!("GET {V1}/jobs/{JOB_RUNNING}");
+    assert_eq!(asked, [format!("GET {V1}/jobs?limit=20&offset=0"), item.clone(), item.clone()]);
+    assert_eq!(typed_sent, [item]);
+    let after = after_answer(&terminal, answered);
+    assert_eq!(after, printed_lines(&typed));
+    assert_eq!(
+        after.last().map(String::as_str),
+        Some("Done: Job 1f2e3d4c... completed. 1,200 rows processed, 1,200 written.")
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn back_opens_the_source_destination_or_job_list_again_on_the_item_with_no_request() {
+    for (browsed, filter) in
+        [(SOURCES_BROWSED, "bigquery"), (DESTINATIONS_BROWSED, "audiences"), (JOBS_BROWSED, "export")]
+    {
+        let server = pipeline_to_browse_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let mut terminal = browsed.open(&sandbox, &[browsed.group, "list"]);
+        // Filtered down to the second row, which Enter shows.
+        terminal.press(filter);
+        terminal.wait_for(&format!("vendo {} list {filter}", browsed.group));
+        terminal.press("\r");
+        terminal.wait_for("Back to the list");
+        terminal.wait_for("type to filter]");
+        let shown_once = sent(&server).await;
+        terminal.press("back\r");
+        terminal.wait_for(&browsed.hint_end());
+        terminal.wait_for("\u{1b}[?25h");
+        // The same rows, the filter cleared, the cursor on the item just viewed; nothing sent.
+        assert_eq!(shown_from(&terminal, &browsed.title()), browsed.list(1), "{}", browsed.group);
+        assert_eq!(sent(&server).await, shown_once, "{}", browsed.group);
+        let back = format!("? vendo {} back", browsed.group);
+        assert!(shown_lines(&terminal, (40, 120)).contains(&back), "{}", browsed.group);
+        terminal.press("\u{1b}");
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{}: {rest:?}", browsed.group);
+        assert_eq!(sent(&server).await, shown_once, "{}", browsed.group);
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn typing_filters_the_sources_destinations_and_jobs_by_any_column() {
+    for (browsed, typed, rows) in [
+        (SOURCES_BROWSED, "45%", &[0][..]),
+        (SOURCES_BROWSED, "2h ago", &[1]),
+        (SOURCES_BROWSED, "META", &[2]),
+        (DESTINATIONS_BROWSED, "queued", &[1]),
+        (DESTINATIONS_BROWSED, "demo pixel", &[1, 2]),
+        (DESTINATIONS_BROWSED, "events", &[0]),
+        (JOBS_BROWSED, "3h", &[0]),
+        (JOBS_BROWSED, "failed", &[1]),
+        (JOBS_BROWSED, "QUEUED", &[2]),
+    ] {
+        let case = format!("{} {typed}", browsed.group);
+        let server = pipeline_to_browse_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let mut terminal = browsed.open(&sandbox, &[browsed.group, "list"]);
+        terminal.press(typed);
+        terminal.wait_for(&format!("vendo {} list {typed}", browsed.group));
+        terminal.wait_for("\u{1b}[?25h");
+        let expected: Vec<&str> = rows.iter().map(|at| browsed.rows[*at]).collect();
+        assert_eq!(listed_rows(&terminal), marked(&expected), "{case}");
+        terminal.press("\u{1b}");
+        assert_eq!(terminal.finish().1, Some(0), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn esc_ctrl_c_or_ctrl_d_at_a_source_destination_or_job_list_or_its_actions_leave_quietly() {
+    // As at the group menu (VE-3826): exit 0, nothing run, the title and `<canceled>` where the list
+    // or the menu was, and the cursor on the next line.
+    for browsed in PIPELINE_BROWSED {
+        let list = format!("vendo {} list", browsed.group);
+        let actions = format!("vendo {}", browsed.group);
+        for (step, key, title, reads) in
+            [("list", "\u{1b}", &list, 1), ("actions", "\u{3}", &actions, 2), ("list after back", "\u{4}", &list, 2)]
+        {
+            let case = format!("{} at the {step}", browsed.group);
+            let server = pipeline_to_browse_stub().await;
+            let sandbox = Sandbox::new(&server.uri());
+            let mut terminal = if step == "list" {
+                browsed.open(&sandbox, &[browsed.group, "list"])
+            } else {
+                browsed.menu_of(&sandbox, &[browsed.group, "list"], 0)
+            };
+            if step == "list after back" {
+                terminal.press("back\r");
+                terminal.wait_for(&browsed.hint_end());
+            }
+            terminal.press(key);
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            let rest = plain(&rest).to_lowercase();
+            assert!(!rest.contains("error") && !rest.contains("usage"), "{case}: {rest:?}");
+            let (shown, cursor) = screen(&terminal.screen, 40, 120);
+            let last = shown.iter().rposition(|line| !line.is_empty()).unwrap();
+            assert_eq!((shown[last].clone(), cursor), (format!("? {title} <canceled>"), (last + 1, 0)), "{case}");
+            let asked = sent(&server).await;
+            assert_eq!(asked.len(), browsed.reads() * reads, "{case}: {asked:#?}");
+            assert!(asked.iter().all(|request| request.starts_with("GET ")), "{case}: {asked:#?}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_source_destination_or_job_that_cannot_be_read_ends_with_the_error_get_gives() {
+    // Deleted since the list loaded (or a 429, or the network): `get`'s error, exit 1.
+    for (browsed, message) in [
+        (SOURCES_BROWSED, "Source not found"),
+        (DESTINATIONS_BROWSED, "Destination not found"),
+        (JOBS_BROWSED, "Job not found"),
+    ] {
+        let server = MockServer::start().await;
+        let (items, route) = browsed.items();
+        let missing = json!({ "error": { "code": "NOT_FOUND", "message": message } });
+        Mock::given(path(format!("{V1}/{route}/{}", browsed.ids[2])))
+            .respond_with(
+                ResponseTemplate::new(404).set_body_json(missing).insert_header("x-request-id", "req_server_1"),
+            )
+            .mount(&server)
+            .await;
+        serve(&server, "GET", &format!("{V1}/{route}"), 200, page_of(items, 0, false)).await;
+        serve(&server, "GET", &format!("{V1}/jobs"), 200, page_of(Vec::new(), 0, false)).await;
+        let sandbox = Sandbox::new(&server.uri());
+        let mut terminal = browsed.open(&sandbox, &[browsed.group, "list"]);
+        // No active job here: the Progress column shows none.
+        terminal.press("\u{1b}[B\u{1b}[B");
+        terminal.wait_for(&format!("> {}", &browsed.rows[2][..11]));
+        terminal.press("\r");
+        let answered = format!("{} {}", browsed.title(), browsed.named(2));
+        terminal.wait_for(&answered[2..]);
+        let (rest, code) = terminal.finish();
+        let typed = sandbox.run(&[browsed.group, "get", browsed.ids[2]]);
+        assert_eq!((code, typed.status.code()), (Some(1), Some(1)), "{}: {rest:?}", browsed.group);
+        assert_eq!(after_answer(&terminal, &answered), printed_lines(&typed), "{}", browsed.group);
+        assert_eq!(printed_lines(&typed), [format!("Error: {message}"), "Request ID: req_server_1".to_string()]);
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn where_the_list_cannot_open_and_with_json_or_output_sources_destinations_and_jobs_list_print_what_they_printed()
+{
+    // Byte for byte, as `vendo apps list` (above): piped (`output/` records it), with stdout piped from
+    // a terminal, and at a terminal with prompts off, on `TERM=dumb`, with stderr redirected or a
+    // write-only stdin, where it prints the table a terminal shows. `--json` and `--output` print
+    // what they print on a pipe; an empty `--output` the table.
+    for (args, footer) in [
+        (&["sources", "list"][..], "3 sources"),
+        (&["destinations", "list"], "3 destinations"),
+        (&["int", "list"], "3 destinations"),
+        (&["jobs", "list"], "3 jobs"),
+    ] {
+        let case = args.join(" ");
+        let server = pipeline_to_browse_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let piped = sandbox.run(args);
+        let (reference, code) = OnTerminal::start_env(&sandbox, args, &[("CI", "1")]).finish();
+        assert_eq!(code, Some(0), "{case}: {reference:?}");
+        let reference = plain(&reference);
+        let bordered: Vec<String> = reference.lines().map(str::to_string).collect();
+        assert_eq!(table_cells(&bordered), cells(&piped.stdout), "{case}");
+        assert!(reference.starts_with("┌") && reference.ends_with(&format!("{footer}\n")), "{case}: {reference}");
+        for (setting, code, screen) in where_no_list_opens(&sandbox, args) {
+            assert_eq!((code, screen), (Some(0), reference.clone()), "{case}: {setting}");
+        }
+        let (_controller, terminal) = pseudo_terminal();
+        let terminal = std::fs::File::from(terminal);
+        let out = sandbox.command(args).stdin(terminal.try_clone().unwrap()).stderr(terminal).output().unwrap();
+        assert_eq!((out.status.code(), text(&out.stdout)), (Some(0), text(&piped.stdout)), "{case}");
+        for flags in [&["--json"][..], &["--output", "id"]] {
+            let args: Vec<&str> = args.iter().chain(flags).copied().collect();
+            let (screen, code) = OnTerminal::start(&sandbox, &args).finish();
+            let piped = sandbox.run(&args);
+            assert_eq!((code, plain(&screen)), (Some(0), text(&piped.stdout)), "{case} {flags:?}");
+        }
+        let args: Vec<&str> = args.iter().chain(&["--output", ""]).copied().collect();
+        let (screen, code) = OnTerminal::start(&sandbox, &args).finish();
+        assert_eq!((code, plain(&screen)), (Some(0), reference.clone()), "{case} --output ''");
+        assert!(sent(&server).await.iter().all(|request| request.starts_with("GET ")), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_empty_source_destination_or_job_list_prints_the_table_and_its_count_at_a_terminal_too() {
+    let server = MockServer::start().await;
+    for list in ["sources", "connections", "jobs"] {
+        serve(&server, "GET", &format!("{V1}/{list}"), 200, page_of(Vec::new(), 0, false)).await;
+    }
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, footer) in [
+        (&["sources", "list"], "0 sources"),
+        (&["destinations", "list"], "0 destinations"),
+        (&["jobs", "list"], "0 jobs"),
+    ] {
+        let (reference, code) = OnTerminal::start_env(&sandbox, args, &[("CI", "1")]).finish();
+        assert_eq!(code, Some(0), "{args:?}");
+        let (screen, code) = OnTerminal::start(&sandbox, args).finish();
+        assert_eq!((code, plain(&screen)), (Some(0), plain(&reference)), "{args:?}");
+        assert!(plain(&screen).ends_with(&format!("{footer}\n")), "{args:?}: {screen:?}");
+        assert_eq!(text(&sandbox.run(args).stdout).lines().last(), Some(footer), "{args:?}");
+    }
+}
