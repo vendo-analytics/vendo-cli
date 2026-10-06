@@ -6412,6 +6412,760 @@ async fn a_job_model_metric_or_platform_list_that_fails_is_the_error_and_nothing
     );
 }
 
+// ── VE-3881, measurement and the dictionary ──────────────────────────────────
+// `measurement methodologies get` asks for a methodology from the ones `methodologies list` shows
+// (the system's and the account's, one response); `measurement ltv cohort` for a cohort period from
+// the cohorts `ltv list` shows for the typed `--granularity` and `--segment`, or their defaults
+// (newest first, at most the route's 500); `dictionary get` for a subject type, then for one of that
+// type's entries (Q11's default); `rules preview --from`/`--to`, `ltv customer` and `dictionary
+// search` ask a one-line question. The measurement routes are the key's, so no account is needed
+// for them; the dictionary is the account's.
+
+const METHODOLOGY_BLENDED: &str = "0d0e0f10-0000-4000-8000-000000000061";
+const METHODOLOGY_LAST_CLICK: &str = "1e1f2021-0000-4000-8000-000000000062";
+const METHODOLOGY_MIX: &str = "2f303132-0000-4000-8000-000000000063";
+
+/// The methodologies to choose from, as the web app's route sends them: the account's, then the
+/// system's.
+fn methodologies_to_choose() -> Value {
+    let methodology = |id: &str, name: &str, model: &str, system: bool| {
+        json!({
+            "id": id, "name": name, "description": null, "click_path_model": model, "is_system": system,
+            "version": 1, "updated_at": null, "ensemble_weights": null,
+        })
+    };
+    json!({ "data": { "methodologies": [
+        methodology(METHODOLOGY_BLENDED, "Blended", "linear", false),
+        methodology(METHODOLOGY_LAST_CLICK, "Last Click", "last_click", true),
+        methodology(METHODOLOGY_MIX, "Media Mix", "position_based", true),
+    ] } })
+}
+
+/// [`methodologies_to_choose`] as the list shows them: short ID, name, scope and click-path model.
+const METHODOLOGY_ROWS: [&str; 3] = [
+    "0d0e0f10...  Blended     account  linear",
+    "1e1f2021...  Last Click  system   last_click",
+    "2f303132...  Media Mix   system   position_based",
+];
+
+/// `GET /api/measurement/ltv`'s answer: the cohorts of `granularity` and `segment`, each period with
+/// its size, newest first as the route orders them.
+fn cohorts(granularity: &str, segment: &str, periods: &[(&str, u64)]) -> Value {
+    let cohorts: Vec<Value> = periods
+        .iter()
+        .map(|(period, size)| {
+            json!({
+                "cohort_period": period, "cohort_granularity": granularity, "segment_key": segment,
+                "cohort_size": size, "predicted": null,
+                "realised": { "ltv_30d": 12.5, "ltv_90d": null, "ltv_12m": null, "cac": null, "cac_ltv_ratio": null },
+            })
+        })
+        .collect();
+    let total = cohorts.len();
+    json!({ "data": { "granularity": granularity, "segment_key": segment, "cohorts": cohorts, "total_returned": total } })
+}
+
+/// The monthly cohorts of every customer (`all`), the defaults of `ltv cohort`.
+const MONTHLY: [(&str, u64); 3] = [("2026-09-01", 1204), ("2026-08-01", 987), ("2026-07-01", 15)];
+/// [`MONTHLY`] as the list shows them: period, segment and size.
+const COHORT_ROWS: [&str; 3] = ["2026-09-01  all  1,204", "2026-08-01  all  987", "2026-07-01  all  15"];
+/// The weekly cohorts of `channel:meta`.
+const WEEKLY: [(&str, u64); 2] = [("2026-09-28", 88), ("2026-09-21", 90)];
+const WEEKLY_ROWS: [&str; 2] = ["2026-09-28  channel:meta  88", "2026-09-21  channel:meta  90"];
+
+const EVENT_CHECKOUT: &str = "9f8e7d6c5b4a39281706f5e4d3c2b1a0";
+const EVENT_PAGE: &str = "0a1b2c3d4e5f60718293a4b5c6d7e8f9";
+const EVENT_UNNAMED: &str = "1b2c3d4e5f60718293a4b5c6d7e8f9a0";
+const PROP_EMAIL: &str = "aa11bb22cc33dd44ee55ff6600112233";
+
+/// One dictionary entry as `GET /dictionary` and the lookup send it.
+fn dictionary_item(subject_id: &str, subject_type: &str, name: Value) -> Value {
+    json!({
+        "subjectId": subject_id, "subjectType": subject_type, "displayName": name, "description": "Synthetic entry",
+        "dataType": "string", "semanticType": null, "tags": ["synthetic"], "origin": "registry", "lastSeenAt": null,
+        "status": "active",
+    })
+}
+
+/// The dictionary's entries by subject type: three events, the last without a name, and one property.
+fn dictionary_entries() -> Vec<(&'static str, Vec<Value>)> {
+    vec![
+        (
+            "event",
+            vec![
+                dictionary_item(EVENT_CHECKOUT, "event", json!("Checkout Completed")),
+                dictionary_item(EVENT_PAGE, "event", json!("Page Viewed")),
+                dictionary_item(EVENT_UNNAMED, "event", Value::Null),
+            ],
+        ),
+        ("prop", vec![dictionary_item(PROP_EMAIL, "prop", json!("Email"))]),
+    ]
+}
+
+/// The subject types `dictionary get` asks for first, as the server accepts them, event first.
+const SUBJECT_TYPE_ROWS: [&str; 7] = ["event", "prop", "group", "column", "metric", "model", "audience"];
+/// The events as the list shows them: the name (the table's dash for none) and the subject ID.
+const EVENT_ROWS: [&str; 3] = [
+    "Checkout Completed  9f8e7d6c5b4a39281706f5e4d3c2b1a0",
+    "Page Viewed         0a1b2c3d4e5f60718293a4b5c6d7e8f9",
+    "—                   1b2c3d4e5f60718293a4b5c6d7e8f9a0",
+];
+const PROP_ROWS: [&str; 1] = ["Email  aa11bb22cc33dd44ee55ff6600112233"];
+
+const METHODOLOGIES_LISTED: &str = "GET /api/measurement/methodologies";
+const COHORTS_LISTED: &str =
+    "GET /api/measurement/ltv?granularity=monthly&segment_key=all&limit=500&include_predicted=false";
+
+/// The first page of the dictionary's entries of `subject_type`.
+fn dictionary_listed(subject_type: &str) -> String {
+    format!("GET {V1}/dictionary?type={subject_type}&limit=100&offset=0")
+}
+
+const HINT: &str = "[↑↓ to move, enter to select, type to filter]";
+
+/// Lines as [`cells`] reads them, without the borders a table has at a terminal: piped, the same
+/// table has none.
+fn table_cells(lines: &[String]) -> Vec<Vec<String>> {
+    let border = |c: char| c.is_whitespace() || "┌┐└┘├┤┼─╌┬┴╞╪╡═".contains(c);
+    let text: String = lines
+        .iter()
+        .map(|line| line.chars().map(|c| if "│┆".contains(c) { ' ' } else { c }).collect::<String>())
+        .filter(|line| !line.chars().all(border))
+        .map(|line| line + "\n")
+        .collect();
+    cells(text.as_bytes())
+}
+
+/// [`methodologies_to_choose`], the [`MONTHLY`] cohorts (the [`WEEKLY`] ones of `channel:meta`),
+/// each cohort's detail, any customer, a rules preview, and [`dictionary_entries`] in acct-alpha
+/// with each entry's lookup (any other subject type has none).
+async fn measurement_and_dictionary_stub() -> MockServer {
+    use wiremock::matchers::{method, query_param};
+    let server = MockServer::start().await;
+    serve(&server, "GET", "/api/measurement/methodologies", 200, methodologies_to_choose()).await;
+    // Mounted first, matched first.
+    Mock::given(method("GET"))
+        .and(path("/api/measurement/ltv"))
+        .and(query_param("granularity", "weekly"))
+        .and(query_param("segment_key", "channel:meta"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(cohorts("weekly", "channel:meta", &WEEKLY)))
+        .mount(&server)
+        .await;
+    serve(&server, "GET", "/api/measurement/ltv", 200, cohorts("monthly", "all", &MONTHLY)).await;
+    for (granularity, segment, periods) in [("monthly", "all", &MONTHLY[..]), ("weekly", "channel:meta", &WEEKLY[..])] {
+        for (period, size) in periods {
+            let curve = json!({
+                "period_offset_days": 30, "cumulative_gross_revenue": 1500.5, "cumulative_revenue_after_cogs": 900,
+            });
+            let detail = json!({
+                "cohort_period": period, "cohort_granularity": granularity, "segment_key": segment,
+                "cohort_size": size, "retention_matrix": [{}, {}], "cumulative_curve": [curve], "prediction": null,
+            });
+            serve(&server, "GET", &format!("/api/measurement/ltv/cohort/{period}"), 200, detail).await;
+        }
+    }
+    let customer = json!({
+        "cohort": {
+            "acquisition_date": "2026-08-03", "acquisition_channel": "paid_social", "acquisition_campaign": null,
+            "country": "AU", "is_reactivated": false, "cohort_period_monthly": "2026-08-01",
+        },
+        "realised": { "ltv_30d": 120.5, "ltv_90d": 240, "ltv_12m": null, "ltv_full": 240 },
+        "revenue": [{}, {}],
+    });
+    Mock::given(wiremock::matchers::path_regex("^/api/measurement/ltv/customer/[^/]+$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(customer))
+        .mount(&server)
+        .await;
+    let preview = json!({
+        "context": { "campaign_objective": "sales", "channel_grouping": "paid_social", "custom_label": null },
+        "resolved_methodology": { "name": "Blended" }, "via": "rule", "sample_count": 12,
+    });
+    let previews = json!({ "previews": [preview], "total_distinct_contexts": 1 });
+    serve(&server, "POST", "/api/measurement/methodologies/rules/preview", 200, previews).await;
+    for (subject_type, items) in dictionary_entries() {
+        Mock::given(method("GET"))
+            .and(path(format!("{V1}/dictionary")))
+            .and(query_param("type", subject_type))
+            .respond_with(ResponseTemplate::new(200).set_body_json(page_of(items.clone(), 0, false)))
+            .mount(&server)
+            .await;
+        for item in items {
+            let id = item["subjectId"].as_str().unwrap().to_string();
+            let found = json!({ "data": { "subjectId": id, "found": true, "definition": item } });
+            Mock::given(method("GET"))
+                .and(path(format!("{V1}/dictionary/lookup")))
+                .and(query_param("subject_id", id.as_str()))
+                .respond_with(ResponseTemplate::new(200).set_body_json(found))
+                .mount(&server)
+                .await;
+        }
+    }
+    serve(&server, "GET", &format!("{V1}/dictionary"), 200, page_of(Vec::new(), 0, false)).await;
+    server
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_missing_methodology_or_cohort_is_chosen_from_its_list_and_the_command_runs_as_typed() {
+    let server = measurement_and_dictionary_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    // (the rows, the second one's value, how its answer names it, the list's request). A cohort is
+    // answered by its period, the value the command takes.
+    let methodologies =
+        (&METHODOLOGY_ROWS[..], METHODOLOGY_LAST_CLICK, "1e1f2021... (Last Click)", METHODOLOGIES_LISTED.to_string());
+    let monthly = (&COHORT_ROWS[..], "2026-08-01", "2026-08-01", COHORTS_LISTED.to_string());
+    let weekly_listed =
+        "GET /api/measurement/ltv?granularity=weekly&segment_key=channel%3Ameta&limit=500&include_predicted=false";
+    let weekly = (&WEEKLY_ROWS[..], "2026-09-21", "2026-09-21", weekly_listed.to_string());
+    let cases: [(&[&str], _); 6] = [
+        (&["measurement", "methodologies", "get"], &methodologies),
+        (&["measurement", "methodologies", "get", "--json"], &methodologies),
+        (&["measurement", "ltv", "cohort"], &monthly),
+        (&["measurement", "ltv", "cohort", "--json"], &monthly),
+        // The cohorts of the granularity and segment typed.
+        (&["measurement", "ltv", "cohort", "--granularity", "weekly", "--segment", "channel:meta"], &weekly),
+        (&["measurement", "ltv", "cohort", "--segment=channel:meta", "--json", "--granularity", "weekly"], &weekly),
+    ];
+    for (args, (rows, chosen, named, list)) in cases {
+        let case = args.join(" ");
+        let path = format!("vendo {}", args[..3].join(" "));
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        // Titled with the command; every row in the route's order, the first marked; the menu's hint.
+        let mut expected = vec![format!("? {path}")];
+        expected.extend(marked(rows));
+        expected.push(HINT.to_string());
+        assert_eq!(shown_lines(&terminal, (40, 120)), expected, "{case}");
+        // Down to the second, which Enter chooses.
+        terminal.press("\u{1b}[B");
+        terminal.wait_for(&format!("> {}", rows[1]));
+        terminal.press("\r");
+        let answer = format!("? {path} {named}");
+        terminal.wait_for(&answer[2..]);
+        let (_, code) = terminal.finish();
+        let mut asked = sent(&server).await[before..].to_vec();
+        // The same command typed with the value, on a pipe.
+        let typed = sandbox.run(&[&args[..3], &[*chosen][..], &args[3..]].concat());
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!((code, typed.status.code()), (Some(0), Some(0)), "{case}: {}", text(&typed.stderr));
+        assert_eq!(asked.remove(0), *list, "{case}");
+        assert_eq!(asked, typed_sent, "{case}");
+        // What it showed after the answer is what the typed command printed.
+        assert_eq!(after_answer(&terminal, &answer), printed_lines(&typed), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn dictionary_get_asks_for_a_subject_type_then_one_of_its_entries_and_runs_as_typed() {
+    let server = measurement_and_dictionary_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    // (the words, the type's row, that type's rows, the entry's row, its subject ID, how the answer
+    // names it). Not a short ID: the dictionary's IDs are not looked up by their start (VE-3831).
+    type Case<'a> = (&'a [&'a str], usize, &'a [&'a str], usize, &'a str, String);
+    let cases: [Case; 4] = [
+        (&["dictionary", "get"], 0, &EVENT_ROWS[..], 1, EVENT_PAGE, format!("{EVENT_PAGE} (Page Viewed)")),
+        (
+            &["dictionary", "get", "--json"],
+            0,
+            &EVENT_ROWS,
+            0,
+            EVENT_CHECKOUT,
+            format!("{EVENT_CHECKOUT} (Checkout Completed)"),
+        ),
+        // An entry with no name: its subject ID alone.
+        (&["dictionary", "get"], 0, &EVENT_ROWS, 2, EVENT_UNNAMED, EVENT_UNNAMED.to_string()),
+        (&["dictionary", "get", "--json"], 1, &PROP_ROWS, 0, PROP_EMAIL, format!("{PROP_EMAIL} (Email)")),
+    ];
+    for (args, type_at, rows, entry_at, chosen, named) in cases {
+        let case = format!("{} {chosen}", args.join(" "));
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        // First the subject type, event first as `dictionary list` lists events by default.
+        let mut expected = vec!["? vendo dictionary get · subject type".to_string()];
+        expected.extend(marked(&SUBJECT_TYPE_ROWS));
+        expected.push(HINT.to_string());
+        assert_eq!(shown_lines(&terminal, (40, 120)), expected, "{case}");
+        let subject_type = SUBJECT_TYPE_ROWS[type_at];
+        if type_at > 0 {
+            terminal.press(&"\u{1b}[B".repeat(type_at));
+            terminal.wait_for(&format!("> {subject_type}"));
+        }
+        terminal.press("\r");
+        let typed_type = format!("? vendo dictionary get · subject type {subject_type}");
+        terminal.wait_for(&typed_type[2..]);
+        terminal.wait_for("type to filter]");
+        // Then that type's entries: name and subject ID.
+        let mut expected = vec![typed_type, "? vendo dictionary get".to_string()];
+        expected.extend(marked(rows));
+        expected.push(HINT.to_string());
+        assert_eq!(shown_lines(&terminal, (40, 120)), expected, "{case}");
+        if entry_at > 0 {
+            terminal.press(&"\u{1b}[B".repeat(entry_at));
+            terminal.wait_for(&format!("> {}", rows[entry_at]));
+        }
+        terminal.press("\r");
+        let answer = format!("? vendo dictionary get {named}");
+        terminal.wait_for(&answer[2..]);
+        let (_, code) = terminal.finish();
+        let mut asked = sent(&server).await[before..].to_vec();
+        let typed = sandbox.run(&[&args[..2], &[chosen][..], &args[2..]].concat());
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!((code, typed.status.code()), (Some(0), Some(0)), "{case}: {}", text(&typed.stderr));
+        assert_eq!(asked.remove(0), dictionary_listed(subject_type), "{case}");
+        assert_eq!(asked, typed_sent, "{case}");
+        assert_eq!(after_answer(&terminal, &answer), printed_lines(&typed), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn rules_preview_ltv_customer_and_dictionary_search_ask_a_question_and_run_as_typed() {
+    let server = measurement_and_dictionary_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let preview = "vendo measurement rules preview";
+    let (customer, search) = ("vendo measurement ltv customer", "vendo dictionary search");
+    // (the title of the command, the words, each question's option and answer in clap's order, the
+    // same command typed)
+    type Case<'a> = (&'a str, &'a [&'a str], &'a [(&'a str, &'a str)], &'a [&'a str]);
+    let cases: [Case; 10] = [
+        (
+            preview,
+            &["measurement", "rules", "preview"],
+            &[("--from", "2025-01-01"), ("--to", "2025-01-31")],
+            &["measurement", "rules", "preview", "--from", "2025-01-01", "--to", "2025-01-31"],
+        ),
+        (
+            preview,
+            &["measurement", "rules", "preview", "--from", "2025-01-01", "--limit", "100"],
+            &[("--to", "2025-01-31")],
+            &["measurement", "rules", "preview", "--from", "2025-01-01", "--limit", "100", "--to", "2025-01-31"],
+        ),
+        (
+            preview,
+            &["measurement", "rules", "preview", "--to", "2025-01-31", "--json"],
+            &[("--from", "2025-01-01")],
+            &["measurement", "rules", "preview", "--to", "2025-01-31", "--json", "--from", "2025-01-01"],
+        ),
+        (
+            customer,
+            &["measurement", "ltv", "customer"],
+            &[("", "cust_abc123")],
+            &["measurement", "ltv", "customer", "cust_abc123"],
+        ),
+        (
+            customer,
+            &["measurement", "ltv", "customer", "--json"],
+            &[("", "cust 1/2")],
+            &["measurement", "ltv", "customer", "--json", "cust 1/2"],
+        ),
+        (search, &["dictionary", "search"], &[("", "checkout")], &["dictionary", "search", "checkout"]),
+        (
+            search,
+            &["dictionary", "search", "--type", "prop", "--json"],
+            &[("", "email")],
+            &["dictionary", "search", "--type", "prop", "--json", "email"],
+        ),
+        // An answer that starts with `-` is the query, not an option.
+        (search, &["dictionary", "search"], &[("", "-checkout")], &["dictionary", "search", "--", "-checkout"]),
+        // And `help` is the query too, as when typed.
+        (search, &["dictionary", "search"], &[("", "help")], &["dictionary", "search", "help"]),
+        (
+            search,
+            &["dictionary", "search", "--limit", "5"],
+            &[("", "page viewed")],
+            &["dictionary", "search", "--limit", "5", "page viewed"],
+        ),
+    ];
+    for (title, args, questions, typed_args) in cases {
+        let case = args.join(" ");
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        let mut answered = Vec::new();
+        for (option, answer) in questions {
+            let title = if option.is_empty() { title.to_string() } else { format!("{title} {option}") };
+            terminal.wait_for(&title);
+            terminal.press(&format!("{answer}\r"));
+            let line = format!("? {title} {answer}");
+            terminal.wait_for(&line[2..]);
+            answered.push(line);
+        }
+        let (_, code) = terminal.finish();
+        assert!(!terminal.screen.contains("type to filter"), "{case}");
+        let shown = shown_lines(&terminal, (40, 120));
+        assert_eq!(shown[..answered.len()], answered[..], "{case}: {shown:#?}");
+        let asked = sent(&server).await[before..].to_vec();
+        let typed = sandbox.run(typed_args);
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!((code, typed.status.code()), (Some(0), Some(0)), "{case}: {}", text(&typed.stderr));
+        // Nothing is sent before the command's own request.
+        assert_eq!((asked.len(), &asked), (1, &typed_sent), "{case}");
+        let (after, printed) = (after_answer(&terminal, answered.last().unwrap()), printed_lines(&typed));
+        if after.first().is_some_and(|line| line.starts_with('┌')) {
+            assert_eq!(table_cells(&after), table_cells(&printed), "{case}");
+        } else {
+            assert_eq!(after, printed, "{case}");
+        }
+    }
+    // An empty answer is refused.
+    let before = sent(&server).await.len();
+    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "ltv", "customer"]);
+    terminal.wait_for(customer);
+    terminal.press("\r");
+    terminal.wait_for("A response is required.");
+    terminal.press("cust_abc123\r");
+    terminal.wait_for("vendo measurement ltv customer cust_abc123");
+    assert_eq!(terminal.finish().1, Some(0));
+    assert_eq!(sent(&server).await[before..], ["GET /api/measurement/ltv/customer/cust_abc123"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn typing_filters_the_methodologies_cohorts_subject_types_and_dictionary_entries() {
+    let server = measurement_and_dictionary_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let methodologies = ["measurement", "methodologies", "get"];
+    let cohort = ["measurement", "ltv", "cohort"];
+    // (the words, what answers the type first, the list's title, what is typed, the rows left)
+    for (args, first, title, typed, rows) in [
+        (&methodologies[..], "", "vendo measurement methodologies get", "SYSTEM", &METHODOLOGY_ROWS[1..]),
+        (&methodologies, "", "vendo measurement methodologies get", "linear", &METHODOLOGY_ROWS[..1]),
+        (&methodologies, "", "vendo measurement methodologies get", "2F303132...", &METHODOLOGY_ROWS[2..]),
+        (&cohort, "", "vendo measurement ltv cohort", "2026-08", &COHORT_ROWS[1..2]),
+        (&cohort, "", "vendo measurement ltv cohort", "1,204", &COHORT_ROWS[..1]),
+        (&["dictionary", "get"], "", "vendo dictionary get · subject type", "PR", &SUBJECT_TYPE_ROWS[1..2]),
+        (&["dictionary", "get"], "", "vendo dictionary get · subject type", "mo", &SUBJECT_TYPE_ROWS[5..6]),
+        (&["dictionary", "get"], "\r", "vendo dictionary get", "viewed", &EVENT_ROWS[1..2]),
+        (&["dictionary", "get"], "\r", "vendo dictionary get", "9F8E7D6C", &EVENT_ROWS[..1]),
+        (&["dictionary", "get"], "\r", "vendo dictionary get", "e", &EVENT_ROWS[..]),
+    ] {
+        let case = format!("{} {typed}", args.join(" "));
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        if !first.is_empty() {
+            terminal.press(first);
+            terminal.wait_for("type to filter]");
+        }
+        terminal.press(typed);
+        let filtered = format!("? {title} {typed}");
+        terminal.wait_for(&filtered[2..]);
+        // The end of that frame: inquire shows the cursor again.
+        terminal.wait_for("\u{1b}[?25h");
+        let shown = shown_lines(&terminal, (40, 120));
+        let at = shown.iter().position(|line| *line == filtered).unwrap_or_else(|| panic!("{case}: {shown:#?}"));
+        assert_eq!(shown[at + 1..shown.len() - 1], marked(rows)[..], "{case}");
+        terminal.press("\u{1b}");
+        assert_eq!(terminal.finish().1, Some(0), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn esc_ctrl_c_or_ctrl_d_at_a_measurement_or_dictionary_list_or_question_leave_quietly() {
+    let server = measurement_and_dictionary_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let event = dictionary_listed("event");
+    // (words, what opens first, what answers it, the line left, what was sent, whether the last
+    // prompt is a list)
+    type Case<'a> = (&'a [&'a str], &'a str, &'a str, &'a str, Vec<String>, bool);
+    let cases: [Case; 8] = [
+        (
+            &["measurement", "methodologies", "get"],
+            "",
+            "",
+            "? vendo measurement methodologies get <canceled>",
+            vec![METHODOLOGIES_LISTED.into()],
+            true,
+        ),
+        (
+            &["measurement", "ltv", "cohort"],
+            "",
+            "",
+            "? vendo measurement ltv cohort <canceled>",
+            vec![COHORTS_LISTED.into()],
+            true,
+        ),
+        (&["dictionary", "get"], "", "", "? vendo dictionary get · subject type <canceled>", vec![], true),
+        (&["dictionary", "get"], "type to filter]", "\r", "? vendo dictionary get <canceled>", vec![event], true),
+        (
+            &["measurement", "rules", "preview"],
+            "",
+            "",
+            "? vendo measurement rules preview --from <canceled>",
+            vec![],
+            false,
+        ),
+        (
+            &["measurement", "rules", "preview"],
+            "vendo measurement rules preview --from",
+            "2025-01-01\r",
+            "? vendo measurement rules preview --to <canceled>",
+            vec![],
+            false,
+        ),
+        (&["measurement", "ltv", "customer"], "", "", "? vendo measurement ltv customer <canceled>", vec![], false),
+        (&["dictionary", "search"], "", "", "? vendo dictionary search <canceled>", vec![], false),
+    ];
+    for (args, first, answers, last, requests, list) in cases {
+        for (key, name) in [("\u{1b}", "Esc"), ("\u{3}", "Ctrl-C"), ("\u{4}", "Ctrl-D")] {
+            let case = format!("{name} {} {answers:?}", args.join(" "));
+            let before = sent(&server).await.len();
+            let mut terminal = OnTerminal::start(&sandbox, args);
+            if !answers.is_empty() {
+                terminal.wait_for(first);
+                terminal.press(answers);
+            }
+            terminal.wait_for(&last[2..last.len() - " <canceled>".len()]);
+            if list {
+                terminal.wait_for("type to filter]");
+            }
+            terminal.press(key);
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            let shown = shown_lines(&terminal, (40, 120));
+            assert_eq!(shown.last().map(String::as_str), Some(last), "{case}: {shown:#?}");
+            assert_eq!(sent(&server).await[before..], requests[..], "{case}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn with_no_methodology_cohort_or_dictionary_entry_to_choose_from_it_says_so_and_is_the_usage_error() {
+    let server = MockServer::start().await;
+    serve(&server, "GET", "/api/measurement/methodologies", 200, json!({ "data": { "methodologies": [] } })).await;
+    serve(&server, "GET", "/api/measurement/ltv", 200, cohorts("monthly", "all", &[])).await;
+    serve(&server, "GET", &format!("{V1}/dictionary"), 200, page_of(Vec::new(), 0, false)).await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, nothing) in [
+        (&["measurement", "methodologies", "get"][..], "No methodologies to choose from."),
+        (&["measurement", "methodologies", "get", "--json"], "No methodologies to choose from."),
+        (&["measurement", "ltv", "cohort"], "No cohorts to choose from."),
+        (&["measurement", "ltv", "cohort", "--json"], "No cohorts to choose from."),
+    ] {
+        let typed = sandbox.run(args);
+        assert_eq!(typed.status.code(), Some(2));
+        let mut terminal = OnTerminal::start_with(&sandbox, args, WIDE, "", None);
+        let (_, code) = terminal.finish();
+        let expected = format!("{nothing}\n{}", text(&typed.stderr));
+        let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into())).join("\n");
+        assert_eq!((code, shown), (Some(2), expected.trim_end().to_string()), "{args:?}");
+    }
+    // The dictionary: a type is chosen, then it has no entries.
+    for args in [&["dictionary", "get"][..], &["dictionary", "get", "--json"]] {
+        let typed = sandbox.run(args);
+        assert_eq!(typed.status.code(), Some(2));
+        let mut terminal = OnTerminal::start_with(&sandbox, args, WIDE, "", None);
+        terminal.wait_for("type to filter]");
+        terminal.press("\u{1b}[B");
+        terminal.wait_for("> prop");
+        terminal.press("\r");
+        let (_, code) = terminal.finish();
+        let expected = format!(
+            "? vendo dictionary get · subject type prop\nNo prop entries to choose from.\n{}",
+            text(&typed.stderr)
+        );
+        let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into())).join("\n");
+        assert_eq!((code, shown), (Some(2), expected.trim_end().to_string()), "{args:?}");
+    }
+    let mut expected = vec![METHODOLOGIES_LISTED.to_string(); 2];
+    expected.extend([COHORTS_LISTED.to_string(), COHORTS_LISTED.to_string()]);
+    expected.extend([dictionary_listed("prop"), dictionary_listed("prop")]);
+    assert_eq!(sent(&server).await, expected);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_methodology_cohort_or_dictionary_list_that_fails_is_the_error_and_nothing_more_is_asked() {
+    let server = MockServer::start().await;
+    // The web app's routes send their error as a string, with no code (VE-3668, VE-3831).
+    serve(&server, "GET", "/api/measurement/methodologies", 500, json!({ "error": "BigQuery is unavailable" })).await;
+    // A granularity the route does not know is its 400, as for the typed command.
+    let refused = json!({ "error": "granularity must be one of daily | weekly | monthly" });
+    serve(&server, "GET", "/api/measurement/ltv", 400, refused).await;
+    let refusal = json!({ "error": { "code": "INTERNAL_ERROR", "message": "Database unavailable" } });
+    serve(&server, "GET", &format!("{V1}/dictionary"), 500, refusal).await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, message) in [
+        (&["measurement", "methodologies", "get"][..], "BigQuery is unavailable"),
+        (
+            &["measurement", "ltv", "cohort", "--granularity", "yearly"],
+            "granularity must be one of daily | weekly | monthly",
+        ),
+    ] {
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        let (_, code) = terminal.finish();
+        let shown = shown_lines(&terminal, (40, 120));
+        assert_eq!((code, shown[0].as_str()), (Some(1), format!("Error: {message}").as_str()), "{shown:#?}");
+        assert!(!terminal.screen.contains("type to filter"), "{args:?}");
+    }
+    // The dictionary's entries, once the type is chosen: its list opens no more.
+    let mut terminal = OnTerminal::start(&sandbox, &["dictionary", "get"]);
+    terminal.wait_for("type to filter]");
+    let opened = terminal.screen.matches("type to filter]").count();
+    terminal.press("\r");
+    let (_, code) = terminal.finish();
+    let shown = shown_lines(&terminal, (40, 120));
+    assert_eq!(
+        (code, &shown[..2]),
+        (
+            Some(1),
+            &["? vendo dictionary get · subject type event".to_string(), "Error: Database unavailable".to_string()][..]
+        ),
+        "{shown:#?}"
+    );
+    assert_eq!(terminal.screen.matches("type to filter]").count(), opened, "{shown:#?}");
+    for (args, first, message, code, status) in [
+        (&["measurement", "methodologies", "get", "--json"][..], false, "BigQuery is unavailable", Value::Null, 500),
+        (
+            &["measurement", "ltv", "cohort", "--json", "--granularity", "yearly"],
+            false,
+            "granularity must be one of daily | weekly | monthly",
+            Value::Null,
+            400,
+        ),
+        (&["dictionary", "get", "--json"], true, "Database unavailable", json!("INTERNAL_ERROR"), 500),
+    ] {
+        let mut terminal = OnTerminal::start_with(&sandbox, args, WIDE, "", None);
+        if first {
+            terminal.wait_for("type to filter]");
+            terminal.press("\r");
+        }
+        let (_, exit) = terminal.finish();
+        let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into()));
+        assert_eq!((exit, shown.len()), (Some(1), 1 + usize::from(first)), "{shown:#?}");
+        let error: Value = serde_json::from_str(shown.last().unwrap()).unwrap();
+        assert_eq!(
+            (&error["error"]["message"], &error["error"]["code"], &error["error"]["status"]),
+            (&json!(message), &code, &json!(status)),
+            "{args:?}"
+        );
+    }
+    let yearly = "GET /api/measurement/ltv?granularity=yearly&segment_key=all&limit=500&include_predicted=false";
+    let listed = [METHODOLOGIES_LISTED.to_string(), yearly.to_string(), dictionary_listed("event")];
+    assert_eq!(sent(&server).await, [&listed[..], &listed[..]].concat());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_dictionary_needs_the_account_before_anything_is_asked_and_measurement_only_the_key() {
+    let server = measurement_and_dictionary_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    without_accounts(&sandbox);
+    let no_account = text(&sandbox.run(&["dictionary", "list"]).stderr);
+    assert!(no_account.starts_with("Error: No account configured."), "{no_account}");
+    for args in [&["dictionary", "get"][..], &["dictionary", "search"], &["dictionary", "search", "--type", "prop"]] {
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        let (_, code) = terminal.finish();
+        let shown = shown_lines(&terminal, (40, 120)).join("\n");
+        assert_eq!((code, shown), (Some(1), no_account.trim_end().to_string()), "{args:?}");
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+    // The measurement routes are the key's (web-app routes, VE-3668): listed and asked without an
+    // account.
+    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "methodologies", "get", "--json"]);
+    terminal.wait_for("type to filter]");
+    assert_eq!(listed_rows(&terminal), marked(&METHODOLOGY_ROWS));
+    terminal.press("\r");
+    assert_eq!(terminal.finish().1, Some(0));
+    for (args, title) in [
+        (&["measurement", "ltv", "cohort"][..], "type to filter]"),
+        (&["measurement", "rules", "preview"], "vendo measurement rules preview --from"),
+        (&["measurement", "ltv", "customer"], "vendo measurement ltv customer"),
+    ] {
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        terminal.wait_for(title);
+        terminal.press("\u{1b}");
+        assert_eq!(terminal.finish().1, Some(0), "{args:?}");
+    }
+    assert_eq!(sent(&server).await, [METHODOLOGIES_LISTED, METHODOLOGIES_LISTED, COHORTS_LISTED]);
+    // No key: its error before anything is asked, a question too.
+    let sandbox = Sandbox::without_api_keys(&server.uri());
+    let no_key = text(&sandbox.run(&["measurement", "methodologies", "list"]).stderr);
+    assert!(no_key.starts_with("Error: No API key configured."), "{no_key}");
+    for args in [
+        &["measurement", "methodologies", "get"][..],
+        &["measurement", "ltv", "cohort"],
+        &["measurement", "rules", "preview"],
+        &["measurement", "ltv", "customer"],
+        &["dictionary", "search"],
+    ] {
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        let (_, code) = terminal.finish();
+        let shown = shown_lines(&terminal, (40, 120)).join("\n");
+        assert_eq!((code, shown), (Some(1), no_key.trim_end().to_string()), "{args:?}");
+    }
+    assert_eq!(sent(&server).await.len(), 3);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn of_more_than_500_entries_the_first_500_are_listed_and_of_500_cohorts_the_hint_says_newest_500() {
+    use wiremock::matchers::query_param;
+    let server = MockServer::start().await;
+    // Six pages of 100 events, in the route's order: the list reads five, as a short-ID lookup does.
+    let id = |n: usize| format!("{n:032x}");
+    for page in 0..6 {
+        let items: Vec<Value> = (page * 100..page * 100 + 100)
+            .map(|n| dictionary_item(&id(n), "event", json!(format!("Event {n}"))))
+            .collect();
+        Mock::given(path(format!("{V1}/dictionary")))
+            .and(query_param("offset", (page * 100).to_string()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(page_of(items, page * 100, true)))
+            .mount(&server)
+            .await;
+    }
+    serve(&server, "GET", &format!("{V1}/dictionary/lookup"), 200, json!({ "data": { "found": false } })).await;
+    // The route sends at most 500 cohorts, newest first: 500 may leave older ones out.
+    let periods: Vec<String> =
+        (0..500).map(|n| format!("{:04}-{:02}-01", 2026 - (n + 3) / 12, 12 - (n + 3) % 12)).collect();
+    let periods: Vec<(&str, u64)> = periods.iter().map(|period| (period.as_str(), 10)).collect();
+    serve(&server, "GET", "/api/measurement/ltv", 200, cohorts("monthly", "all", &periods)).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["dictionary", "get"]);
+    terminal.wait_for("type to filter]");
+    terminal.press("\r");
+    terminal.wait_for("[↑↓ to move, enter to select, type to filter · first 500 shown]");
+    // The last of the 500 is found by typing, and Enter chooses it.
+    terminal.press("Event 499");
+    terminal.wait_for(&format!("> Event 499  {}", id(499)));
+    terminal.press("\r");
+    terminal.wait_for(&format!("vendo dictionary get {} (Event 499)", id(499)));
+    assert_eq!(terminal.finish().1, Some(0));
+    let mut pages: Vec<String> =
+        (0..5).map(|page| format!("GET {V1}/dictionary?type=event&limit=100&offset={}", page * 100)).collect();
+    pages.push(format!("GET {V1}/dictionary/lookup?subject_id={}", id(499)));
+    assert_eq!(sent(&server).await, pages);
+    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "ltv", "cohort"]);
+    terminal.wait_for("[↑↓ to move, enter to select, type to filter · newest 500 shown]");
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+    assert_eq!(sent(&server).await[5 + 1..], [COHORTS_LISTED]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_cohort_chosen_from_the_ltv_menu_is_asked_for_as_when_typed() {
+    // `vendo measurement ltv` → cohort asks for the cohort as `vendo measurement ltv cohort` does.
+    let server = measurement_and_dictionary_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "ltv"]);
+    terminal.wait_for("Show one customer's cohort");
+    terminal.press("\u{1b}[B");
+    terminal.wait_for("> cohort");
+    terminal.press("\r");
+    terminal.wait_for(COHORT_ROWS[2]);
+    terminal.press("\r");
+    terminal.wait_for("vendo measurement ltv cohort 2026-09-01");
+    let (ran, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{ran:?}");
+    assert!(plain(&ran).contains("Cohort 2026-09-01"), "{ran:?}");
+    let cohort = "GET /api/measurement/ltv/cohort/2026-09-01?granularity=monthly&segment_key=all";
+    assert_eq!(sent(&server).await, [COHORTS_LISTED, cohort]);
+}
+
 // ── VE-3826: CI and VENDO_NO_INPUT turn prompts off; no menu on TERM=dumb ───
 // Decided by Yalcin, 2026-10-06, CLI 1.1. `CI` or `VENDO_NO_INPUT` set to anything but empty, `0`
 // or `false` (in any case) turns every prompt off, also at a terminal: the y/N questions, the group

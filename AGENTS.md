@@ -255,45 +255,58 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `· newest 500 shown`; metrics without the archived ones, as `metrics list` leaves them out; rows in the table's
   columns as plain text, a job's platform and start time `—` when it has none), a platform ready to connect as
   `catalog list` lists them by default (VE-3829) for `apps create --type`, `catalog get` and the hidden
-  `catalog credential-schema`, `sources create --sync-type` the one type the API takes, the type of
-  the app chosen for `--app` or typed (read as `apps get` reads it, a short ID looked up first; an app that cannot be
-  read is that error, exit 1), in a list of that one row, and `destinations create --data-type` the 13 data types
-  vendo-web-v2's `DataTypeSchema` (`lib/vendo/data-model.ts`) takes, in its order, the deprecated legacy ones too
-  (`ask::DATA_TYPES`). Free text (`apps create --name`, `metrics create --name`) and a file's path
+  `catalog credential-schema`, a methodology as `measurement methodologies list` lists them (the system's and the
+  account's, one response; short ID, name, `system` or `account`, click-path model), a cohort period for
+  `measurement ltv cohort` from the cohorts `measurement ltv list` lists for the typed `--granularity` and `--segment`
+  or their defaults (newest first, as many as the route sends, 500 at most, without predictions; period, segment, size;
+  with 500 the hint ends `· newest 500 shown`, the route sending no total), for `dictionary get` first a subject type
+  (`dictionary::SUBJECT_TYPES`, event first; titled `vendo dictionary get · subject type`), then that type's entries as
+  `dictionary list --type` lists them (the route's order, pages of 100, at most 5, with more the hint ends
+  `· first 500 shown`; name, the table's dash for none, and subject ID), `sources create --sync-type` the one type the
+  API takes, the type of the app chosen for `--app` or typed (read as `apps get` reads it, a short ID looked up first;
+  an app that cannot be read is that error, exit 1), in a list of that one row, and `destinations create --data-type`
+  the 13 data types vendo-web-v2's `DataTypeSchema` (`lib/vendo/data-model.ts`) takes, in its order, the deprecated
+  legacy ones too (`ask::DATA_TYPES`). Free text (`apps create --name`, `metrics create --name`,
+  `measurement ltv customer`, `dictionary search`, an answer starting with `-` going in after `--` and `help` staying
+  the query), a date (`measurement rules preview --from` and `--to`, not checked: the API decides) and a file's path
   (`destinations create --config-file`, `metrics create --definition`, taken as typed, relative to the current
-  directory, `~` not expanded) are a one-line question (`output::ask_text`, refusing an empty answer). Keys typed
-  before a list or question opens (while the list loads, or with the Enter that answered the menu or the list before)
-  are thrown away (`output::discard_typed_ahead`), so a stray Enter chooses nothing unseen.
-  Each is titled with the command as the tree names it (`vendo apps get`, `vendo apps create --type`,
-  `vendo destinations get` for `vendo int get`), and the answered line reads like the command so far,
-  `vendo apps get a1b2c3d4... (Menu Shop)`, `vendo destinations get 9c0d1e2f... (Analytics BQ → Demo Pixel)`, a job,
-  which has no name, by its short ID alone (`vendo jobs cancel 1f2e3d4c...`), after
-  inquire's mark for an answer: a green `>`, or `?` with `NO_COLOR` (as the tests run); the title of an open list or
-  question and the `<canceled>` line start with `?` either way. The values go into the words where they would have been
-  typed (an option as `--type=shopify`, an ID whole) and `cli::parse` parses again, once, so global options, `MOVED`,
-  the y/N of a delete or cancel, `--dry-run`, `--json` and `--output` apply as typed, and an `update` given no change
-  (Q13's default) fails after the choice as when typed with the ID: `Nothing to update — pass at least one flag.` for
-  apps, sources and destinations, `No updates provided` for metrics, exit 1. Before anything is asked: no API key, or an
-  unknown `VENDO_PROFILE`, is that error, and without an account a command whose requests go to the account (apps,
-  sources, destinations, jobs, models, the dictionary; `ask::needs_account`) is the client's "No account configured"
-  error (`Client::require_account`), whichever of its values is missing (`destinations create --dest-app <id>` too,
-  before its data type and path), exit 1 with nothing sent; the platforms and the metrics are the key's (the catalog
-  route, the web app's `/api/metrics`), so `apps create`, `catalog get` and the metrics commands ask without an
-  account. A list that fails is its error (exit 1, the JSON error with `--json`); an empty one says
-  `No apps to choose from.` (`sources`, `destinations`, `jobs`, `models`, `metrics`, `platforms`) and is the usage
-  error (exit 2). Esc, Ctrl-C, Ctrl-D and a hang-up exit 0 with nothing run. ❓ Open for Yalcin, built with the spec's
-  cautious defaults: lists not narrowed beyond what the list command shows (Q2: `sources create`'s apps not narrowed to
-  active source apps, nor by a typed `--sync-type`), the sync type as a one-row list to confirm (Q3), the empty-list
-  line (Q4), the cut-off note's wording (Q6), all 13 data types (Q7), a path taken as typed (Q8), `apps create`'s
-  platforms not narrowed by `--role` (Q9), `catalog get` listing only the ready platforms and the hidden
-  `credential-schema` asking as it does (Q10), an `update` with no change asking first (Q13), and `--dry-run` sending
-  the list request (Q14); not narrowed either: `jobs cancel` to running and queued jobs, `metrics activate` to drafts
-  (Q2). Without a terminal, with prompts off, on `TERM=dumb`, with stderr redirected or a write-only stdin, the usage
-  error stays byte for byte and nothing is sent (`rust/tests/snapshots/usage/`). Built so far for every command of
-  apps, sources, destinations (`integrations` and `int` too), jobs, models, metrics and the catalog that requires a
-  value; measurement and the dictionary are `PENDING` in `ask.rs`'s coverage test and keep the usage error until their
-  part is built. An agent that runs `vendo` on a pseudo-terminal without `CI` or `VENDO_NO_INPUT` now waits at the
-  question where it got exit 2, as at the group menu and the y/N questions; `VENDO_NO_INPUT=1` turns it off.
+  directory, `~` not expanded) are a one-line question (`output::ask_text`, refusing an empty answer). Keys typed before
+  a list or question opens (while the list loads, or with the Enter that answered the menu or the list before) are
+  thrown away (`output::discard_typed_ahead`), so a stray Enter chooses nothing unseen. Each is titled with the command
+  as the tree names it (`vendo apps get`, `vendo apps create --type`, `vendo destinations get` for `vendo int get`), and
+  the answered line reads like the command so far, `vendo apps get a1b2c3d4... (Menu Shop)`,
+  `vendo destinations get 9c0d1e2f... (Analytics BQ → Demo Pixel)`, a job, which has no name, by its short ID alone
+  (`vendo jobs cancel 1f2e3d4c...`), a cohort by its period, a dictionary entry by its whole subject ID and name (the
+  dictionary's IDs are no short IDs), after inquire's mark for an answer: a green `>`, or `?` with `NO_COLOR` (as the
+  tests run); the title of an open list or question and the `<canceled>` line start with `?` either way. The values go
+  into the words where they would have been typed (an option as `--type=shopify`, an ID whole) and `cli::parse` parses
+  again, once, so global options, `MOVED`, the y/N of a delete or cancel, `--dry-run`, `--json` and `--output` apply as
+  typed, and an `update` given no change (Q13's default) fails after the choice as when typed with the ID:
+  `Nothing to update — pass at least one flag.` for apps, sources and destinations, `No updates provided` for metrics,
+  exit 1. Before anything is asked: no API key, or an unknown `VENDO_PROFILE`, is that error, and without an account a
+  command whose requests go to the account (apps, sources, destinations, jobs, models, the dictionary;
+  `ask::needs_account`) is the client's "No account configured" error (`Client::require_account`), whichever of its
+  values is missing (`destinations create --dest-app <id>` too, before its data type and path; `dictionary search`
+  before its question), exit 1 with nothing sent; the platforms, the metrics and measurement are the key's (the catalog
+  route, the web app's `/api/metrics` and `/api/measurement/*`), so `apps create`, `catalog get`, the metrics and the
+  measurement commands ask without an account. A list that fails is its error (exit 1, the JSON error with `--json`; a
+  `--granularity` the LTV route does not know is its 400); an empty one says `No apps to choose from.` (`sources`,
+  `destinations`, `jobs`, `models`, `metrics`, `platforms`, `methodologies`, `cohorts`, `event entries` and so on for
+  the type chosen) and is the usage error (exit 2). Esc, Ctrl-C, Ctrl-D and a hang-up exit 0 with nothing run. ❓ Open
+  for Yalcin, built with the spec's cautious defaults: lists not narrowed beyond what the list command shows (Q2:
+  `sources create`'s apps not narrowed to active source apps, nor by a typed `--sync-type`), the sync type as a one-row
+  list to confirm (Q3), the empty-list line (Q4), the cut-off notes' wording (`newest 500 shown`, `first 500 shown`;
+  Q6), all 13 data types (Q7), a path taken as typed (Q8), `apps create`'s platforms not narrowed by `--role` (Q9),
+  `catalog get` listing only the ready platforms and the hidden `credential-schema` asking as it does (Q10),
+  `dictionary get`'s subject-type step and its title (Q11), the cohort periods as a list and the dates as unchecked
+  questions (Q12), an `update` with no change asking first (Q13), and `--dry-run` sending the list request (Q14); not
+  narrowed either: `jobs cancel` to running and queued jobs, `metrics activate` to drafts (Q2). Without a terminal, with
+  prompts off, on `TERM=dumb`, with stderr redirected or a write-only stdin, the usage error stays byte for byte and
+  nothing is sent (`rust/tests/snapshots/usage/`). Every required value of every command is asked for (43 values of 37
+  commands, the hidden `catalog credential-schema` and the `integrations`/`int` aliases too); `ask.rs`'s coverage test
+  fails when a required value has no row in `VALUES`. An agent that runs `vendo` on a pseudo-terminal without `CI` or
+  `VENDO_NO_INPUT` now waits at the question where it got exit 2, as at the group menu and the y/N questions;
+  `VENDO_NO_INPUT=1` turns it off.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

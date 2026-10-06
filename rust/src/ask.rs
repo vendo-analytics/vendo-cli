@@ -4,8 +4,9 @@
 //! prompts not off, `TERM` not `dumb`), a command typed without a value it requires asks for it
 //! instead of stopping with clap's usage error. A value with choices opens an arrow-key list with
 //! type-to-filter ([`output::choose_value`]), loaded as its list command lists it (the account's apps,
-//! sources, destinations, jobs, models and metrics, the platforms ready to connect), or the values the
-//! API takes ([`DATA_TYPES`]); free text and a file's path are a one-line question
+//! sources, destinations, jobs, models and metrics, the methodologies, the platforms ready to connect,
+//! the LTV cohorts, a subject type's dictionary entries), or the values the API takes ([`DATA_TYPES`],
+//! the dictionary's subject types); free text, a date and a file's path are a one-line question
 //! ([`output::ask_text`]). Optional values are not asked. The values go into the
 //! words where they would have been typed and [`crate::cli::parse`] parses them again, so the
 //! command runs exactly as if they had been typed: global options, the y/N of a delete (VE-3823) and
@@ -28,10 +29,12 @@ use crate::{
     client::{ApiError, Client, payload},
     commands::{apps::role_label, catalog},
     context::Ctx,
+    dictionary::{self, SUBJECT_TYPES},
     jobs::Job,
     js_text::cell,
-    output::{self, ValueRow, js_truthy, short_id, time_ago},
+    output::{self, ValueRow, js_to_locale_string, js_truthy, short_id, time_ago},
     short_ids::{self, Listing, name_of},
+    web_app,
 };
 
 /// How a missing value is asked for.
@@ -50,13 +53,23 @@ enum Ask {
     TypeOfApp(&'static str),
     /// One of the data types the API takes for a destination ([`DATA_TYPES`]).
     DataType,
+    /// A cohort period of the LTV cohorts `vendo measurement ltv list` lists for the `--granularity`
+    /// and `--segment` typed, or their defaults (Q12's default, open for Yalcin): its period.
+    Cohort,
+    /// A dictionary entry: its subject type first, from the ones the server accepts
+    /// ([`SUBJECT_TYPES`], event first as `vendo dictionary list` lists events by default), then one
+    /// of that type's entries as `vendo dictionary list --type <type>` lists them (Q11's default, open
+    /// for Yalcin); its subject ID.
+    DictionaryEntry,
     /// A one-line question; what is typed. A file's path (`--config-file`, `--definition`) goes in as
     /// typed, relative to the current directory; no shell reads it, so a `~` stays as it is (Q8's
-    /// default, open for Yalcin).
+    /// default, open for Yalcin). A date (`rules preview --from`, `--to`) is not checked: the API
+    /// decides, as when typed (Q12's default, open for Yalcin).
     Text,
 }
 
-/// The lists of the account's a value is chosen from.
+/// The lists a value is chosen from by its ID: the account's, and the methodologies (the system's
+/// too).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Listed {
     Apps,
@@ -68,18 +81,29 @@ enum Listed {
     /// The web app's metrics route (`/api/metrics`, the key's; no account needed), which leaves the
     /// archived ones out as `vendo metrics list` does.
     Metrics,
+    /// The web app's methodologies route (`/api/measurement/methodologies`, the key's), the system's
+    /// and the account's as `vendo measurement methodologies list` lists them, in one response.
+    Methodologies,
 }
 
 impl Listed {
-    fn listing(self) -> Listing {
-        match self {
+    /// The rows of the list in its route's order, and whether there were more than it read: the
+    /// pages of a short-ID lookup ([`listed_rows`]), or the methodologies' one response.
+    async fn rows(self, client: &Client) -> Result<(Vec<Value>, bool), ApiError> {
+        let listing = match self {
             Listed::Apps => Listing::Apps,
             Listed::Sources => Listing::Sources,
             Listed::Destinations => Listing::Destinations,
             Listed::Jobs => Listing::Jobs,
             Listed::Models => Listing::Models,
             Listed::Metrics => Listing::Metrics,
-        }
+            Listed::Methodologies => {
+                let res = web_app::methodologies(client, Vec::new()).await?;
+                let rows = res.pointer("/data/methodologies").and_then(Value::as_array).cloned();
+                return Ok((rows.unwrap_or_default(), false));
+            }
+        };
+        listed_rows("id", |offset| short_ids::list_page(client, listing, None, offset)).await
     }
 
     /// What the list command calls them, in its spinner (`Fetching sources...`) and in
@@ -92,6 +116,7 @@ impl Listed {
             Listed::Jobs => "jobs",
             Listed::Models => "models",
             Listed::Metrics => "metrics",
+            Listed::Methodologies => "methodologies",
         }
     }
 
@@ -100,7 +125,7 @@ impl Listed {
     /// state; sources: name, type and status; destinations: the two apps, `—` for a missing one as
     /// the table shows it, the data type and status; jobs: type, platform, status and when it
     /// started, `—` for no platform or no time; models: name, type and valid `yes`/`no`; metrics:
-    /// name, format and status).
+    /// name, format and status; methodologies: name, `system` or `account`, and click-path model).
     fn cells(self, row: &Value) -> Vec<String> {
         let text = |key: &str| Job(row).text(key).unwrap_or_default();
         let id = short_id(&text("id"));
@@ -124,6 +149,10 @@ impl Listed {
                 vec![id, cell(row.get("name")), cell(row.get("modelType")), valid.into()]
             }
             Listed::Metrics => vec![id, cell(row.get("name")), cell(row.get("format")), cell(row.get("status"))],
+            Listed::Methodologies => {
+                let scope = if row.get("is_system").is_some_and(js_truthy) { "system" } else { "account" };
+                vec![id, cell(row.get("name")), scope.into(), cell(row.get("click_path_model"))]
+            }
         }
     }
 
@@ -139,7 +168,7 @@ impl Listed {
                 if named { apps_of(row) } else { String::new() }
             }
             Listed::Jobs => String::new(),
-            Listed::Models | Listed::Metrics => name_of(row),
+            Listed::Models | Listed::Metrics | Listed::Methodologies => name_of(row),
         }
     }
 }
@@ -173,7 +202,7 @@ const DATA_TYPES: [&str; 13] = [
 
 /// Every required value a command asks for: the command as the tree names it, the value's clap ID,
 /// and how it is asked for. A value not here keeps the usage error.
-const VALUES: [(&str, &str, Ask); 36] = [
+const VALUES: [(&str, &str, Ask); 43] = [
     ("apps get", "id", Ask::Listed(Listed::Apps)),
     ("apps pause", "id", Ask::Listed(Listed::Apps)),
     ("apps resume", "id", Ask::Listed(Listed::Apps)),
@@ -211,6 +240,13 @@ const VALUES: [(&str, &str, Ask); 36] = [
     ("catalog get", "app_type", Ask::Platform),
     // Hidden (VE-3827); asked for as `catalog get` asks (Q10's default, open for Yalcin).
     ("catalog credential-schema", "app_type", Ask::Platform),
+    ("dictionary search", "query", Ask::Text),
+    ("dictionary get", "subject_id", Ask::DictionaryEntry),
+    ("measurement methodologies get", "id", Ask::Listed(Listed::Methodologies)),
+    ("measurement rules preview", "from", Ask::Text),
+    ("measurement rules preview", "to", Ask::Text),
+    ("measurement ltv cohort", "period", Ask::Cohort),
+    ("measurement ltv customer", "customer_id", Ask::Text),
 ];
 
 fn asked_by(command: &str, value: &str) -> Option<Ask> {
@@ -266,13 +302,18 @@ pub async fn missing_values(
                     None => typed_app(&client, given.try_get_one::<String>(app).ok().flatten()?, json).await,
                 };
                 let types: Vec<String> = Job(&app).text("appType").filter(|t| !t.is_empty()).into_iter().collect();
-                let at = choose(&title, "sync types", &types, false, |t| vec![t.clone()], String::clone)?;
+                let at = choose(&title, "sync types", &types, None, |t| vec![t.clone()], String::clone)?;
                 Some(types[at].clone())
             }
             Ask::DataType => {
-                let at = choose(&title, "data types", &DATA_TYPES, false, |t| vec![t.to_string()], |t| t.to_string())?;
+                let at = choose(&title, "data types", &DATA_TYPES, None, |t| vec![t.to_string()], |t| t.to_string())?;
                 Some(DATA_TYPES[at].to_string())
             }
+            Ask::Cohort => {
+                let typed = |id: &str| given.try_get_one::<String>(id).ok().flatten().cloned();
+                choose_cohort(&client, typed("granularity"), typed("segment"), &title, json).await
+            }
+            Ask::DictionaryEntry => choose_dictionary_entry(&client, &title, json).await,
             Ask::Text => output::ask_text(&title),
         };
         answers.push((arg, answer?));
@@ -328,9 +369,10 @@ fn ready(ctx: &Ctx, command: &str) -> anyhow::Result<Client> {
 /// Whether `command` (as the tree names it after `vendo`) cannot run without an account: a command
 /// of a group whose requests go to the account (`/accounts/{acct}/…`: apps, sources, destinations,
 /// jobs, models and the dictionary; VE-3881), by command, not by the value asked, so `destinations
-/// create --dest-app <id>` needs one before its data type and path are asked too. `apps create` is
-/// left out: the platforms it asks for first are the key's (the catalog route needs no account), so
-/// it lists them without one.
+/// create --dest-app <id>` needs one before its data type and path are asked too, and `dictionary
+/// search` before its question. `apps create` is left out: the platforms it asks for first are the
+/// key's (the catalog route needs no account), so it lists them without one. So are the metrics,
+/// the catalog and measurement, whose routes are the key's.
 fn needs_account(command: &str) -> bool {
     const ACCOUNT_GROUPS: [&str; 6] = ["apps", "sources", "destinations", "jobs", "models", "dictionary"];
     let group = command.split(' ').next().unwrap_or_default();
@@ -349,15 +391,91 @@ fn fail(err: &anyhow::Error, json: bool) -> ! {
 /// (`Fetching sources...`): answered as its short ID and name.
 async fn choose_listed(client: &Client, listed: Listed, title: &str, json: bool) -> Option<Value> {
     let fetching = format!("Fetching {}...", listed.plural());
-    let (rows, cut) = output::run_action(&fetching, listed_rows(client, listed.listing()))
+    let (rows, cut) =
+        output::run_action(&fetching, listed.rows(client)).await.unwrap_or_else(|err| fail(&err.into(), json));
+    let answer = |row: &Value| named(short_id(&Job(row).id()), &listed.name(row));
+    let note = cut.then(|| shown_of("newest", short_ids::PAGE * short_ids::MAX_PAGES));
+    let chosen = choose(title, listed.plural(), &rows, note, |row| listed.cells(row), answer)?;
+    Some(rows[chosen].clone())
+}
+
+/// How the answered line names a chosen row: its ID, then its name in brackets when it has one.
+fn named(id: String, name: &str) -> String {
+    if name.is_empty() { id } else { format!("{id} ({name})") }
+}
+
+/// The note after a cut list's hint: `newest 500 shown`, `first 500 shown` for a list not in the
+/// order rows were made (Q6's wording, open for Yalcin).
+fn shown_of(which: &str, count: usize) -> String {
+    format!("{which} {count} shown")
+}
+
+/// The most cohorts `GET /api/measurement/ltv` sends (`limit` 1..500; vendo-web-v2
+/// `apps/web/app/api/measurement/ltv/route.ts`).
+const COHORTS: usize = 500;
+
+/// A cohort period, chosen from the cohorts `vendo measurement ltv list` lists for the
+/// `granularity` and `segment` typed, or their defaults, behind its spinner (`Fetching LTV
+/// cohorts...`): newest first, as many as the route sends ([`COHORTS`]), without the predictions
+/// the list does not show. With that many the hint says the newest are shown, as the route sends no
+/// total. Answered as the period, which the command takes.
+async fn choose_cohort(
+    client: &Client,
+    granularity: Option<String>,
+    segment: Option<String>,
+    title: &str,
+    json: bool,
+) -> Option<String> {
+    // In `ltv list`'s order.
+    let query = vec![
+        ("granularity", granularity),
+        ("segment_key", segment),
+        ("limit", Some(COHORTS.to_string())),
+        ("include_predicted", Some("false".to_string())),
+    ];
+    let res = output::run_action("Fetching LTV cohorts...", web_app::ltv(client, query))
         .await
         .unwrap_or_else(|err| fail(&err.into(), json));
-    let answer = |row: &Value| {
-        let (id, name) = (short_id(&Job(row).id()), listed.name(row));
-        if name.is_empty() { id } else { format!("{id} ({name})") }
+    let cohorts = res.pointer("/data/cohorts").and_then(Value::as_array).cloned().unwrap_or_default();
+    let period = |cohort: &Value| cell(cohort.get("cohort_period"));
+    // The table's size, plain: `format_number` dims its dash.
+    let size = |cohort: &Value| cohort.get("cohort_size").filter(|size| !size.is_null()).map(js_to_locale_string);
+    let cells = |cohort: &Value| {
+        vec![period(cohort), cell(cohort.get("segment_key")), size(cohort).unwrap_or_else(|| "—".into())]
     };
-    let chosen = choose(title, listed.plural(), &rows, cut, |row| listed.cells(row), answer)?;
-    Some(rows[chosen].clone())
+    let note = (cohorts.len() >= COHORTS).then(|| shown_of("newest", COHORTS));
+    let chosen = choose(title, "cohorts", &cohorts, note, cells, period)?;
+    Some(period(&cohorts[chosen]))
+}
+
+/// A dictionary entry (Q11's default, open for Yalcin): first its subject type, from the ones the
+/// server accepts ([`SUBJECT_TYPES`], event first), titled `vendo dictionary get · subject type`; then
+/// one of that type's entries as `vendo dictionary list --type <type>` lists them, behind its spinner
+/// (`Fetching dictionary...`), in the route's order, up to the pages of a short-ID lookup (with more,
+/// the hint says the first are shown), each as its name (the table's dash for none) and subject ID.
+/// Answered as the subject ID, whole, then the name: the dictionary's IDs are no short IDs.
+async fn choose_dictionary_entry(client: &Client, title: &str, json: bool) -> Option<String> {
+    let as_text = |subject_type: &&str| subject_type.to_string();
+    let types_title = format!("{title} · subject type");
+    let at = choose(&types_title, "subject types", &SUBJECT_TYPES, None, |t| vec![as_text(t)], as_text)?;
+    let subject_type = SUBJECT_TYPES[at];
+    let page = |offset: usize| async move {
+        let res = dictionary::list(client, subject_type.into(), None, short_ids::PAGE.to_string(), offset.to_string())
+            .await?;
+        let rows = payload(&res).as_array().cloned().unwrap_or_default();
+        let more = res.pointer("/meta/pagination/hasMore").and_then(Value::as_bool).unwrap_or(false);
+        Ok((rows, more))
+    };
+    let (entries, cut) = output::run_action("Fetching dictionary...", listed_rows("subjectId", page))
+        .await
+        .unwrap_or_else(|err| fail(&err.into(), json));
+    let text = |entry: &Value, key: &str| Job(entry).text(key).filter(|text| !text.is_empty());
+    let subject_id = |entry: &Value| text(entry, "subjectId").unwrap_or_default();
+    let cells = |entry: &Value| vec![text(entry, "displayName").unwrap_or_else(|| "—".into()), subject_id(entry)];
+    let answer = |entry: &Value| named(subject_id(entry), &text(entry, "displayName").unwrap_or_default());
+    let note = cut.then(|| shown_of("first", short_ids::PAGE * short_ids::MAX_PAGES));
+    let chosen = choose(title, &format!("{subject_type} entries"), &entries, note, cells, answer)?;
+    Some(subject_id(&entries[chosen]))
 }
 
 /// The app a typed `--app` names (a full ID, or a short one looked up as the command looks it up,
@@ -383,18 +501,19 @@ async fn choose_platform(client: &Client, title: &str, json: bool) -> Option<Str
         let text = |key: &str| Job(platform).text(key).unwrap_or_default();
         vec![text("displayName"), app_type(platform), text("category"), catalog::roles(platform)]
     };
-    let chosen = choose(title, "platforms", &platforms, false, cells, app_type)?;
+    let chosen = choose(title, "platforms", &platforms, None, cells, app_type)?;
     Some(app_type(&platforms[chosen]))
 }
 
 /// The index of the one of `items` chosen in the list titled `title`, each shown as its `cells` and
-/// answered as `answer`; `cut` when the list holds only the newest. With none to choose from it says
-/// so (`No apps to choose from.`) and is `None`: the usage error follows.
+/// answered as `answer`; `cut`, the note after the hint, when the list holds only some
+/// ([`shown_of`]). With none to choose from it says so (`No apps to choose from.`) and is `None`:
+/// the usage error follows.
 fn choose<T>(
     title: &str,
     plural: &str,
     items: &[T],
-    cut: bool,
+    cut: Option<String>,
     cells: impl Fn(&T) -> Vec<String>,
     answer: impl Fn(&T) -> String,
 ) -> Option<usize> {
@@ -405,8 +524,7 @@ fn choose<T>(
     let shown = padded(items.iter().map(cells).collect());
     let rows: Vec<ValueRow> =
         shown.into_iter().zip(items).map(|(shown, item)| ValueRow { shown, answer: answer(item) }).collect();
-    let note = format!("newest {} shown", short_ids::PAGE * short_ids::MAX_PAGES);
-    output::choose_value(title, &rows, cut.then_some(note.as_str()))
+    output::choose_value(title, &rows, cut.as_deref())
 }
 
 /// The rows of a list: each cell padded to its column's width in the columns the screen gives it
@@ -432,19 +550,24 @@ fn padded(rows: Vec<Vec<String>>) -> Vec<String> {
         .collect()
 }
 
-/// The rows of one of the account's lists in its route's order (newest first: `created_at`
-/// descending, models and metrics too), each once: up to [`short_ids::MAX_PAGES`] pages of
-/// [`short_ids::PAGE`], the bounds of a short-ID lookup; and whether there were more than that.
-async fn listed_rows(client: &Client, listing: Listing) -> Result<(Vec<Value>, bool), ApiError> {
+/// The rows of a paged list in its route's order (the account's lists newest first: `created_at`
+/// descending, models and metrics too), each once by its `key` (`id`, a dictionary entry's
+/// `subjectId`): up to [`short_ids::MAX_PAGES`] pages of [`short_ids::PAGE`], the bounds of a
+/// short-ID lookup, each read by `page` from its offset; and whether there were more than that.
+async fn listed_rows<F, Page>(key: &str, page: F) -> Result<(Vec<Value>, bool), ApiError>
+where
+    F: Fn(usize) -> Page,
+    Page: std::future::Future<Output = Result<(Vec<Value>, bool), ApiError>>,
+{
     let mut listed: Vec<Value> = Vec::new();
-    for page in 0..short_ids::MAX_PAGES {
-        let (rows, more) = short_ids::list_page(client, listing, None, page * short_ids::PAGE).await?;
+    for at in 0..short_ids::MAX_PAGES {
+        let (rows, more) = page(at * short_ids::PAGE).await?;
         let read = rows.len();
         for row in rows {
             // A row inserted between two page reads moves the next page down, so the same row can
             // come back at its top.
-            let id = row.get("id").and_then(Value::as_str);
-            if id.is_some_and(|id| !listed.iter().any(|seen| seen.get("id").and_then(Value::as_str) == Some(id))) {
+            let id = row.get(key).and_then(Value::as_str);
+            if id.is_some_and(|id| !listed.iter().any(|seen| seen.get(key).and_then(Value::as_str) == Some(id))) {
                 listed.push(row);
             }
         }
@@ -493,18 +616,6 @@ mod tests {
         args.iter().map(OsString::from).collect()
     }
 
-    /// The commands whose values are not asked for yet: they keep the usage error until their
-    /// part of VE-3881 is built (measurement and the dictionary). Empty once every value is asked
-    /// for.
-    const PENDING: [&str; 6] = [
-        "dictionary search",
-        "dictionary get",
-        "measurement methodologies get",
-        "measurement rules preview",
-        "measurement ltv cohort",
-        "measurement ltv customer",
-    ];
-
     /// Every command in the tree, hidden ones too, as typed after `vendo`, with the IDs of the values
     /// it requires.
     fn commands(cmd: &clap::Command, path: &[&str], found: &mut Vec<(String, Vec<String>)>) {
@@ -520,27 +631,22 @@ mod tests {
     }
 
     #[test]
-    fn every_required_value_is_asked_for_or_its_command_is_pending() {
+    fn every_required_value_is_asked_for() {
         let mut found = Vec::new();
         commands(&crate::cli::command(), &[], &mut found);
         let requiring: Vec<&(String, Vec<String>)> =
             found.iter().filter(|(_, required)| !required.is_empty()).collect();
         let values: usize = requiring.iter().map(|(_, required)| required.len()).sum();
-        assert_eq!((requiring.len(), values), (37, 43), "{requiring:?}");
+        assert_eq!((requiring.len(), values, VALUES.len()), (37, 43, 43), "{requiring:?}");
         for (command, required) in &requiring {
-            let asked: Vec<bool> = required.iter().map(|id| asked_by(command, id).is_some()).collect();
-            if PENDING.contains(&command.as_str()) {
-                assert!(asked.iter().all(|asked| !asked), "{command} is pending but has values in VALUES");
-            } else {
-                assert!(asked.iter().all(|asked| *asked), "{command}: a required value has no row in VALUES");
+            for id in required {
+                assert!(asked_by(command, id).is_some(), "{command}: the required {id} has no row in VALUES");
             }
         }
-        for (command, value, _) in VALUES {
+        for (i, (command, value, _)) in VALUES.iter().enumerate() {
             let required = found.iter().find(|(c, _)| c == command).map(|(_, required)| required);
             assert!(required.is_some_and(|r| r.iter().any(|id| id == value)), "{command} {value} is no required value");
-        }
-        for command in PENDING {
-            assert!(requiring.iter().any(|(c, _)| c == command), "pending {command} requires no value");
+            assert!(!VALUES[..i].iter().any(|(c, v, _)| c == command && v == value), "{command} {value} twice");
         }
         // The type of an app goes with an app of the same command's, asked for before it (clap's
         // order) from the account's apps when it is not typed.
@@ -746,6 +852,20 @@ mod tests {
         let metric = json!({ "id": id, "name": "ROAS", "format": "multiplier", "status": "draft" });
         assert_eq!(Listed::Metrics.cells(&metric), ["5e6f7a8b...", "ROAS", "multiplier", "draft"]);
         assert_eq!(Listed::Metrics.name(&metric), "ROAS");
+        // A methodology: name, the table's scope words and click-path model.
+        let system = json!({ "id": id, "name": "Last Click", "is_system": true, "click_path_model": "last_click" });
+        assert_eq!(Listed::Methodologies.cells(&system), ["5e6f7a8b...", "Last Click", "system", "last_click"]);
+        assert_eq!(Listed::Methodologies.name(&system), "Last Click");
+        let account = json!({ "id": id, "name": "Blended", "is_system": null, "click_path_model": "linear" });
+        assert_eq!(Listed::Methodologies.cells(&account)[2], "account");
+    }
+
+    #[test]
+    fn a_chosen_row_is_answered_by_its_id_then_its_name_and_a_cut_list_says_which_rows_it_shows() {
+        assert_eq!(named("5e6f7a8b...".into(), "Menu Shop"), "5e6f7a8b... (Menu Shop)");
+        assert_eq!(named("9f8e7d6c5b4a39281706f5e4d3c2b1a0".into(), ""), "9f8e7d6c5b4a39281706f5e4d3c2b1a0");
+        assert_eq!(shown_of("newest", 500), "newest 500 shown");
+        assert_eq!(shown_of("first", 500), "first 500 shown");
     }
 
     #[test]
