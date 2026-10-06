@@ -702,31 +702,35 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
     serve(server, "GET", "/api/v1/me", 200, data(me)).await;
 
     // ── apps ──
+    // The list sends each app's `consecutiveFailureCount` (an integer, 0 when none), where the detail
+    // route had it alone: vendo-web-v2 PR #2147 (VE-3841) moves it from AppDetail to AppRecord, after
+    // `accessStatusReason`. Demo Ads is the one app with failures, so `status` counts one errored app.
     let shop = json!({
         "id": APP_SHOP, "accountId": "acct-alpha", "appType": "shopify", "displayName": "Demo Shop",
         "permissions": ["performance_data"], "roles": ["source"], "state": "active", "errorMessage": null,
         "lastSyncAt": s.ago("2h30m", SignedDuration::from_mins(150)), "accessStatus": "connected",
         "accessStatusCheckedAt": s.ago("3h30m", SignedDuration::from_mins(210)), "accessStatusReason": null,
-        "createdAt": CREATED, "updatedAt": SYNCED,
+        "consecutiveFailureCount": 0, "createdAt": CREATED, "updatedAt": SYNCED,
     });
     let ads = json!({
         "id": APP_ADS, "accountId": "acct-alpha", "appType": "google_ads", "displayName": "Demo Ads",
         "permissions": ["performance_data", "send_conversions"], "roles": ["source", "destination"], "state": "active",
         "errorMessage": "Token expired for the synthetic test account", "lastSyncAt": SYNCED,
         "accessStatus": "auth_expired", "accessStatusCheckedAt": "2026-01-06T00:00:00.000Z",
-        "accessStatusReason": "OAuth token expired (synthetic)", "createdAt": CREATED, "updatedAt": SYNCED,
+        "accessStatusReason": "OAuth token expired (synthetic)", "consecutiveFailureCount": 2, "createdAt": CREATED,
+        "updatedAt": SYNCED,
     });
     let warehouse = json!({
         "id": APP_WAREHOUSE, "accountId": "acct-alpha", "appType": "bigquery", "displayName": "Demo Warehouse",
         "permissions": ["send_conversions"], "roles": ["destination"], "state": "inactive", "errorMessage": null,
         "lastSyncAt": null, "accessStatus": null, "accessStatusCheckedAt": null, "accessStatusReason": null,
-        "createdAt": CREATED, "updatedAt": SYNCED,
+        "consecutiveFailureCount": 0, "createdAt": CREATED, "updatedAt": SYNCED,
     });
     let apps = [shop, ads, warehouse];
     serve(server, "GET", &format!("{ACCOUNT}/apps"), 200, pagination(apps.to_vec())).await;
     let detail = json!({
-        "config": { "customer_id": "000-000-0000" }, "consecutiveFailureCount": 2, "appTimeZone": "UTC",
-        "appAccountId": "000-000-0000", "appAccountCurrency": "USD",
+        "config": { "customer_id": "000-000-0000" }, "appTimeZone": "UTC", "appAccountId": "000-000-0000",
+        "appAccountCurrency": "USD",
     });
     for app in &apps {
         let id = app["id"].as_str().unwrap();

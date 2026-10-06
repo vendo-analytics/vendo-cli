@@ -6,7 +6,7 @@ exit: 0
 --- stdout ---
 
                Total  Active  Paused  Errored 
- Apps          3      2       1       0       
+ Apps          3      2       1       1       
  Sources       2      2       0       1       
  Destinations  2      1       1       0       
 

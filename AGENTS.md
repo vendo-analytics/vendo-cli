@@ -94,6 +94,10 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   type after the name and no `Type:` line (VE-3856, Yalcin 2026-10-06); Format has its own column. The TS CLI read
   fields the API does not send (`dataType`, `metric_type`) and showed `undefined` or a blank, which `pnpm parity`
   reports.
+- Errored apps (VE-3841, CLI 1.1): `status` counts an app as errored when its `consecutiveFailureCount` is above 0.
+  Only the single-app response had it until vendo-web-v2 PR #2147 adds it to the apps list (Yalcin, 2026-10-06), so
+  against an API without that change the count is 0. The snapshot stub's list sends it as the PR builds it, Demo Ads
+  with 2, so `account__status` records one errored app.
 - Completions (VE-3830, CLI 1.1): `vendo completions <shell>` prints the script the installer saves. Bare, it exits 0
   and says on stderr what it does, whether completions are set up for the shell `$SHELL` names, and how to set them
   up, and stdout stays empty: without `--json`, stdout carries nothing but a script, so an `eval` or redirect that

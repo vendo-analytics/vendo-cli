@@ -23,6 +23,7 @@ exit: 0
       "accessStatus": "connected",
       "accessStatusCheckedAt": "[now-3h30m]",
       "accessStatusReason": null,
+      "consecutiveFailureCount": 0,
       "createdAt": "2026-01-02T08:00:00.000Z",
       "updatedAt": "2026-01-05T09:07:03.000Z"
     },
@@ -45,6 +46,7 @@ exit: 0
       "accessStatus": "auth_expired",
       "accessStatusCheckedAt": "2026-01-06T00:00:00.000Z",
       "accessStatusReason": "OAuth token expired (synthetic)",
+      "consecutiveFailureCount": 2,
       "createdAt": "2026-01-02T08:00:00.000Z",
       "updatedAt": "2026-01-05T09:07:03.000Z"
     },
@@ -65,6 +67,7 @@ exit: 0
       "accessStatus": null,
       "accessStatusCheckedAt": null,
       "accessStatusReason": null,
+      "consecutiveFailureCount": 0,
       "createdAt": "2026-01-02T08:00:00.000Z",
       "updatedAt": "2026-01-05T09:07:03.000Z"
     }
