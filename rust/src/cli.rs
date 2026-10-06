@@ -56,7 +56,7 @@ fn no_help_rows(cmd: clap::Command) -> clap::Command {
 /// fails when one is missing, so a new command cannot drop out of the root help. Move a command
 /// by moving its name. `help` is clap's own command, listed since VE-3893 with `version`.
 pub const HELP_SECTIONS: [(&str, &[&str]); 4] = [
-    ("Getting started", &["login", "logout", "whoami", "status", "doctor", "commands", "help", "version"]),
+    ("Getting started", &["login", "logout", "workspace", "status", "commands", "help", "version"]),
     ("Data pipeline", &["apps", "sources", "destinations", "jobs"]),
     ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement"]),
     ("Account", &["profile", "mcp", "completions", "self-update"]),
@@ -311,8 +311,11 @@ fn usage_message(err: &clap::Error) -> String {
 /// run `profile set` and `profile list`) and `use` for `profile switch`. Either way the old path
 /// prints exactly what its target prints, `--help` and usage errors included, and no help screen
 /// or completion script shows it.
-const MOVED: [(&str, &str, &[&str]); 3] =
-    [("profile", "current", &["whoami"]), ("config", "show", &["whoami"]), ("config", "reset", &["logout", "--all"])];
+const MOVED: [(&str, &str, &[&str]); 3] = [
+    ("profile", "current", &["workspace"]),
+    ("config", "show", &["workspace"]),
+    ("config", "reset", &["logout", "--all"]),
+];
 
 /// What the CLI still runs but no longer shows, rewritten before clap parses: a [`MOVED`]
 /// command, and `vendo <group> help [<command>…]` (the `help` row the group screens dropped),
@@ -390,7 +393,7 @@ pub enum Invocation {
 /// `--version` anywhere before `--` prints the version, unless it is the value
 /// of `--profile` or `self-update --version <v>` (which installs that version:
 /// an accepted difference, commander printed the version). A `--` before the
-/// command name is dropped, so `vendo -- whoami` runs `whoami`.
+/// command name is dropped, so `vendo -- workspace` runs `workspace`.
 pub fn preprocess(args: Vec<OsString>) -> Invocation {
     let mut out = Vec::with_capacity(args.len());
     let mut iter = args.into_iter();
@@ -478,9 +481,11 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Show the current authenticated account
-    #[command(after_help = "Examples:\n  $ vendo whoami\n  $ vendo whoami --json")]
-    Whoami {
+    /// Show the current account, your profiles and setup checks
+    // `whoami` and `doctor` on one screen (VE-3891, Yalcin 2026-10-07); both stay as hidden aliases that
+    // print what it prints, as do `profile current` and `config show` (MOVED).
+    #[command(aliases = ["whoami", "doctor"], after_help = "Examples:\n  $ vendo workspace\n  $ vendo workspace --json")]
+    Workspace {
         /// Output raw JSON
         #[arg(long)]
         json: bool,
@@ -551,13 +556,6 @@ pub enum Command {
         // Without a shell it explains itself and whether completions are set up (VE-3830).
         #[arg(value_name = "shell")]
         shell: Option<Shell>,
-        /// Output raw JSON
-        #[arg(long)]
-        json: bool,
-    },
-    /// Run local configuration and connectivity checks
-    #[command(after_help = "Examples:\n  $ vendo doctor\n  $ vendo doctor --json")]
-    Doctor {
         /// Output raw JSON
         #[arg(long)]
         json: bool,
@@ -2165,27 +2163,29 @@ mod tests {
         };
         for (from, to) in [
             // Moved to a command in another group.
-            (&["vendo", "profile", "current"][..], &["vendo", "whoami"][..]),
-            (&["vendo", "profile", "current", "--json"], &["vendo", "whoami", "--json"]),
-            (&["vendo", "config", "show", "--json"], &["vendo", "whoami", "--json"]),
+            (&["vendo", "profile", "current"][..], &["vendo", "workspace"][..]),
+            (&["vendo", "profile", "current", "--json"], &["vendo", "workspace", "--json"]),
+            (&["vendo", "config", "show", "--json"], &["vendo", "workspace", "--json"]),
             (&["vendo", "config", "reset"], &["vendo", "logout", "--all"]),
             (&["vendo", "config", "reset", "-y"], &["vendo", "logout", "--all", "-y"]),
             // Global options before and between the words stay.
-            (&["vendo", "--profile", "beta", "profile", "current"], &["vendo", "--profile", "beta", "whoami"]),
+            (&["vendo", "--profile", "beta", "profile", "current"], &["vendo", "--profile", "beta", "workspace"]),
             (&["vendo", "config", "--debug", "reset", "--yes"], &["vendo", "logout", "--all", "--debug", "--yes"]),
-            (&["vendo", "--profile=beta", "config", "show"], &["vendo", "--profile=beta", "whoami"]),
+            (&["vendo", "--profile=beta", "config", "show"], &["vendo", "--profile=beta", "workspace"]),
             // A group's `help` command is the root's.
             (&["vendo", "apps", "help", "list"], &["vendo", "help", "apps", "list"]),
             (&["vendo", "apps", "help"], &["vendo", "help", "apps"]),
             (&["vendo", "measurement", "ltv", "help", "cohort"], &["vendo", "help", "measurement", "ltv", "cohort"]),
-            (&["vendo", "help", "profile", "current"], &["vendo", "help", "whoami"]),
+            (&["vendo", "help", "profile", "current"], &["vendo", "help", "workspace"]),
             (&["vendo", "help", "config", "reset"], &["vendo", "help", "logout"]),
-            (&["vendo", "config", "help", "show"], &["vendo", "help", "whoami"]),
+            (&["vendo", "config", "help", "show"], &["vendo", "help", "workspace"]),
         ] {
             assert_eq!(rewrite(from), to, "{from:?}");
         }
         for unchanged in [
+            // clap's hidden aliases of `workspace` (VE-3891), which clap reads as typed.
             &["vendo", "whoami"][..],
+            &["vendo", "doctor", "--json"],
             &["vendo", "help"],
             &["vendo", "help", "apps", "list"],
             &["vendo", "config", "set", "--account", "a"],
@@ -2262,16 +2262,19 @@ mod tests {
             Command::Profile { command: ProfileCommand::List { json: false } }
         ));
         assert_eq!(switch_args(parse(&["vendo", "config", "use", "beta"]).unwrap()), (Some("beta".into()), None));
-        let Command::Whoami { json } = parse(&["vendo", "profile", "current", "--json"]).unwrap().command else {
+        let Command::Workspace { json } = parse(&["vendo", "profile", "current", "--json"]).unwrap().command else {
             panic!()
         };
         assert!(json);
-        assert!(matches!(parse(&["vendo", "config", "show"]).unwrap().command, Command::Whoami { json: false }));
+        assert!(matches!(parse(&["vendo", "config", "show"]).unwrap().command, Command::Workspace { json: false }));
+        // whoami and doctor are workspace's hidden aliases (VE-3891).
+        assert!(matches!(parse(&["vendo", "whoami", "--json"]).unwrap().command, Command::Workspace { json: true }));
+        assert!(matches!(parse(&["vendo", "doctor"]).unwrap().command, Command::Workspace { json: false }));
         let Command::Logout { all, yes, .. } = parse(&["vendo", "config", "reset", "--yes"]).unwrap().command else {
             panic!()
         };
         assert!(all && yes);
-        assert!(parse(&["vendo", "profile", "current", "--all"]).is_err(), "whoami's flags only");
+        assert!(parse(&["vendo", "profile", "current", "--all"]).is_err(), "workspace's flags only");
         let Command::Catalog { command: CatalogCommand::CredentialSchema { app_type, json } } =
             parse(&["vendo", "catalog", "credential-schema", "shopify", "--json"]).unwrap().command
         else {

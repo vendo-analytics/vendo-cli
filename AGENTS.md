@@ -20,7 +20,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   compares the two on staging; allowed differences live in `parity/intended-differences.json`.
 - `--json` prints the API response verbatim (no key rewriting), so nested `config`/`schedule`/
   `metrics` keys print snake_case where the TS client camelCased them (decided 2026-10-05). Where a TS command
-  built its own JSON (whoami's `config`, the `metrics` `{ data }` envelope), Rust keeps that shape (Yalcin,
+  built its own JSON (whoami's `config`, now in `workspace --json`; the `metrics` `{ data }` envelope), Rust keeps that shape (Yalcin,
   2026-10-05, VE-3668). Numbers print as the API sent them (serde_json `arbitrary_precision`), and keys take
   JavaScript's order, array-index keys first, as `JSON.parse` gave the TS CLI (VE-3728).
 - Locale (VE-3728): dates, numbers, the rate-limit time and measurement money follow `LC_ALL`/`LC_MESSAGES`/
@@ -75,11 +75,12 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   prints both), and with `--json`
   `{"version":"<v>"}`. ❓ Open for Yalcin, built with cautious defaults: the two rows last in "Getting started", their
   descriptions in clap's words for `-h` and `-V` ("Print this message or the help of the given subcommand(s)",
-  "Print version"), `vendo commands` leaving `help` out, and `vendo help --help` left as the usage error. `whoami` is
-  the one identity command and `config` moved under `profile`; `profile set` is described as "Set values on the
-  active profile" (Yalcin, 2026-10-06). Old paths keep working, hidden, printing exactly what their command prints:
-  clap hidden aliases where clap allows (`config` = `profile`, `use` = `profile switch`), `MOVED` in `cli.rs` where it
-  does not (`profile current`/`config show` → `whoami`, `config reset` → `logout --all`). Give a new hidden path a
+  "Print version"), `vendo commands` leaving `help` out, and `vendo help --help` left as the usage error. `workspace`
+  is the one identity and setup command (VE-3891, below; `whoami` until then) and `config` moved under `profile`;
+  `profile set` is described as "Set values on the active profile" (Yalcin, 2026-10-06). Old paths keep working,
+  hidden, printing exactly what their command prints: clap hidden aliases where clap allows (`config` = `profile`,
+  `use` = `profile switch`, `whoami` and `doctor` = `workspace`), `MOVED` in `cli.rs` where it does not
+  (`profile current`/`config show` → `workspace`, `config reset` → `logout --all`). Give a new hidden path a
   byte-identity test.
 - Login (VE-3825, CLI 1.1): `vendo login` does what `init` did, and `init` is its hidden clap alias. It signs in
   through the browser when there is no working key, checks the key with `/me` and prints the setup summary. A key it
@@ -116,12 +117,12 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   leaves the shell out gets nothing. With `--json` (VE-3831) stdout carries JSON instead and stderr stays quiet: bare,
   `{"shell","installed"}`; with a shell, the script wrapped in `{"shell","script"}`.
   `rust/src/commands/completions.rs` owns that detection (the installer's saved script and startup-file block, or a
-  line in a startup file that runs `vendo completions <shell>`), and doctor's check uses it. Bash's startup file is
+  line in a startup file that runs `vendo completions <shell>`), and the workspace's check uses it. Bash's startup file is
   `~/.bashrc` and, on macOS, whose Terminal opens login shells, also its login file: the first of `~/.bash_profile`,
   `~/.bash_login` and `~/.profile` that exists (Yalcin, 2026-10-06). There install.sh (`uname -s` Darwin) adds its
   block to that file too, creating `~/.bash_profile` when none exists (never beside `~/.profile`, which bash would
   stop reading), and its summary names each file (`bash, loaded from ~/.bashrc and ~/.bash_profile`); bare
-  `vendo completions` and doctor look in `~/.bashrc` and that one login file on macOS (`bash_login_file`), not in
+  `vendo completions` and `vendo workspace` look in `~/.bashrc` and that one login file on macOS (`bash_login_file`), not in
   the login files bash skips, and the bare text's bash step names the login file.
   A zsh line counts only after compinit, which the script's `compdef` needs: an earlier line, not a comment (or a
   command earlier on its line), that runs `compinit` or sources oh-my-zsh (`oh-my-zsh.sh`), Prezto
@@ -196,11 +197,45 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     (`config::unknown_vendo_profile`), exit 1, where the CLI would otherwise say "No API key configured"
     (`config::require_api_key`) and in `logout`, which would say "Not currently logged in."; `mcp`, which prints its
     config either way, gives it in place of its no-key hint. A key in `VENDO_API_KEY` is still used, as for an
-    unknown `--profile`. Hints about switching profiles or checking with whoami (whoami's profile list, doctor's
-    missing profile and its API-auth fixes, a new login key that cannot be checked) say that VENDO_PROFILE
-    overrides the active profile (`config::vendo_profile_overrides`); doctor's fix for a rejected key (401/403)
-    says to check the profile login saved with `vendo --profile <profile> whoami`. whoami and doctor otherwise name
-    the profile as they do for `--profile`. `--profile`, which wins over VENDO_PROFILE, works as before.
+    unknown `--profile`. Hints about switching profiles or checking with `vendo workspace` (its profile list, its
+    missing-profile check and its API-auth fixes, a new login key that cannot be checked) say that VENDO_PROFILE
+    overrides the active profile (`config::vendo_profile_overrides`); the fix for a rejected key (401/403) says to
+    check the profile login saved with `vendo --profile <profile> workspace`. `vendo workspace` otherwise names the
+    profile as it does for `--profile`, and with a VENDO_PROFILE no profile has it shows its screen (the profile's
+    check with that fix, exit 1) instead of the error. `--profile`, which wins over VENDO_PROFILE, works as before.
+- Workspace (VE-3891, decided by Yalcin 2026-10-07, CLI 1.1): `vendo workspace` is `whoami` and `doctor` in one
+  command and one screen, each fact once (`rust/src/commands/workspace.rs`; the checks stay doctor's,
+  `health::local_checks` and `health::auth_check`). First the account: the title is `/me`'s name and slug
+  (`T101 · t101`), then `Account ID:`, `Profile:`, `Base URL:` and `API key:` (the key masked as doctor masked it,
+  `vend...eKuE`, with `(key ID <apiKeyId>, scopes <scopes>)` once `/me` answers, `full access` for none); whoami's
+  `Account:` line is the title's slug and its `API Key:` line, which showed the key ID, is gone. Labels are today's.
+  Then whoami's `Env overrides active:` line, the saved profiles when there are two or more (`Profiles`, `*` on the
+  active one, the name padded, the account ID's first 8 characters and `…`, the base URL without its scheme, left
+  out for the default one) with the VENDO_PROFILE note under them, and `Checks`: each check in a few words after
+  `[ok]`, `[warn]` or `[fail]`, its fix under it (`DoctorCheck::line` and `listed`). `CLI <version> at <path>, on
+  PATH` joins the binary's and PATH's checks with the worse status and both fixes; `Config <path>`, `Zsh completions
+  installed`, `Signed in as <name>` are the agreed words, and a check with a problem keeps doctor's words
+  (`API key: Missing`, `API auth: HTTP 401: Unauthorized`). Paths under HOME show as `~`. The profile, key, base URL
+  and account checks show only when they do not pass, as the lines above show their values, and doctor's title,
+  `Summary:` line and `Suggested next steps` list (the fixes again) are gone. `/me` is asked only with a key and an
+  account, as doctor asked it; signed out, with no key, offline or refused (401/403) it shows what the config has (no
+  title, no key ID; a value the CLI lacks has no line, its check says so) and the checks with their fixes, and like
+  doctor it exits 1 when a check fails, so `whoami` now does too (a binary off PATH fails a check). It prints
+  whoami's update notice. `--json` keeps every key both had, whoami's first: `/me`'s response as sent (`data`),
+  `config` (`selectedProfile`, `apiKeySource`, `baseUrl`, `baseUrlSource`, `accountId`, `accountIdSource`), then
+  doctor's `summary`, `checks` (`name`, `status`, `detail`, `remediation`, doctor's words), `suggestions`,
+  `identity` and `shell`; `data` and `identity` only when `/me` answered, and no JSON error on stderr when it did not
+  (doctor's way; whoami printed one). `whoami` and `doctor` are its hidden clap aliases, `profile current` and
+  `config show` reach it through `MOVED`, and all print exactly what it prints, text, `--json`, `--help` and usage
+  errors (`whoami_doctor_and_their_old_paths_print_exactly_what_workspace_prints`). Hints that named `vendo whoami`
+  or `vendo doctor` (login's and status's next steps, profile switch's "Verify with", login's errors, the API-auth
+  fixes) name `vendo workspace`. ❓ Open for Yalcin, built with cautious defaults: the description ("Show the current
+  account, your profiles and setup checks"), the title's second part read as the slug, the account ID and key ID
+  shown whole (the preview elided them), the profile list's `…` IDs and hosts read from the preview, the profile list
+  only from two profiles (whoami's rule) and without whoami's "Switch with `vendo profile switch` …" hint, no title
+  without an answer from `/me`, a value the CLI lacks left out rather than shown as missing, the completions line
+  without the file it loads from, doctor's words for a check with a problem, and no `profiles` key in the JSON.
+  Renaming "Account" to "Workspace" in the labels is not decided.
 - Group menus (VE-3826, decided by Yalcin 2026-10-05, CLI 1.1): a group run without its command (`vendo apps`,
   `vendo measurement ltv`, the hidden `config`; bare `vendo` is unchanged) opens an arrow-key menu of its visible
   commands and their descriptions where `output::can_show_menu` holds: `can_prompt` (stdin and stdout terminals and
@@ -325,7 +360,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `VENDO_NO_INPUT` now waits at the question where it got exit 2, as at the group menu and the y/N questions;
   `VENDO_NO_INPUT=1` turns it off.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
-  self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
+  self-update (VE-3665; whoami and doctor are `workspace` since VE-3891); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).
   `rust/src/web_app.rs` is the one place that knows the web-app routes (`/api/metrics`, `/api/measurement/*`),
   which go out as raw paths with no account prefix. `rust/src/dictionary.rs` pins the dictionary field and
@@ -381,7 +416,8 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
   screen must be the same, except the two accepted for VE-3823 (`logout`, `metrics delete`; Yalcin, 2026-10-06),
   `--profile`'s description on the root screen, which names VENDO_PROFILE (VE-3831, Yalcin 2026-10-06),
   `jobs list`'s `--status` and `--type`, which list the API's values (VE-3830, Yalcin 2026-10-06), and `config set`'s
-  description, `profile set`'s "Set values on the active profile" (VE-3827, Yalcin 2026-10-06).
+  description, `profile set`'s "Set values on the active profile" (VE-3827, Yalcin 2026-10-06), and `workspace` in the
+  root help where `whoami` and `doctor` were, whose screens are now `workspace`'s (VE-3891, Yalcin 2026-10-07).
   This is a manual step, not a CI job (decided by Yalcin, 2026-10-05): the TypeScript CLI
   it compares against is deleted at 1.0.0 (VE-3669).
 - Installing a release candidate: `VENDO_VERSION=cli-vX.Y.Z-rc.N bash install.sh` from a checkout,

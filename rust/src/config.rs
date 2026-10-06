@@ -373,7 +373,7 @@ pub fn unknown_vendo_profile(name: &str) -> String {
     )
 }
 
-/// What hints about switching profiles, or checking one with `vendo whoami`, add while
+/// What hints about switching profiles, or checking one with `vendo workspace`, add while
 /// `VENDO_PROFILE` chose the profile (Yalcin, 2026-10-06).
 pub fn vendo_profile_overrides(name: &str) -> String {
     format!("VENDO_PROFILE={name} overrides the active profile in this shell")

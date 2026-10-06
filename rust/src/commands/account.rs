@@ -1,23 +1,17 @@
-//! Account and profile commands: `logout`, `whoami` and `profile *` (ports
+//! Account and profile commands: `logout`, `profile *` and `mcp` (ports
 //! of the matching files in `src/commands/`; `config *` moved under
 //! `profile`, `whoami` and `logout --all` in CLI 1.1, VE-3827). `init` became
-//! `login` (VE-3825, `commands/login.rs`).
+//! `login` (VE-3825, `commands/login.rs`); `whoami` and `doctor` became
+//! `workspace` (VE-3891, `commands/workspace.rs`).
 
 use anyhow::{Result, bail};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::{
-    client::payload,
-    config::{ConfigValueUpdates, unknown_vendo_profile, vendo_profile_overrides},
+    config::{ConfigValueUpdates, unknown_vendo_profile},
     context::Ctx,
-    output::{
-        bold, confirm, dim, green, js_join, js_nullish, js_string, js_template, message_error_json, print_error,
-        print_error_json, print_json, print_success, run_action,
-    },
-    profile_display::{
-        SwitchOptions, format_profile_list_line, print_profile_list, profile_json, switch_profile_selection,
-    },
-    update_check,
+    output::{bold, confirm, dim, green, message_error_json, print_error, print_error_json, print_json, print_success},
+    profile_display::{SwitchOptions, print_profile_list, profile_json, switch_profile_selection},
 };
 
 const NO_PROFILES: &str = "No profiles configured. Run `vendo login` to create one.";
@@ -81,75 +75,6 @@ pub fn logout(ctx: &Ctx, all: bool, yes: bool, json: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn whoami(ctx: &Ctx, json: bool) -> Result<()> {
-    update_check::check(&ctx.update_cache_path()).await;
-    let client = ctx.client()?;
-    let mut res = run_action("Checking identity...", client.get("/me", &[])).await?;
-    let config = ctx.effective();
-
-    if json {
-        let mut cfg = Map::new();
-        if let Some(name) = &config.selected_profile {
-            cfg.insert("selectedProfile".into(), json!(name));
-        }
-        cfg.insert("apiKeySource".into(), json!(config.api_key_source));
-        cfg.insert("baseUrl".into(), json!(config.base_url));
-        cfg.insert("baseUrlSource".into(), json!(config.base_url_source));
-        if let Some(id) = &config.account_id {
-            cfg.insert("accountId".into(), json!(id));
-        }
-        cfg.insert("accountIdSource".into(), json!(config.account_id_source));
-        if let Value::Object(obj) = &mut res {
-            obj.insert("config".into(), Value::Object(cfg));
-        }
-        print_json(&res);
-        return Ok(());
-    }
-
-    // `${…}` of the `/me` fields, with the TS CLI's `??` fallbacks.
-    let me = payload(&res);
-    let field = |key: &str| me.get(key);
-    let account_id = field("accountId");
-    println!();
-    println!("{}", bold(&js_template(js_nullish(js_nullish(field("accountName"), field("accountSlug")), account_id))));
-    println!();
-    println!("  Account:     {}", js_template(js_nullish(field("accountSlug"), account_id)));
-    println!("  Account ID:  {}", js_template(account_id));
-    println!("  Profile:     {}", config.selected_profile.clone().unwrap_or_else(|| dim("none selected")));
-    println!("  Base URL:    {}", config.base_url);
-    let api_key_id = field("apiKeyId").filter(|v| !v.is_null()).map(js_string);
-    println!("  API Key:     {}", dim(api_key_id.as_deref().unwrap_or("unknown")));
-    match field("scopes") {
-        Some(Value::Array(scopes)) if !scopes.is_empty() => println!("  Scopes:      {}", js_join(scopes, ", ")),
-        _ => println!("  Scopes:      {}", dim("full access")),
-    }
-
-    let overrides = config.env_override_names();
-    if !overrides.is_empty() {
-        println!();
-        println!("{}", dim(&format!("  Env overrides active: {}", overrides.join(", "))));
-    }
-
-    let profiles = ctx.store.profile_summaries();
-    if profiles.len() > 1 {
-        println!();
-        println!("{}", bold("  Profiles"));
-        for profile in &profiles {
-            println!("{}", format_profile_list_line(profile, false, "    "));
-        }
-        println!();
-        println!(
-            "{}",
-            dim("  Switch with `vendo profile switch` or target one command with `vendo --profile <name> ...`.")
-        );
-        if let Some(name) = ctx.store.vendo_profile() {
-            let overrides = vendo_profile_overrides(name);
-            println!("{}", dim(&format!("  {overrides}: change or unset VENDO_PROFILE to switch here.")));
-        }
-    }
-    Ok(())
-}
-
 pub fn profile_set(
     ctx: &Ctx,
     api_key: Option<String>,
@@ -193,7 +118,7 @@ pub fn profile_switch(ctx: &Ctx, profile: Option<String>, account: Option<String
             empty_message: NO_PROFILES_YET,
             list_command: "vendo profile list",
             profile_command: "vendo profile switch",
-            verify_hint: "`vendo whoami`",
+            verify_hint: "`vendo workspace`",
             json,
         },
     )

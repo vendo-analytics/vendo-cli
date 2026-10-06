@@ -52,7 +52,7 @@ use crate::{
         account, apps, catalog, completions, dictionary as dictionary_cmd, health, integrations, jobs as jobs_cmd,
         login, measurement, metrics, models,
         pipeline_resource::{self as resource, ActionOpts},
-        sources, tree, version,
+        sources, tree, version, workspace,
     },
     context::Ctx,
 };
@@ -99,7 +99,7 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             }
         },
         Command::Status { json } => health::status(ctx, json).await.map(|_| ok),
-        Command::Whoami { json } => account::whoami(ctx, json).await.map(|_| ok),
+        Command::Workspace { json } => workspace::run(ctx, json).await,
         Command::Apps { command } => match command {
             AppsCommand::List { state, app_type, role, limit, offset, json, output } => {
                 apps::list(ctx, apps::ListArgs { state, app_type, role, limit, offset, json, output }).await.map(|_| ok)
@@ -344,7 +344,6 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             completions::run(ctx, shell, json);
             Ok(ok)
         }
-        Command::Doctor { json } => health::doctor(ctx, json).await,
         Command::Commands { json } => {
             tree::run(json);
             Ok(ok)

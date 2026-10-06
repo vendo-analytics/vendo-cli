@@ -123,7 +123,7 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
-(whoami)
+(workspace)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
@@ -1073,15 +1073,6 @@ _arguments "${_arguments_options[@]}" : \
 ':shell:(bash zsh fish)' \
 && ret=0
 ;;
-(doctor)
-_arguments "${_arguments_options[@]}" : \
-'--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
-'-h[Print help]' \
-'--help[Print help]' \
-&& ret=0
-;;
 (commands)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
@@ -1162,7 +1153,7 @@ esac
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
-(whoami)
+(workspace)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1590,10 +1581,6 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
-(doctor)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
 (commands)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1626,7 +1613,7 @@ _vendo_commands() {
 'logout:Remove stored credentials' \
 'profile:Manage account profiles' \
 'status:Account health overview' \
-'whoami:Show the current authenticated account' \
+'workspace:Show the current account, your profiles and setup checks' \
 'apps:Manage apps' \
 'sources:Manage data sources' \
 'destinations:Manage data export destinations' \
@@ -1638,7 +1625,6 @@ _vendo_commands() {
 'measurement:Inspect Marketing Measurement methodologies, LTV, and signals' \
 'mcp:Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo' \
 'completions:Generate shell completion script (bash, zsh, fish)' \
-'doctor:Run local configuration and connectivity checks' \
 'commands:List every command, or with --json the command tree with arguments and flags' \
 'version:Print version' \
 'self-update:Update the Vendo CLI using the hosted installer' \
@@ -1818,11 +1804,6 @@ _vendo__subcmd__dictionary__subcmd__search_commands() {
     local commands; commands=()
     _describe -t commands 'vendo dictionary search commands' commands "$@"
 }
-(( $+functions[_vendo__subcmd__doctor_commands] )) ||
-_vendo__subcmd__doctor_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo doctor commands' commands "$@"
-}
 (( $+functions[_vendo__subcmd__help_commands] )) ||
 _vendo__subcmd__help_commands() {
     local commands; commands=(
@@ -1830,7 +1811,7 @@ _vendo__subcmd__help_commands() {
 'logout:Remove stored credentials' \
 'profile:Manage account profiles' \
 'status:Account health overview' \
-'whoami:Show the current authenticated account' \
+'workspace:Show the current account, your profiles and setup checks' \
 'apps:Manage apps' \
 'sources:Manage data sources' \
 'destinations:Manage data export destinations' \
@@ -1842,7 +1823,6 @@ _vendo__subcmd__help_commands() {
 'measurement:Inspect Marketing Measurement methodologies, LTV, and signals' \
 'mcp:Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo' \
 'completions:Generate shell completion script (bash, zsh, fish)' \
-'doctor:Run local configuration and connectivity checks' \
 'commands:List every command, or with --json the command tree with arguments and flags' \
 'version:Print version' \
 'self-update:Update the Vendo CLI using the hosted installer' \
@@ -2021,11 +2001,6 @@ _vendo__subcmd__help__subcmd__dictionary__subcmd__list_commands() {
 _vendo__subcmd__help__subcmd__dictionary__subcmd__search_commands() {
     local commands; commands=()
     _describe -t commands 'vendo help dictionary search commands' commands "$@"
-}
-(( $+functions[_vendo__subcmd__help__subcmd__doctor_commands] )) ||
-_vendo__subcmd__help__subcmd__doctor_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo help doctor commands' commands "$@"
 }
 (( $+functions[_vendo__subcmd__help__subcmd__help_commands] )) ||
 _vendo__subcmd__help__subcmd__help_commands() {
@@ -2318,10 +2293,10 @@ _vendo__subcmd__help__subcmd__version_commands() {
     local commands; commands=()
     _describe -t commands 'vendo help version commands' commands "$@"
 }
-(( $+functions[_vendo__subcmd__help__subcmd__whoami_commands] )) ||
-_vendo__subcmd__help__subcmd__whoami_commands() {
+(( $+functions[_vendo__subcmd__help__subcmd__workspace_commands] )) ||
+_vendo__subcmd__help__subcmd__workspace_commands() {
     local commands; commands=()
-    _describe -t commands 'vendo help whoami commands' commands "$@"
+    _describe -t commands 'vendo help workspace commands' commands "$@"
 }
 (( $+functions[_vendo__subcmd__jobs_commands] )) ||
 _vendo__subcmd__jobs_commands() {
@@ -2609,10 +2584,10 @@ _vendo__subcmd__version_commands() {
     local commands; commands=()
     _describe -t commands 'vendo version commands' commands "$@"
 }
-(( $+functions[_vendo__subcmd__whoami_commands] )) ||
-_vendo__subcmd__whoami_commands() {
+(( $+functions[_vendo__subcmd__workspace_commands] )) ||
+_vendo__subcmd__workspace_commands() {
     local commands; commands=()
-    _describe -t commands 'vendo whoami commands' commands "$@"
+    _describe -t commands 'vendo workspace commands' commands "$@"
 }
 
 if [ "$funcstack[1]" = "_vendo" ]; then

@@ -346,7 +346,8 @@ fn a_bare_group_without_a_terminal_prints_its_help_and_exits_2() {
 #[test]
 fn moved_commands_print_their_targets_help() {
     // `config` moved under `profile`, `profile current` and `config show` became `whoami`, and
-    // `config reset` `logout --all` (VE-3827): the old paths print exactly what the new ones do.
+    // `config reset` `logout --all` (VE-3827); `whoami` and `doctor` became `workspace` (VE-3891): the
+    // old paths print exactly what the new ones do.
     let sandbox = Sandbox::new(CLOSED);
     let run = |args: &[&str]| {
         let out = sandbox.run(args);
@@ -359,16 +360,22 @@ fn moved_commands_print_their_targets_help() {
         (&["config", "set", "--help"], &["profile", "set", "--help"]),
         (&["config", "use", "--help"], &["profile", "switch", "--help"]),
         (&["config", "list", "--help"], &["profile", "list", "--help"]),
-        (&["config", "show", "--help"], &["whoami", "--help"]),
+        (&["config", "show", "--help"], &["workspace", "--help"]),
         (&["config", "reset", "--help"], &["logout", "--help"]),
-        (&["profile", "current", "--help"], &["whoami", "--help"]),
+        (&["profile", "current", "--help"], &["workspace", "--help"]),
+        (&["whoami", "--help"], &["workspace", "--help"]),
+        (&["doctor", "--help"], &["workspace", "--help"]),
         (&["help", "config", "set"], &["help", "profile", "set"]),
-        (&["help", "profile", "current"], &["help", "whoami"]),
+        (&["help", "profile", "current"], &["help", "workspace"]),
+        (&["help", "whoami"], &["help", "workspace"]),
+        (&["help", "doctor"], &["help", "workspace"]),
         (&["help", "config", "reset"], &["help", "logout"]),
         // Usage errors name the command that runs.
         (&["config", "set", "--bogus"], &["profile", "set", "--bogus"]),
-        (&["profile", "current", "--bogus"], &["whoami", "--bogus"]),
-        (&["config", "show", "--all"], &["whoami", "--all"]),
+        (&["profile", "current", "--bogus"], &["workspace", "--bogus"]),
+        (&["config", "show", "--all"], &["workspace", "--all"]),
+        (&["whoami", "--bogus"], &["workspace", "--bogus"]),
+        (&["doctor", "--all"], &["workspace", "--all"]),
         (&["config", "reset", "--bogus"], &["logout", "--all", "--bogus"]),
         // A group's `help` command, no longer listed, is the root's.
         (&["apps", "help"], &["apps", "--help"]),
@@ -643,6 +650,8 @@ impl Session {
             (shown(&bin), "[bin]".to_string()),
             (shown(bin.parent().unwrap()), "[bin-dir]".to_string()),
             (server.uri(), "[stub]".to_string()),
+            // The workspace's profile list shows a base URL without its scheme (VE-3891).
+            (server.uri().trim_start_matches("http://").to_string(), "[stub-host]".to_string()),
             (env!("CARGO_PKG_VERSION").to_string(), "[version]".to_string()),
         ];
         let mut session =
@@ -1281,30 +1290,74 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
 #[tokio::test]
 async fn account_and_profile_output() {
     let (server, mut s) = Session::start("account").await;
-    s.record("whoami", &["whoami"]);
-    s.record("whoami_json", &["whoami", "--json"]);
-    s.record("status", &["status"]);
-    s.record("status_json", &["status", "--json"]);
-    // PATH and SHELL pinned: doctor checks both.
+    // PATH and SHELL pinned: the workspace's checks read both (VE-3891). The test binary is not where
+    // the installer puts it, nor on PATH, and zsh has no completions.
     let machine = |cmd: &mut Command| {
         cmd.env("PATH", "/usr/bin:/bin").env("SHELL", "/bin/zsh");
     };
-    s.record_with("doctor", &["doctor"], machine);
-    s.record_with("doctor_json", &["doctor", "--json"], machine);
+    s.record_with("workspace", &["workspace"], machine);
+    s.record_with("workspace_json", &["workspace", "--json"], machine);
+    // Every check passing, as on the screen Yalcin agreed: the binary where install.sh puts it (a hard
+    // link, or a copy), on PATH, with zsh completions, run with the canonical HOME the binary's path has.
+    let home = std::fs::canonicalize(s.home()).unwrap();
+    let installed = home.join(".local/bin/vendo");
+    std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    if std::fs::hard_link(env!("CARGO_BIN_EXE_vendo"), &installed).is_err() {
+        std::fs::copy(env!("CARGO_BIN_EXE_vendo"), &installed).unwrap();
+    }
+    s.file(".zshrc", "# >>> vendo completions >>>\n");
+    std::fs::create_dir_all(home.join(".local/share/vendo/completions")).unwrap();
+    std::fs::write(home.join(".local/share/vendo/completions/vendo.zsh"), "# the script\n").unwrap();
+    let words = ["workspace"];
+    let out = s
+        .sandbox
+        .command_of(&installed, &words)
+        .env("HOME", &home)
+        .env("PATH", format!("{}:/usr/bin:/bin", home.join(".local/bin").display()))
+        .env("SHELL", "/bin/zsh")
+        .output()
+        .unwrap();
+    s.record_output("workspace_all_ok", &words, (out.status.code(), text(&out.stdout), text(&out.stderr)));
+    std::fs::remove_file(home.join(".zshrc")).unwrap();
+    std::fs::remove_dir_all(home.join(".local")).unwrap();
+    // The API out of reach, and a key it refuses: the identity the config has and the failing check.
+    s.record_with("workspace_offline", &["workspace"], |cmd| {
+        machine(cmd);
+        cmd.env("VENDO_API_URL", CLOSED);
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/v1/me"))
+        .and(wiremock::matchers::header("Authorization", "Bearer vendo_sk_fake_refused_00"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({ "error": { "message": "Invalid API key" } })))
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    s.record_with("workspace_refused", &["workspace"], |cmd| {
+        machine(cmd);
+        cmd.env("VENDO_API_KEY", "vendo_sk_fake_refused_00");
+    });
+    s.record("status", &["status"]);
+    s.record("status_json", &["status", "--json"]);
     s.record("profile_list", &["profile", "list"]);
     s.record("profile_list_json", &["profile", "list", "--json"]);
-    // Moved commands (VE-3827) print exactly what the command they moved to prints.
-    for (old, new) in [
-        (&["profile", "current"][..], &["whoami"][..]),
-        (&["profile", "current", "--json"], &["whoami", "--json"]),
-        (&["config", "show"], &["whoami"]),
-        (&["config", "show", "--json"], &["whoami", "--json"]),
-        (&["config", "list"], &["profile", "list"]),
-    ] {
-        let expected = s.output(new);
-        assert_eq!(expected.0, Some(0), "vendo {}", new.join(" "));
-        assert!(s.output(old) == expected, "vendo {} differs from vendo {}", old.join(" "), new.join(" "));
+    // Moved commands (VE-3827) and the hidden aliases of `workspace` (VE-3891) print exactly what the
+    // command they moved to prints.
+    let same = |s: &Session, old: &[&str], new: &[&str], code: i32| {
+        let run = |words: &[&str]| {
+            let mut cmd = s.sandbox.command(words);
+            machine(&mut cmd);
+            let out = cmd.output().unwrap();
+            (out.status.code(), out.stdout, out.stderr)
+        };
+        let expected = run(new);
+        assert_eq!(expected.0, Some(code), "vendo {}", new.join(" "));
+        assert!(run(old) == expected, "vendo {} differs from vendo {}", old.join(" "), new.join(" "));
+    };
+    for old in [&["whoami"][..], &["doctor"], &["profile", "current"], &["config", "show"]] {
+        same(&s, old, &["workspace"], 1);
+        same(&s, &[old, &["--json"]].concat(), &["workspace", "--json"], 1);
     }
+    same(&s, &["config", "list"], &["profile", "list"], 0);
     s.record("mcp", &["mcp"]);
     s.record("mcp_json", &["mcp", "--json"]);
     // A working key is checked and kept (VE-3825); `init`, login's hidden alias, prints the same.

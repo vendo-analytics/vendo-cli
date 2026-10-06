@@ -1,10 +1,31 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-$ vendo doctor --json
+$ vendo workspace --json
 exit: 1
 --- stdout ---
 {
+  "data": {
+    "accountId": "acct-alpha",
+    "accountName": "Demo Account (synthetic)",
+    "accountSlug": "demo-account",
+    "pictureUrl": null,
+    "apiKeyId": "key_fake_0001",
+    "scopes": [],
+    "bigquery": {
+      "projectId": "demo-project",
+      "prodDatasetId": "demo_prod",
+      "sourceDatasetId": "demo_source"
+    }
+  },
+  "config": {
+    "selectedProfile": "alpha",
+    "apiKeySource": "profile",
+    "baseUrl": "[stub]",
+    "baseUrlSource": "profile",
+    "accountId": "acct-alpha",
+    "accountIdSource": "profile"
+  },
   "summary": {
     "ok": 6,
     "warn": 2,

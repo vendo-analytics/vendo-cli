@@ -1,5 +1,5 @@
 //! `/api/v1/me` lookups with explicit, not-yet-saved credentials (port of
-//! `src/identity.ts`), used by login and doctor.
+//! `src/identity.ts`), used by login and `vendo workspace`.
 #![allow(clippy::result_large_err)] // carries ApiError; see client.rs
 
 use serde::{Deserialize, Serialize};
@@ -25,11 +25,14 @@ impl Me {
     }
 }
 
-/// The parsed identity plus the `/me` payload as sent (doctor prints it whole).
+/// The parsed identity plus the `/me` payload as sent, and the whole response: `vendo workspace
+/// --json` prints both, the payload as doctor's `identity` and the response's keys as whoami
+/// printed them (VE-3891).
 #[derive(Debug, Clone)]
 pub struct Identity {
     pub me: Me,
     pub raw: serde_json::Value,
+    pub response: serde_json::Value,
 }
 
 #[derive(Debug)]
@@ -66,7 +69,7 @@ pub async fn fetch_identity(
             let raw = payload(&body).clone();
             let me = serde_json::from_value(raw.clone())
                 .map_err(|err| IdentityError::Invalid(format!("Unexpected /me response: {err}")))?;
-            Ok(Identity { me, raw })
+            Ok(Identity { me, raw, response: body })
         }
         Err(err) => match err.status_text.clone() {
             Some(status_text) => Err(IdentityError::Http { status: err.status, status_text }),
@@ -94,6 +97,7 @@ mod tests {
         assert_eq!(identity.me.account_id, "acct-1");
         assert_eq!(identity.me.display_name(), "Acme");
         assert_eq!(identity.raw["accountSlug"], "acme");
+        assert_eq!(identity.response["data"], identity.raw);
     }
 
     #[tokio::test]

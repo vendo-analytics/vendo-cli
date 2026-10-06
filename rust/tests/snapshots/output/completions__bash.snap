@@ -40,9 +40,6 @@ _vendo() {
             vendo,dictionary)
                 cmd="vendo__subcmd__dictionary"
                 ;;
-            vendo,doctor)
-                cmd="vendo__subcmd__doctor"
-                ;;
             vendo,help)
                 cmd="vendo__subcmd__help"
                 ;;
@@ -82,8 +79,8 @@ _vendo() {
             vendo,version)
                 cmd="vendo__subcmd__version"
                 ;;
-            vendo,whoami)
-                cmd="vendo__subcmd__whoami"
+            vendo,workspace)
+                cmd="vendo__subcmd__workspace"
                 ;;
             vendo__subcmd__apps,create)
                 cmd="vendo__subcmd__apps__subcmd__create"
@@ -172,9 +169,6 @@ _vendo() {
             vendo__subcmd__help,dictionary)
                 cmd="vendo__subcmd__help__subcmd__dictionary"
                 ;;
-            vendo__subcmd__help,doctor)
-                cmd="vendo__subcmd__help__subcmd__doctor"
-                ;;
             vendo__subcmd__help,help)
                 cmd="vendo__subcmd__help__subcmd__help"
                 ;;
@@ -214,8 +208,8 @@ _vendo() {
             vendo__subcmd__help,version)
                 cmd="vendo__subcmd__help__subcmd__version"
                 ;;
-            vendo__subcmd__help,whoami)
-                cmd="vendo__subcmd__help__subcmd__whoami"
+            vendo__subcmd__help,workspace)
+                cmd="vendo__subcmd__help__subcmd__workspace"
                 ;;
             vendo__subcmd__help__subcmd__apps,create)
                 cmd="vendo__subcmd__help__subcmd__apps__subcmd__create"
@@ -509,7 +503,7 @@ _vendo() {
 
     case "${cmd}" in
         vendo)
-            opts="-V -h --profile --debug --version --help login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands version self-update help"
+            opts="-V -h --profile --debug --version --help login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement mcp completions commands version self-update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1288,26 +1282,8 @@ _vendo() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        vendo__subcmd__doctor)
-            opts="-h --json --profile --debug --help"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                --profile)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
         vendo__subcmd__help)
-            opts="login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands version self-update help"
+            opts="login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement mcp completions commands version self-update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1715,20 +1691,6 @@ _vendo() {
         vendo__subcmd__help__subcmd__dictionary__subcmd__search)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        vendo__subcmd__help__subcmd__doctor)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -2426,7 +2388,7 @@ _vendo() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        vendo__subcmd__help__subcmd__whoami)
+        vendo__subcmd__help__subcmd__workspace)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -3612,7 +3574,7 @@ _vendo() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        vendo__subcmd__whoami)
+        vendo__subcmd__workspace)
             opts="-h --json --profile --debug --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

@@ -52,7 +52,12 @@ impl Sandbox {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_vendo"));
+        self.command_of(env!("CARGO_BIN_EXE_vendo"), args)
+    }
+
+    /// [`Sandbox::command`] running `program`, a copy of the binary elsewhere.
+    fn command_of(&self, program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Command {
+        let mut cmd = Command::new(program);
         // Dates and numbers follow the locale (VE-3728): pin it, and the time zone.
         cmd.args(args).env("HOME", self.home.path()).env("LANG", "C").env("TZ", "UTC").stdin(Stdio::null());
         for var in [
@@ -248,8 +253,10 @@ async fn proxy_variables_are_ignored_like_node_fetch() {
         .await;
     let sandbox = Sandbox::new(&server.uri());
     for var in ["HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"] {
-        let out = sandbox.command(&["whoami", "--json"]).env(var, CLOSED).output().unwrap();
-        assert_eq!(out.status.code(), Some(0), "{var}: {}", text(&out.stderr));
+        let out = sandbox.command(&["workspace", "--json"]).env(var, CLOSED).output().unwrap();
+        let printed: Value = serde_json::from_slice(&out.stdout).unwrap();
+        let auth = printed["checks"].as_array().unwrap().iter().find(|c| c["name"] == "API auth").unwrap().clone();
+        assert_eq!(auth["status"], "ok", "{var}: {auth} {}", text(&out.stderr));
     }
 }
 
@@ -332,13 +339,13 @@ async fn a_role_the_catalog_refuses_creates_nothing() {
 
 #[cfg(unix)]
 #[test]
-fn doctor_names_the_running_binary_by_its_real_path() {
+fn workspace_names_the_running_binary_by_its_real_path() {
     let sandbox = Sandbox::new(CLOSED);
     let links = tempfile::tempdir().unwrap();
     let link = links.path().join("vendo");
     std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_vendo"), &link).unwrap();
     let out = Command::new(&link)
-        .args(["doctor", "--json"])
+        .args(["workspace", "--json"])
         .env("HOME", sandbox.home.path())
         .env("PATH", "/usr/bin:/bin")
         .env_remove("VENDO_API_KEY")
@@ -2132,7 +2139,7 @@ async fn browser_login(mut cmd: Command, url_on_stderr: bool) -> (Option<i32>, S
 /// The summary and next steps a successful login ends with.
 fn signed_in(profile: &str, base_url: &str, account_id: &str) -> String {
     format!(
-        "\nSetup summary\n  Profile:     {profile}\n  Base URL:    {base_url}\n  Account ID:  {account_id}\n  Auth:        verified as Demo Account (synthetic)\n\nNext steps\n  vendo doctor\n  vendo whoami\n  vendo status\nDone: Vendo CLI setup complete.\n"
+        "\nSetup summary\n  Profile:     {profile}\n  Base URL:    {base_url}\n  Account ID:  {account_id}\n  Auth:        verified as Demo Account (synthetic)\n\nNext steps\n  vendo workspace\n  vendo status\nDone: Vendo CLI setup complete.\n"
     )
 }
 
@@ -2223,7 +2230,7 @@ async fn login_that_cannot_check_the_key_creates_no_key() {
     };
     let error = |reason: &str| {
         format!(
-            "Error: Could not verify the API key: {reason}. Nothing was changed: check your connection (`vendo doctor`) and run `vendo login` again.\n"
+            "Error: Could not verify the API key: {reason}. Nothing was changed: check your connection (`vendo workspace`) and run `vendo login` again.\n"
         )
     };
     for (status, reason) in
@@ -2256,7 +2263,7 @@ async fn a_new_key_that_cannot_be_checked_is_kept_and_login_fails() {
         );
         let expected = browser_sign_in("No API key found. Starting browser login...", &stub) + &summary;
         let error = format!(
-            "Error: Could not verify the API key: {reason}. The new key is saved in profile demo-account: run `vendo whoami` to check it again.\n"
+            "Error: Could not verify the API key: {reason}. The new key is saved in profile demo-account: run `vendo workspace` to check it again.\n"
         );
         assert_eq!((code, stdout, stderr), (Some(1), expected, error), "{status}");
         assert_eq!(sign_in_requests(&server).await, ["GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]);
@@ -2277,7 +2284,7 @@ async fn a_key_without_an_account_is_kept_and_the_summary_says_what_is_missing()
     assert_eq!(
         stdout,
         format!(
-            "Using existing profile alpha. Run `vendo login --force` to sign in again.\n\nSetup summary\n  Profile:     alpha\n  Base URL:    {stub}\n  Account ID:  missing\n  Auth:        incomplete (account ID still required)\n\nNext steps\n  vendo doctor\n  vendo whoami\n  vendo status\n\nSet an account explicitly with `vendo profile set --account <account-id>` if your login flow did not provide one.\nDone: Vendo CLI setup complete.\n"
+            "Using existing profile alpha. Run `vendo login --force` to sign in again.\n\nSetup summary\n  Profile:     alpha\n  Base URL:    {stub}\n  Account ID:  missing\n  Auth:        incomplete (account ID still required)\n\nNext steps\n  vendo workspace\n  vendo status\n\nSet an account explicitly with `vendo profile set --account <account-id>` if your login flow did not provide one.\nDone: Vendo CLI setup complete.\n"
         )
     );
     assert_eq!(sign_in_requests(&server).await, Vec::<String>::new());
@@ -2907,7 +2914,7 @@ async fn login_json_prints_the_summary_and_says_the_rest_on_stderr() {
         (Some(1), login_summary("alpha", &down.uri(), "acct-alpha", "unverified", Value::Null))
     );
     assert!(text(&out.stderr).starts_with("Using existing profile alpha."), "{}", text(&out.stderr));
-    let message = "Could not verify the API key: HTTP 500 Internal Server Error. Nothing was changed: check your connection (`vendo doctor`) and run `vendo login` again.";
+    let message = "Could not verify the API key: HTTP 500 Internal Server Error. Nothing was changed: check your connection (`vendo workspace`) and run `vendo login` again.";
     assert_eq!(json_error(&out), error_shape(message, Value::Null, Value::Null, Value::Null));
 }
 
@@ -3172,12 +3179,14 @@ async fn me_stub() -> MockServer {
     server
 }
 
-fn whoami_config(sandbox: &Sandbox, args: &[&str], vendo_profile: Option<&str>) -> Value {
-    let mut cmd = sandbox.command(&[args, &["whoami", "--json"]].concat());
+fn workspace_config(sandbox: &Sandbox, args: &[&str], vendo_profile: Option<&str>) -> Value {
+    let mut cmd = sandbox.command(&[args, &["workspace", "--json"]].concat());
     if let Some(name) = vendo_profile {
         cmd.env("VENDO_PROFILE", name);
     }
-    let out: Value = serde_json::from_str(&ok_output(&cmd.output().unwrap())).unwrap();
+    let out = cmd.output().unwrap();
+    assert_eq!(text(&out.stderr), "");
+    let out: Value = serde_json::from_slice(&out.stdout).unwrap();
     json!([out["data"]["accountId"], out["config"]["selectedProfile"]])
 }
 
@@ -3185,11 +3194,11 @@ fn whoami_config(sandbox: &Sandbox, args: &[&str], vendo_profile: Option<&str>) 
 async fn vendo_profile_selects_the_profile_and_the_flag_overrides_it() {
     let server = me_stub().await;
     let sandbox = Sandbox::new(&server.uri());
-    assert_eq!(whoami_config(&sandbox, &[], None), json!(["acct-alpha", "alpha"]));
-    assert_eq!(whoami_config(&sandbox, &[], Some("beta")), json!(["acct-beta", "beta"]));
-    assert_eq!(whoami_config(&sandbox, &["--profile", "alpha"], Some("beta")), json!(["acct-alpha", "alpha"]));
+    assert_eq!(workspace_config(&sandbox, &[], None), json!(["acct-alpha", "alpha"]));
+    assert_eq!(workspace_config(&sandbox, &[], Some("beta")), json!(["acct-beta", "beta"]));
+    assert_eq!(workspace_config(&sandbox, &["--profile", "alpha"], Some("beta")), json!(["acct-alpha", "alpha"]));
     // Empty is unset.
-    assert_eq!(whoami_config(&sandbox, &[], Some("")), json!(["acct-alpha", "alpha"]));
+    assert_eq!(workspace_config(&sandbox, &[], Some("")), json!(["acct-alpha", "alpha"]));
     // The profile commands act on it, as with --profile; the saved active profile stays.
     let out = sandbox.command(&["profile", "list"]).env("VENDO_PROFILE", "beta").output().unwrap();
     assert_eq!(
@@ -3200,27 +3209,28 @@ async fn vendo_profile_selects_the_profile_and_the_flag_overrides_it() {
 }
 
 #[tokio::test]
-async fn whoami_and_doctor_show_the_profile_vendo_profile_selects_as_they_show_the_flags() {
-    // They name the profile as they do for --profile and activeProfile; their hints about switching
-    // profiles say that VENDO_PROFILE overrides the active profile (Yalcin, 2026-10-06).
+async fn workspace_shows_the_profile_vendo_profile_selects_as_it_shows_the_flag() {
+    // It names the profile as it does for --profile and activeProfile; under the profile list it
+    // says that VENDO_PROFILE overrides the active profile (Yalcin, 2026-10-06).
     let server = me_stub().await;
     let sandbox = Sandbox::new(&server.uri());
-    let env = sandbox.command(&["whoami"]).env("VENDO_PROFILE", "beta").output().unwrap();
-    let printed = ok_output(&env);
+    let shown = |cmd: &mut Command| {
+        let out = cmd.output().unwrap();
+        assert_eq!(text(&out.stderr), "");
+        text(&out.stdout)
+    };
+    let printed = shown(workspace(&sandbox, &["workspace"]).env("VENDO_PROFILE", "beta"));
     assert!(printed.contains("  Profile:     beta\n"), "{printed}");
-    let switch_hint = "  Switch with `vendo profile switch` or target one command with `vendo --profile <name> ...`.\n";
     let note = "  VENDO_PROFILE=beta overrides the active profile in this shell: change or unset VENDO_PROFILE to switch here.\n";
-    assert_eq!(
-        printed,
-        ok_output(&sandbox.run(&["--profile", "beta", "whoami"]))
-            .replace(switch_hint, &(switch_hint.to_string() + note))
-    );
+    let flag = shown(&mut workspace(&sandbox, &["--profile", "beta", "workspace"]));
+    assert!(flag.contains("\n  * beta "), "{flag}");
+    assert_eq!(printed, flag.replace("\n\nChecks\n", &format!("\n{note}\nChecks\n")));
     // --profile wins over VENDO_PROFILE, so the note goes.
-    let flag = sandbox.command(&["--profile", "beta", "whoami"]).env("VENDO_PROFILE", "alpha").output().unwrap();
-    assert_eq!(ok_output(&flag), ok_output(&sandbox.run(&["--profile", "beta", "whoami"])));
+    let both = shown(workspace(&sandbox, &["--profile", "beta", "workspace"]).env("VENDO_PROFILE", "alpha"));
+    assert_eq!(both, flag);
 
     let doctor = |vendo_profile: Option<&str>, args: &[&str]| {
-        let mut cmd = sandbox.command(&[args, &["doctor", "--json"]].concat());
+        let mut cmd = sandbox.command(&[args, &["workspace", "--json"]].concat());
         if let Some(name) = vendo_profile {
             cmd.env("VENDO_PROFILE", name);
         }
@@ -3252,7 +3262,7 @@ async fn an_unknown_vendo_profile_is_an_error_that_names_it_and_says_how_to_fix_
     let unknown = "Profile \"nope\" not found (VENDO_PROFILE selects it).\n  Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.";
     let saved = sandbox.config();
     // logout too, where it said "Not currently logged in." while the active profile was logged in.
-    for args in [&["apps", "list"][..], &["whoami"], &["jobs", "get", "1a2b3c4d"], &["logout"]] {
+    for args in [&["apps", "list"][..], &["jobs", "get", "1a2b3c4d"], &["logout"]] {
         let out = sandbox.command(args).env("VENDO_PROFILE", "nope").output().unwrap();
         assert_eq!(
             (out.status.code(), text(&out.stdout), text(&out.stderr)),
@@ -3266,6 +3276,20 @@ async fn an_unknown_vendo_profile_is_an_error_that_names_it_and_says_how_to_fix_
         assert_eq!(json_error(&out), error_shape(unknown, Value::Null, Value::Null, Value::Null), "{args:?}");
     }
     assert_eq!(sandbox.config(), saved);
+    // `vendo workspace` (whoami's place, VE-3891) shows what it can instead, as doctor did: the
+    // profile's check names it and says how to fix it, and with no key the key's check fails, exit 1.
+    let out = workspace(&sandbox, &["workspace"]).env("VENDO_PROFILE", "nope").output().unwrap();
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
+    let shown = text(&out.stdout);
+    assert!(
+        shown.starts_with("  Profile:     nope\n  Base URL:    https://app2.vendodata.com\n\nProfiles\n"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("\n  [warn] Selected profile: nope (not found in config)\n         Fix: VENDO_PROFILE=nope overrides the active profile in this shell: run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.\n  [fail] API key: Missing\n"),
+        "{shown}"
+    );
+    assert!(server.received_requests().await.unwrap().is_empty());
     // mcp prints the client config as ever; its hint names VENDO_PROFILE where it said there is no key.
     let out = sandbox.command(&["mcp"]).env("VENDO_PROFILE", "nope").output().unwrap();
     let no_key_hint = "  No API key configured — run `vendo login` or set VENDO_API_KEY first.\n";
@@ -3343,7 +3367,7 @@ fn profile_switch_under_vendo_profile_switches_and_says_vendo_profile_still_over
     let out = sandbox.command(&["profile", "switch", "beta"]).env("VENDO_PROFILE", "alpha").output().unwrap();
     assert_eq!(
         ok_output(&out),
-        "Done: Switched to profile beta.\n  Account ID: acct-beta  Base URL: https://example.test\n  VENDO_PROFILE=alpha still overrides it in this shell: unset VENDO_PROFILE to use beta here.\n  Verify with `vendo whoami`.\n"
+        "Done: Switched to profile beta.\n  Account ID: acct-beta  Base URL: https://example.test\n  VENDO_PROFILE=alpha still overrides it in this shell: unset VENDO_PROFILE to use beta here.\n  Verify with `vendo workspace`.\n"
     );
     assert_eq!(sandbox.config()["activeProfile"], "beta");
     // With --json the profile says it is not the one in use; nothing else is printed.
@@ -3358,7 +3382,7 @@ fn profile_switch_under_vendo_profile_switches_and_says_vendo_profile_still_over
     let out = sandbox.command(&["profile", "switch", "beta"]).env("VENDO_PROFILE", "beta").output().unwrap();
     assert_eq!(
         ok_output(&out),
-        "Done: Switched to profile beta.\n  Account ID: acct-beta  Base URL: https://example.test\n  Verify with `vendo whoami`.\n"
+        "Done: Switched to profile beta.\n  Account ID: acct-beta  Base URL: https://example.test\n  Verify with `vendo workspace`.\n"
     );
 }
 
@@ -3443,8 +3467,8 @@ async fn a_login_under_vendo_profile_to_the_saved_active_profile_does_not_say_it
 }
 
 #[tokio::test]
-async fn doctors_fixes_for_a_rejected_key_under_vendo_profile_say_it_overrides_the_active_profile() {
-    // Following "run `vendo login`, then retry `vendo whoami`" under VENDO_PROFILE checks the old key again:
+async fn workspace_fixes_for_a_rejected_key_under_vendo_profile_say_it_overrides_the_active_profile() {
+    // Following "run `vendo login`, then retry `vendo workspace`" under VENDO_PROFILE checks the old key again:
     // login saves the new one in a profile it does not make active (Yalcin, 2026-10-06).
     let server = MockServer::start().await;
     serve(&server, "GET", "/api/v1/me", 401, json!({ "error": { "message": "Invalid API key" } })).await;
@@ -3453,17 +3477,21 @@ async fn doctors_fixes_for_a_rejected_key_under_vendo_profile_say_it_overrides_t
         let out: Value = serde_json::from_str(&text(&cmd.output().unwrap().stdout)).unwrap();
         out["checks"].as_array().unwrap().iter().find(|c| c["name"] == "API auth").unwrap()["remediation"].clone()
     };
-    let fix = "Run `vendo login` to refresh credentials, then retry `vendo --profile <profile> whoami` with the profile it saved (VENDO_PROFILE=beta overrides the active profile in this shell).";
-    assert_eq!(auth_fix(sandbox.command(&["doctor", "--json"]).env("VENDO_PROFILE", "beta")), json!(fix));
-    let out = sandbox.command(&["doctor"]).env("VENDO_PROFILE", "beta").output().unwrap();
+    let fix = "Run `vendo login` to refresh credentials, then retry `vendo --profile <profile> workspace` with the profile it saved (VENDO_PROFILE=beta overrides the active profile in this shell).";
+    assert_eq!(auth_fix(sandbox.command(&["workspace", "--json"]).env("VENDO_PROFILE", "beta")), json!(fix));
+    let out = sandbox.command(&["workspace"]).env("VENDO_PROFILE", "beta").output().unwrap();
     let printed = text(&out.stdout);
-    assert!(printed.contains(&format!("\n       Fix: {fix}\n")), "{printed}");
-    assert!(printed.contains(&format!("\n  - {fix}\n")), "{printed}");
+    // Once, under its check: the screen has no list of next steps that repeats the fixes.
+    assert_eq!(printed.matches(fix).count(), 1, "{printed}");
+    assert!(
+        printed.contains(&format!("\n  [fail] API auth: HTTP 401: Unauthorized\n         Fix: {fix}\n")),
+        "{printed}"
+    );
     // Without VENDO_PROFILE, or with --profile over it, as before.
-    let plain = json!("Run `vendo login` to refresh credentials, then retry `vendo whoami`.");
-    assert_eq!(auth_fix(&mut sandbox.command(&["doctor", "--json"])), plain);
+    let plain = json!("Run `vendo login` to refresh credentials, then retry `vendo workspace`.");
+    assert_eq!(auth_fix(&mut sandbox.command(&["workspace", "--json"])), plain);
     assert_eq!(
-        auth_fix(sandbox.command(&["--profile", "beta", "doctor", "--json"]).env("VENDO_PROFILE", "alpha")),
+        auth_fix(sandbox.command(&["--profile", "beta", "workspace", "--json"]).env("VENDO_PROFILE", "alpha")),
         plain
     );
 }
@@ -3471,7 +3499,7 @@ async fn doctors_fixes_for_a_rejected_key_under_vendo_profile_say_it_overrides_t
 #[tokio::test]
 async fn a_login_whose_new_key_cannot_be_checked_under_vendo_profile_says_how_to_check_it() {
     // The new key is checked with `/me`; when that fails, the error says how to check that profile again,
-    // which `vendo whoami` alone would not while VENDO_PROFILE names another.
+    // which `vendo workspace` alone would not while VENDO_PROFILE names another.
     let server = MockServer::start().await;
     serve(&server, "GET", "/api/v1/me", 503, json!({ "error": { "message": "Down for the test" } })).await;
     mount_sign_in_page(&server).await;
@@ -3482,7 +3510,7 @@ async fn a_login_whose_new_key_cannot_be_checked_under_vendo_profile_says_how_to
     let (code, _, stderr) = login_at_browser(login).await;
     assert_eq!(code, Some(1));
     assert!(
-        stderr.ends_with(". The new key is saved in profile demo-account: run `vendo --profile demo-account whoami` to check it again (VENDO_PROFILE=beta overrides the active profile in this shell).\n"),
+        stderr.ends_with(". The new key is saved in profile demo-account: run `vendo --profile demo-account workspace` to check it again (VENDO_PROFILE=beta overrides the active profile in this shell).\n"),
         "{stderr}"
     );
     assert_eq!(sandbox.config()["activeProfile"], "alpha");
@@ -7597,4 +7625,309 @@ async fn sign_in_at_the_shown_url(mut terminal: OnTerminal, shown: &str, stub: &
     }
     assert_eq!(shown, browser_sign_in("No API key found. Starting browser login...", stub), "{case}");
     assert!(plain(&rest).ends_with(&signed_in("demo-account", stub, "acct-alpha")), "{case} {rest:?}");
+}
+
+// ── VE-3891: `vendo workspace` combines whoami and doctor ────────────────────
+
+/// `vendo workspace <args>` on a test's machine: PATH and SHELL pinned, as its checks read both. The
+/// test binary is neither where the installer puts it nor on PATH, and zsh has no completions.
+fn workspace(sandbox: &Sandbox, words: &[&str]) -> Command {
+    let mut cmd = sandbox.command(words);
+    cmd.env("PATH", "/usr/bin:/bin").env("SHELL", "/bin/zsh");
+    cmd
+}
+
+/// The checks a test's machine fails (see [`workspace`]): the binary and PATH on one line with
+/// both fixes, and zsh's completions. Each ends with its line end.
+fn machine_checks() -> (String, String) {
+    let bin = std::fs::canonicalize(env!("CARGO_BIN_EXE_vendo")).unwrap();
+    let version = env!("CARGO_PKG_VERSION");
+    let cli = format!(
+        "  [fail] CLI {version} at {} (standard install path is ~/.local/bin/vendo), not on PATH\n         Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.\n         Fix: Add `export PATH=\"$HOME/.local/bin:$PATH\"` to `~/.zshrc`, then restart your shell.\n",
+        bin.display()
+    );
+    let zsh = "  [warn] Zsh completions are not installed yet\n         Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` to set them up, or run `vendo completions` for the manual steps.\n";
+    (cli, zsh.to_string())
+}
+
+/// `base_url` as the profile list shows it: without its scheme.
+fn host(base_url: &str) -> &str {
+    base_url.split_once("://").map_or(base_url, |(_, rest)| rest)
+}
+
+/// A sandbox where the CLI is installed as install.sh installs it, so every check passes: the binary
+/// at `~/.local/bin/vendo` (a hard link to the test binary, a copy where that fails), that folder on
+/// PATH, and zsh completions set up. HOME is the canonical path, as the running binary's path is
+/// (macOS keeps temporary folders behind a symlink).
+#[cfg(unix)]
+struct Installed {
+    sandbox: Sandbox,
+    home: std::path::PathBuf,
+}
+
+#[cfg(unix)]
+impl Installed {
+    fn new(config: Value) -> Self {
+        let sandbox = Sandbox::new(CLOSED);
+        let home = std::fs::canonicalize(sandbox.home.path()).unwrap();
+        std::fs::write(home.join(".config/vendo/config.json"), config.to_string()).unwrap();
+        std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+        let binary = home.join(".local/bin/vendo");
+        if std::fs::hard_link(env!("CARGO_BIN_EXE_vendo"), &binary).is_err() {
+            std::fs::copy(env!("CARGO_BIN_EXE_vendo"), &binary).unwrap();
+        }
+        std::fs::create_dir_all(home.join(".local/share/vendo/completions")).unwrap();
+        std::fs::write(home.join(".local/share/vendo/completions/vendo.zsh"), "# the script\n").unwrap();
+        std::fs::write(home.join(".zshrc"), "# >>> vendo completions >>>\n").unwrap();
+        Installed { sandbox, home }
+    }
+
+    fn command(&self, words: &[&str]) -> Command {
+        let mut cmd = self.sandbox.command_of(self.home.join(".local/bin/vendo"), words);
+        let path = format!("{}:/usr/bin:/bin", self.home.join(".local/bin").display());
+        cmd.env("HOME", &self.home).env("PATH", path).env("SHELL", "/bin/zsh");
+        cmd
+    }
+}
+
+const T101: &str = "73743172-2a4c-4f0e-9a8b-3f1d2c4b5a69";
+const T101_KEY_ID: &str = "2d485183-6b7c-4d8e-9f01-23456789abcd";
+
+#[cfg(unix)]
+#[tokio::test]
+async fn workspace_shows_the_account_the_profiles_and_the_checks_on_one_screen() {
+    // The screen Yalcin agreed (VE-3891, 2026-10-07), on a machine where every check passes: the
+    // account once (name and slug as the title), the key masked with its key ID and scopes, the
+    // profiles with the active one marked, then the checks doctor ran in a few words each. The
+    // profile, key, base URL and account checks pass, and the lines above show them.
+    let server = MockServer::start().await;
+    let me = json!({
+        "accountId": T101, "accountName": "T101", "accountSlug": "t101", "pictureUrl": null,
+        "apiKeyId": T101_KEY_ID, "scopes": ["*"],
+    });
+    serve(&server, "GET", "/api/v1/me", 200, json!({ "data": me })).await;
+    let stub = server.uri();
+    let installed = Installed::new(json!({
+        "profiles": {
+            "provin": {
+                "apiKey": "vendo_sk_fake_provin_0000", "accountId": "28bb9a3b-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+                "baseUrl": "https://stg.vendodata.com",
+            },
+            "t101": { "apiKey": "vendo_sk_fake_t101_eKuE", "accountId": T101, "baseUrl": stub },
+            "vendo-cli-test": {
+                "apiKey": "vendo_sk_fake_cli_test_0000", "accountId": "d3b82ae5-7f6e-4d5c-9b4a-3f2e1d0c9b8a",
+                "baseUrl": "https://stg.vendodata.com",
+            },
+        },
+        "activeProfile": "t101",
+    }));
+    let out = installed.command(&["workspace"]).output().unwrap();
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), String::new()));
+    let version = env!("CARGO_PKG_VERSION");
+    assert_eq!(
+        text(&out.stdout),
+        format!(
+            "T101 · t101
+  Account ID:  {T101}
+  Profile:     t101
+  Base URL:    {stub}
+  API key:     vend...eKuE  (key ID {T101_KEY_ID}, scopes *)
+
+Profiles
+    provin          28bb9a3b…  stg.vendodata.com
+  * t101            73743172…  {}
+    vendo-cli-test  d3b82ae5…  stg.vendodata.com
+
+Checks
+  [ok] CLI {version} at ~/.local/bin/vendo, on PATH
+  [ok] Config ~/.config/vendo/config.json
+  [ok] Zsh completions installed
+  [ok] Signed in as T101
+",
+            host(&stub)
+        )
+    );
+}
+
+#[tokio::test]
+async fn signed_out_workspace_shows_what_it_can_and_each_check_with_its_fix() {
+    // No config file and no key: nothing is asked of the API, and the screen says what the CLI
+    // knows (the base URL it would use) and each check with its fix, exit 1 by doctor's rule.
+    let sandbox = Sandbox::new(CLOSED);
+    std::fs::remove_file(sandbox.home.path().join(".config/vendo/config.json")).unwrap();
+    let out = workspace(&sandbox, &["workspace"]).output().unwrap();
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
+    let (cli, zsh) = machine_checks();
+    assert_eq!(
+        text(&out.stdout),
+        format!(
+            "  Base URL:    https://app2.vendodata.com
+
+Checks
+{cli}  [warn] Config ~/.config/vendo/config.json (not found yet)
+         Fix: Run `vendo login` to create and populate CLI config.
+  [warn] Selected profile: No active profile selected
+         Fix: Run `vendo login` or `vendo profile switch <profile>`.
+  [fail] API key: Missing
+         Fix: Run `vendo login` or `vendo profile set --api-key <key>`.
+  [fail] Account ID: Missing
+         Fix: Run `vendo profile set --account <account-id>` or set `VENDO_ACCOUNT_ID`.
+{zsh}  [warn] API auth: Skipped because API key or account ID is missing
+"
+        )
+    );
+}
+
+#[tokio::test]
+async fn workspace_without_a_key_unreachable_or_refused_shows_the_profile_and_the_failing_check() {
+    let (cli, zsh) = machine_checks();
+    let profiles =
+        |base_url: &str| format!("Profiles\n  * alpha  acct-alp…  {0}\n    beta   acct-bet…  {0}\n", host(base_url));
+
+    // Profiles without keys: no request, the API key's check fails with its fix.
+    let keyless = Sandbox::without_api_keys(CLOSED);
+    let out = workspace(&keyless, &["workspace"]).output().unwrap();
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
+    assert_eq!(
+        text(&out.stdout),
+        format!(
+            "  Account ID:  acct-alpha\n  Profile:     alpha\n  Base URL:    {CLOSED}\n\n{}\nChecks\n{cli}  [ok] Config ~/.config/vendo/config.json\n  [fail] API key: Missing\n         Fix: Run `vendo login` or `vendo profile set --api-key <key>`.\n{zsh}  [warn] API auth: Skipped because API key or account ID is missing\n",
+            profiles(CLOSED)
+        )
+    );
+
+    // Offline: the key from the profile, masked, and the API check fails with doctor's fix.
+    let offline = Sandbox::new(CLOSED);
+    let out = workspace(&offline, &["workspace"]).output().unwrap();
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
+    assert_eq!(
+        text(&out.stdout),
+        format!(
+            "  Account ID:  acct-alpha\n  Profile:     alpha\n  Base URL:    {CLOSED}\n  API key:     vend...0000\n\n{}\nChecks\n{cli}  [ok] Config ~/.config/vendo/config.json\n{zsh}  [fail] API auth: fetch failed\n         Fix: Check network access and run `vendo workspace --debug` to inspect the failing request.\n",
+            profiles(CLOSED)
+        )
+    );
+
+    // A refused key (401): its fix says to sign in again and check with `vendo workspace`.
+    let server = MockServer::start().await;
+    serve(&server, "GET", "/api/v1/me", 401, json!({ "error": { "message": "Invalid API key" } })).await;
+    let refused = Sandbox::new(&server.uri());
+    let out = workspace(&refused, &["workspace"]).output().unwrap();
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
+    assert_eq!(
+        text(&out.stdout),
+        format!(
+            "  Account ID:  acct-alpha\n  Profile:     alpha\n  Base URL:    {0}\n  API key:     vend...0000\n\n{1}\nChecks\n{cli}  [ok] Config ~/.config/vendo/config.json\n{zsh}  [fail] API auth: HTTP 401: Unauthorized\n         Fix: Run `vendo login` to refresh credentials, then retry `vendo workspace`.\n",
+            server.uri(),
+            profiles(&server.uri())
+        )
+    );
+}
+
+#[tokio::test]
+async fn workspace_json_keeps_every_key_whoami_and_doctor_printed() {
+    // Scripts read `vendo whoami --json` and `vendo doctor --json`; `vendo workspace --json` has every
+    // key either had: whoami's (/me's response as sent, then `config`), then doctor's (`summary`,
+    // `checks`, `suggestions`, `identity`, `shell`).
+    let server = MockServer::start().await;
+    let me = json!({
+        "accountId": "acct-alpha", "accountName": "Demo Account (synthetic)", "accountSlug": "demo-account",
+        "pictureUrl": null, "apiKeyId": "key_fake_0001", "scopes": [],
+        "bigquery": { "projectId": "demo-project", "prodDatasetId": "demo_prod", "sourceDatasetId": "demo_source" },
+    });
+    serve(&server, "GET", "/api/v1/me", 200, json!({ "data": me })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let keys = |value: &Value| value.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+    let out = workspace(&sandbox, &["workspace", "--json"]).output().unwrap();
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
+    let printed: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(keys(&printed), ["data", "config", "summary", "checks", "suggestions", "identity", "shell"]);
+    // whoami's
+    assert_eq!(printed["data"], me);
+    assert_eq!(
+        printed["config"],
+        json!({
+            "selectedProfile": "alpha", "apiKeySource": "profile", "baseUrl": server.uri(),
+            "baseUrlSource": "profile", "accountId": "acct-alpha", "accountIdSource": "profile",
+        })
+    );
+    assert_eq!(
+        keys(&printed["config"]),
+        ["selectedProfile", "apiKeySource", "baseUrl", "baseUrlSource", "accountId", "accountIdSource"]
+    );
+    // doctor's
+    assert_eq!(printed["summary"], json!({ "ok": 6, "warn": 2, "fail": 1 }));
+    let checks = printed["checks"].as_array().unwrap();
+    let names: Vec<&str> = checks.iter().map(|check| check["name"].as_str().unwrap()).collect();
+    assert_eq!(
+        names,
+        [
+            "CLI binary",
+            "PATH",
+            "Config file",
+            "Selected profile",
+            "API key",
+            "Base URL",
+            "Account ID",
+            "Shell completions",
+            "API auth"
+        ]
+    );
+    for check in checks {
+        let fields = keys(check);
+        let expected: &[&str] = if check["status"] == "ok" {
+            &["name", "status", "detail"]
+        } else {
+            &["name", "status", "detail", "remediation"]
+        };
+        assert_eq!(fields, expected, "{check}");
+    }
+    assert_eq!(
+        checks[8],
+        json!({ "name": "API auth", "status": "ok", "detail": "Authenticated as Demo Account (synthetic)" })
+    );
+    assert_eq!(printed["suggestions"].as_array().unwrap().len(), 3);
+    assert_eq!(printed["identity"], me);
+    assert_eq!(printed["shell"], "zsh");
+
+    // Without an answer from /me, what whoami printed of it and doctor's identity are left out.
+    let keyless = Sandbox::without_api_keys(&server.uri());
+    let out = workspace(&keyless, &["workspace", "--json"]).output().unwrap();
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
+    let printed: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(keys(&printed), ["config", "summary", "checks", "suggestions", "shell"]);
+    assert_eq!(printed["config"]["apiKeySource"], "missing");
+}
+
+#[tokio::test]
+async fn whoami_doctor_and_their_old_paths_print_exactly_what_workspace_prints() {
+    // Hidden aliases (VE-3891): clap's for `whoami` and `doctor`, MOVED for `profile current` and
+    // `config show`. Byte for byte, exit code and stderr too, signed in or not, text and --json.
+    let server = MockServer::start().await;
+    serve(&server, "GET", "/api/v1/me", 200, json!({ "data": { "accountId": "acct-alpha", "accountName": "Acme" } }))
+        .await;
+    let refusing = MockServer::start().await;
+    serve(&refusing, "GET", "/api/v1/me", 401, json!({ "error": { "message": "Invalid API key" } })).await;
+    let sandboxes =
+        [Sandbox::new(&server.uri()), Sandbox::without_api_keys(&server.uri()), Sandbox::new(&refusing.uri())];
+    let run = |sandbox: &Sandbox, words: &[&str]| {
+        let out = workspace(sandbox, words).output().unwrap();
+        (out.status.code(), out.stdout, out.stderr)
+    };
+    for sandbox in &sandboxes {
+        for json in [&[][..], &["--json"]] {
+            let expected = run(sandbox, &[&["workspace"][..], json].concat());
+            for old in [&["whoami"][..], &["doctor"], &["profile", "current"], &["config", "show"]] {
+                let old = [old, json].concat();
+                assert!(run(sandbox, &old) == expected, "vendo {} differs from vendo workspace", old.join(" "));
+            }
+        }
+    }
+    // Hidden: the main help and `vendo commands` name workspace only.
+    let sandbox = &sandboxes[0];
+    for words in [&["--help"][..], &["commands"]] {
+        let shown = ok_output(&sandbox.run(words));
+        assert!(shown.contains("\n  workspace ") || shown.contains("\nworkspace "), "{shown}");
+        assert!(!shown.contains("whoami") && !shown.contains("doctor"), "{shown}");
+    }
 }

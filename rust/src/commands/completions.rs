@@ -1,7 +1,7 @@
 //! `vendo completions` (VE-3830). With a shell it prints the TAB-completion script that the
 //! installer (`install.sh`, `install_completions`) saves and loads. With none it says what the
 //! command does, whether completions are set up for the shell `$SHELL` names, and how to set them
-//! up. Doctor's "Shell completions" check reads the same [`setup`].
+//! up. The "Shell completions" check of `vendo workspace` (doctor's, VE-3891) reads the same [`setup`].
 //!
 //! With `--json` (VE-3831) it prints `{ "shell", "script" }`, or bare, on stdout, what the
 //! explanation says of the set-up: `{ "shell", "installed" }`.
@@ -104,7 +104,7 @@ pub enum Setup {
 }
 
 impl Setup {
-    /// One line on the state, as doctor's check prints it.
+    /// One line on the state: the check's `detail` in `vendo workspace --json`, as doctor printed it.
     pub fn detail(&self) -> String {
         match self {
             Setup::Installed(Shell::Fish, _) => "Fish completions are installed".into(),
@@ -119,6 +119,15 @@ impl Setup {
             }
             Setup::Missing(shell) => format!("{} completions are not installed yet", label(*shell)),
             Setup::Unknown => "Current shell could not be detected automatically".into(),
+        }
+    }
+
+    /// The state as the `vendo workspace` screen lists it (VE-3891): `Zsh completions installed` when
+    /// set up, as on the screen Yalcin agreed, else [`Setup::detail`].
+    pub fn listed(&self) -> String {
+        match self {
+            Setup::Installed(shell, _) => format!("{} completions installed", label(*shell)),
+            Setup::Missing(_) | Setup::Unknown => self.detail(),
         }
     }
 }

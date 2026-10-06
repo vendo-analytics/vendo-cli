@@ -17,4 +17,4 @@ Recent Failures
 Next steps
   vendo jobs get b0000004-0000-4000-8000-000000000004
   vendo jobs list --status failed
-  vendo doctor
+  vendo workspace

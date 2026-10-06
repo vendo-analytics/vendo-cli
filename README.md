@@ -29,7 +29,7 @@ curl -fsSL https://app2.vendodata.com/install.sh | VENDO_VERSION=1.1.0 bash
 ```
 
 To update later, run `vendo self-update` (`--version <version>` installs a specific release). `vendo status`,
-`vendo whoami` and the browser sign-in of `vendo login` check for a newer release once a day and print a notice
+`vendo workspace` and the browser sign-in of `vendo login` check for a newer release once a day and print a notice
 when there is one.
 
 ## Sign in
@@ -46,10 +46,12 @@ no flags.
 Run `vendo login` again and it checks the key you already have and keeps it; `vendo login --force` signs in again.
 
 ```bash
-vendo whoami    # the account and profile you are using
-vendo doctor    # check the install, the settings and the API key
-vendo status    # account health: apps, sources, destinations and recent failures
+vendo workspace    # the account and profile you are using, your profiles, and checks of the install and the key
+vendo status       # account health: apps, sources, destinations and recent failures
 ```
+
+`vendo workspace` works signed out and offline too: it shows what it can and each check with its fix, and exits 1
+when a check fails. With `--json` it prints every key `vendo whoami --json` and `vendo doctor --json` did.
 
 **Without a browser** (servers, CI), create an API key in the Vendo web app under Settings → API keys and pass it
 with the account ID:
@@ -80,7 +82,7 @@ first; pass `--yes` in scripts).
 
 | Section | Commands |
 | --- | --- |
-| Getting started | `login`, `logout`, `whoami`, `status`, `doctor`, `commands`, `help`, `version` |
+| Getting started | `login`, `logout`, `workspace`, `status`, `commands`, `help`, `version` |
 | Data pipeline | `apps`, `sources`, `destinations`, `jobs` |
 | Data catalog | `catalog`, `dictionary`, `metrics`, `models`, `measurement` |
 | Account | `profile`, `mcp`, `completions`, `self-update` |
@@ -373,7 +375,7 @@ vendo apps pause 1a2b3c4d...
 over `VENDO_PROFILE`, which wins over the active profile. `VENDO_PROFILE` never changes which profile is saved as
 active; `vendo profile switch` does. With a name no profile has, the commands that need an API key, and
 `vendo logout`, stop with exit 1 and an error that names it, unless `VENDO_API_KEY` is set. Other commands carry
-on, and `vendo doctor` shows it as a warning.
+on, and `vendo workspace` shows it as a warning.
 
 ### Non-interactive runs: `CI` and `VENDO_NO_INPUT`
 
@@ -410,7 +412,8 @@ Old command names keep working but are no longer in the help:
 | `vendo init` | `vendo login` |
 | `vendo integrations`, `vendo int` | `vendo destinations` |
 | `vendo config ...` | `vendo profile ...` |
-| `vendo profile current`, `vendo config show` | `vendo whoami` |
+| `vendo whoami`, `vendo doctor` | `vendo workspace` |
+| `vendo profile current`, `vendo config show` | `vendo workspace` |
 | `vendo config reset` | `vendo logout --all` |
 | `vendo config use` | `vendo profile switch` |
 

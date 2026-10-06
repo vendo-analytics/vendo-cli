@@ -8,9 +8,8 @@ Usage: vendo [OPTIONS] <COMMAND>
 Getting started:
   login         Authenticate with your Vendo account
   logout        Remove stored credentials
-  whoami        Show the current authenticated account
+  workspace     Show the current account, your profiles and setup checks
   status        Account health overview
-  doctor        Run local configuration and connectivity checks
   commands      List every command, or with --json the command tree with arguments and flags
   help          Print this message or the help of the given subcommand(s)
   version       Print version

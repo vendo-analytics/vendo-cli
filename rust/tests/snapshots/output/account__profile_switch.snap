@@ -6,4 +6,4 @@ exit: 0
 --- stdout ---
 Done: Switched to profile alpha.
   Account ID: acct-alpha  Base URL: [stub]
-  Verify with `vendo whoami`.
+  Verify with `vendo workspace`.

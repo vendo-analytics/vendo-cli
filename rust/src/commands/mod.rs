@@ -16,3 +16,4 @@ pub mod pipeline_resource;
 pub mod sources;
 pub mod tree;
 pub mod version;
+pub mod workspace;

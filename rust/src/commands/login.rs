@@ -120,13 +120,15 @@ pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
     let account_id = signed_in.account_id.filter(|id| !id.is_empty());
     let check = check_key(ctx, &signed_in.key, account_id.as_deref(), &base_url).await;
     let saved = match ctx.store.vendo_profile().filter(|name| *name != signed_in.account) {
-        // `vendo whoami` would check the profile VENDO_PROFILE names.
+        // `vendo workspace` would check the profile VENDO_PROFILE names.
         Some(name) => format!(
-            "The new key is saved in profile {0}: run `vendo --profile {0} whoami` to check it again ({1}).",
+            "The new key is saved in profile {0}: run `vendo --profile {0} workspace` to check it again ({1}).",
             signed_in.account,
             vendo_profile_overrides(name)
         ),
-        None => format!("The new key is saved in profile {}: run `vendo whoami` to check it again.", signed_in.account),
+        None => {
+            format!("The new key is saved in profile {}: run `vendo workspace` to check it again.", signed_in.account)
+        }
     };
     let note = not_made_active(ctx, &signed_in.account);
     let summary = Summary { profile: Some(signed_in.account), base_url, account_id, note };
@@ -254,7 +256,7 @@ async fn check_key(ctx: &Ctx, api_key: &str, account_id: Option<&str>, base_url:
 }
 
 const NOTHING_CHANGED: &str =
-    "Nothing was changed: check your connection (`vendo doctor`) and run `vendo login` again.";
+    "Nothing was changed: check your connection (`vendo workspace`) and run `vendo login` again.";
 
 /// What the summary shows: the profile the key is in, its instance and account, and why that
 /// profile is not the active one when `VENDO_PROFILE` kept it so.
@@ -325,7 +327,8 @@ fn summary_lines(summary: &Summary, check: &Check) -> Vec<String> {
         return lines;
     }
     lines.extend([String::new(), bold("Next steps")]);
-    lines.extend(["  vendo doctor", "  vendo whoami", "  vendo status"].map(String::from));
+    // `vendo workspace` where whoami and doctor were (VE-3891).
+    lines.extend(["  vendo workspace", "  vendo status"].map(String::from));
     if summary.account_id.is_none() {
         lines.push(String::new());
         lines.push(dim(

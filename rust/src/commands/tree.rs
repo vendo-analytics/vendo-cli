@@ -246,8 +246,10 @@ mod tests {
             .collect();
         assert_eq!(options, [("--profile", true), ("--debug", true), ("--version", false)]);
         // Commands list their own flags only.
-        let whoami = find(&tree, "whoami");
-        assert_eq!(whoami["options"].as_array().unwrap().len(), 1, "{whoami}");
+        let workspace = find(&tree, "workspace");
+        assert_eq!(workspace["options"].as_array().unwrap().len(), 1, "{workspace}");
+        // Its old names are hidden aliases: not in the tree (VE-3891).
+        assert_eq!(workspace["aliases"], json!([]));
     }
 
     #[test]

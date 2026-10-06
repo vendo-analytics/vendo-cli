@@ -169,9 +169,9 @@ exit: 0
       "commands": []
     },
     {
-      "name": "whoami",
-      "path": "whoami",
-      "description": "Show the current authenticated account",
+      "name": "workspace",
+      "path": "workspace",
+      "description": "Show the current account, your profiles and setup checks",
       "aliases": [],
       "arguments": [],
       "options": [
@@ -193,27 +193,6 @@ exit: 0
       "name": "status",
       "path": "status",
       "description": "Account health overview",
-      "aliases": [],
-      "arguments": [],
-      "options": [
-        {
-          "name": "--json",
-          "short": null,
-          "valueName": null,
-          "description": "Output raw JSON",
-          "required": false,
-          "default": null,
-          "possibleValues": [],
-          "suggestedValues": [],
-          "global": false
-        }
-      ],
-      "commands": []
-    },
-    {
-      "name": "doctor",
-      "path": "doctor",
-      "description": "Run local configuration and connectivity checks",
       "aliases": [],
       "arguments": [],
       "options": [

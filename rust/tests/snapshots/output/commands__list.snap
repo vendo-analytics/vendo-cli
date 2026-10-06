@@ -6,9 +6,8 @@ exit: 0
 --- stdout ---
 login                           Authenticate with your Vendo account
 logout                          Remove stored credentials
-whoami                          Show the current authenticated account
+workspace                       Show the current account, your profiles and setup checks
 status                          Account health overview
-doctor                          Run local configuration and connectivity checks
 commands                        List every command, or with --json the command tree with arguments and flags
 version                         Print version
 apps list                       List all apps
