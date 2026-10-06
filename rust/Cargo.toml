@@ -3,7 +3,7 @@ name = "vendo"
 # The Rust CLI's release version. A release-candidate tag cli-vX.Y.Z-rc.N must
 # match it (release-rc.yml checks); ../package.json keeps the TypeScript CLI's
 # version until the switch-over (VE-3669).
-version = "1.1.0-rc.1"
+version = "1.1.0-rc.2"
 edition = "2024"
 description = "Vendo CLI — manage your data pipeline from the terminal"
 license = "MIT"
