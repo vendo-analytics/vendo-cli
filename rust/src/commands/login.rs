@@ -34,7 +34,7 @@ use crate::{
     config::{DEFAULT_BASE_URL, EffectiveConfig, Source},
     context::Ctx,
     identity::{IdentityError, fetch_identity},
-    output::{bold, dim, green, print_json, print_success, run_action, yellow},
+    output::{bold, dim, green, print_json, print_success, prompts_off, run_action, yellow},
     update_check,
 };
 
@@ -347,13 +347,19 @@ async fn browser_flow(base_url: &str, json: bool) -> Result<Callback> {
         print!("Press ENTER to open in the browser...");
         let _ = std::io::stdout().flush();
     }
-    let url = auth_url.clone();
-    std::thread::spawn(move || {
-        let mut line = String::new();
-        if matches!(std::io::stdin().read_line(&mut line), Ok(n) if n > 0) && open::that(&url).is_err() {
-            say(json, &dim("Could not open browser automatically. Please visit the URL above."));
-        }
-    });
+    // Any stdin answers, a terminal or not, as in the TS CLI. With prompts off (`CI`,
+    // `VENDO_NO_INPUT`; VE-3826) nothing reads it: login then does what it does where stdin is
+    // closed, as on a CI runner without a terminal. The line above still shows, and no browser
+    // opens.
+    if !prompts_off() {
+        let url = auth_url.clone();
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            if matches!(std::io::stdin().read_line(&mut line), Ok(n) if n > 0) && open::that(&url).is_err() {
+                say(json, &dim("Could not open browser automatically. Please visit the URL above."));
+            }
+        });
+    }
     say(json, "");
     say(json, &dim("Waiting for authorization..."));
 

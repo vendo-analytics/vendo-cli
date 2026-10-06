@@ -71,6 +71,11 @@ impl Sandbox {
         for var in ["FORCE_COLOR", "CLICOLOR_FORCE", "CLICOLOR", "IGNORE_IS_TERMINAL", "COLUMNS", "LINES"] {
             cmd.env_remove(var);
         }
+        // Prompts as on a person's terminal, whatever turns them off where the tests run: `CI` is set
+        // on CI runners (VE-3826), and `TERM=dumb` in some editors' shells.
+        for var in ["CI", "VENDO_NO_INPUT", "TERM"] {
+            cmd.env_remove(var);
+        }
         cmd
     }
 
@@ -1594,6 +1599,12 @@ fn pseudo_terminal_sized(lines: u16, columns: u16) -> (std::fs::File, std::os::f
 #[cfg(unix)]
 struct OnTerminal {
     controller: std::fs::File,
+    /// The terminal end's name (`/dev/ttys004`), for [`OnTerminal::takes_typed_end_of_input`].
+    name: std::ffi::CString,
+    /// The test's copy of the terminal end, kept until `vendo` exits ([`OnTerminal::finish`]): macOS
+    /// drops what the terminal still holds for the reader when the last copy closes, so the output of
+    /// a `vendo` that wrote and exited before the reader ran went missing.
+    terminal: Option<std::os::fd::OwnedFd>,
     child: std::process::Child,
     output: std::sync::mpsc::Receiver<Vec<u8>>,
     /// Everything the terminal showed so far, as `vendo` wrote it.
@@ -1610,22 +1621,40 @@ impl OnTerminal {
 
     /// [`OnTerminal::start`] on a terminal of `lines` × `columns` that already shows `before`, as
     /// a shell's earlier output; `stderr` elsewhere than the terminal when given.
-    fn start_with(
-        sandbox: &Sandbox,
-        args: &[&str],
+    fn start_with(sandbox: &Sandbox, args: &[&str], size: (u16, u16), before: &str, stderr: Option<Stdio>) -> Self {
+        Self::spawn(sandbox.command(args), size, before, None, stderr)
+    }
+
+    /// [`OnTerminal::start`] with the environment variables `env` set, as `CI=true vendo …` runs.
+    fn start_env(sandbox: &Sandbox, args: &[&str], env: &[(&str, &str)]) -> Self {
+        let mut cmd = sandbox.command(args);
+        cmd.envs(env.iter().copied());
+        Self::spawn(cmd, (40, 120), "", None, None)
+    }
+
+    /// `cmd` on a terminal of `lines` × `columns` that already shows `before`; stdin and stderr
+    /// elsewhere than the terminal when given.
+    fn spawn(
+        mut cmd: Command,
         (lines, columns): (u16, u16),
         before: &str,
+        stdin: Option<Stdio>,
         stderr: Option<Stdio>,
     ) -> Self {
         use std::{
             io::{Read, Write},
-            os::unix::process::CommandExt,
+            os::{fd::AsRawFd, unix::process::CommandExt},
         };
         let (controller, terminal) = pseudo_terminal_sized(lines, columns);
+        let mut name = [0 as libc::c_char; 128];
+        // SAFETY: ttyname_r writes at most `name.len()` bytes, NUL included, into `name`.
+        assert_eq!(unsafe { libc::ttyname_r(terminal.as_raw_fd(), name.as_mut_ptr(), name.len()) }, 0);
+        // SAFETY: ttyname_r succeeded, so `name` holds a NUL-terminated string.
+        let name = unsafe { std::ffi::CStr::from_ptr(name.as_ptr()) }.to_owned();
         std::fs::File::from(terminal.try_clone().unwrap()).write_all(before.as_bytes()).unwrap();
-        let mut cmd = sandbox.command(args);
+        let kept = terminal.try_clone().unwrap();
         cmd.env("NO_COLOR", "1")
-            .stdin(terminal.try_clone().unwrap())
+            .stdin(stdin.unwrap_or_else(|| terminal.try_clone().unwrap().into()))
             .stdout(terminal.try_clone().unwrap())
             .stderr(stderr.unwrap_or_else(|| terminal.into()));
         // The terminal is `vendo`'s own, as in a terminal window: its session's controlling
@@ -1633,14 +1662,15 @@ impl OnTerminal {
         // SAFETY: setsid and ioctl only, between fork and exec.
         unsafe {
             cmd.pre_exec(|| {
-                if libc::setsid() < 0 || libc::ioctl(libc::STDIN_FILENO, libc::TIOCSCTTY as _, 0) < 0 {
+                if libc::setsid() < 0 || libc::ioctl(libc::STDOUT_FILENO, libc::TIOCSCTTY as _, 0) < 0 {
                     return Err(std::io::Error::last_os_error());
                 }
                 Ok(())
             });
         }
         let child = cmd.spawn().unwrap();
-        // Close the test's copies of the terminal end, so reading ends when `vendo` exits.
+        // Close the test's other copies of the terminal end: once `vendo` has exited,
+        // [`OnTerminal::finish`] closes the last one, and reading ends.
         drop(cmd);
         let (tx, output) = std::sync::mpsc::channel();
         let mut reader = controller.try_clone().unwrap();
@@ -1658,7 +1688,7 @@ impl OnTerminal {
                 }
             }
         });
-        OnTerminal { controller, child, output, screen: String::new(), seen: 0 }
+        OnTerminal { controller, name, terminal: Some(kept), child, output, screen: String::new(), seen: 0 }
     }
 
     /// Waits until the screen shows `expected` after what the last wait found, and returns what
@@ -1686,13 +1716,55 @@ impl OnTerminal {
         (&self.controller).write_all(keys.as_bytes()).unwrap();
     }
 
+    /// After Ctrl-D was pressed at the start of a line: whether that end of input is still waiting
+    /// at the terminal, which it is when nothing read the terminal since. Reads it, from a
+    /// descriptor of its own that does not wait, so `vendo`'s stays as it was.
+    fn takes_typed_end_of_input(&mut self) -> bool {
+        // SAFETY: open, read and close on a descriptor this function owns; `byte` outlives the read.
+        let (read, err) = unsafe {
+            let fd = libc::open(self.name.as_ptr(), libc::O_RDWR | libc::O_NOCTTY | libc::O_NONBLOCK | libc::O_CLOEXEC);
+            assert!(fd >= 0, "open {:?}: {}", self.name, std::io::Error::last_os_error());
+            let mut byte = 0u8;
+            let read = libc::read(fd, (&raw mut byte).cast(), 1);
+            let err = std::io::Error::last_os_error();
+            libc::close(fd);
+            (read, err)
+        };
+        match read {
+            // A typed end of input reads as nothing, once.
+            0 => true,
+            -1 if err.kind() == std::io::ErrorKind::WouldBlock => false,
+            _ => panic!("the terminal had more than an end of input waiting: {read} {err}"),
+        }
+    }
+
     /// Reads until `vendo` exits: everything the terminal showed after the last wait, and the exit code.
+    /// A `vendo` that shows nothing for 20 seconds before it exits is stopped.
     fn finish(&mut self) -> (String, Option<i32>) {
-        while let Ok(chunk) = self.output.recv_timeout(std::time::Duration::from_secs(20)) {
-            self.screen.push_str(&text(&chunk));
+        use std::{
+            sync::mpsc::RecvTimeoutError,
+            time::{Duration, Instant},
+        };
+        let mut shown = Instant::now();
+        // Reading can end first: on macOS, when `vendo`, the terminal's session leader, exits.
+        while self.child.try_wait().unwrap().is_none() && shown.elapsed() < Duration::from_secs(20) {
+            match self.output.recv_timeout(Duration::from_millis(50)) {
+                Ok(chunk) => {
+                    self.screen.push_str(&text(&chunk));
+                    shown = Instant::now();
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
         }
         let _ = self.child.kill();
-        (self.screen[self.seen..].to_string(), self.child.wait().unwrap().code())
+        let code = self.child.wait().unwrap().code();
+        // The last copy of the terminal end: reading ends after what the terminal still holds.
+        self.terminal = None;
+        while let Ok(chunk) = self.output.recv_timeout(Duration::from_secs(20)) {
+            self.screen.push_str(&text(&chunk));
+        }
+        (self.screen[self.seen..].to_string(), code)
     }
 }
 
@@ -1700,7 +1772,12 @@ impl OnTerminal {
 /// the `(y/N)` question shows. Returns what the terminal showed and the exit code.
 #[cfg(unix)]
 fn answer_on_terminal(sandbox: &Sandbox, args: &[&str], answer: &str) -> (String, Option<i32>) {
-    let mut terminal = OnTerminal::start(sandbox, args);
+    answer_question(OnTerminal::start(sandbox, args), answer)
+}
+
+/// [`answer_on_terminal`] for a `vendo` already started on a terminal.
+#[cfg(unix)]
+fn answer_question(mut terminal: OnTerminal, answer: &str) -> (String, Option<i32>) {
     let question = terminal.wait_for("(y/N) ");
     terminal.press(answer);
     let (rest, code) = terminal.finish();
@@ -3488,5 +3565,202 @@ fn on_a_short_terminal_the_menu_scrolls_its_list() {
         let (rest, code) = terminal.finish();
         assert_eq!(code, Some(2), "{rest:?}");
         assert!(plain(&rest).contains(&format!("Usage: vendo {group} {chosen} <")), "{rest:?}");
+    }
+}
+
+// ── VE-3826: CI and VENDO_NO_INPUT turn prompts off; no menu on TERM=dumb ───
+// Decided by Yalcin, 2026-10-06, CLI 1.1. `CI` or `VENDO_NO_INPUT` set to anything but empty, `0`
+// or `false` (in any case) turns every prompt off, also at a terminal: the y/N questions, the group
+// menu and the profile picker do what they do without a terminal, and login reads no "Press ENTER".
+// There is no `--no-input` flag. On `TERM=dumb` a bare group is the usage error, as without a
+// terminal; the questions still ask there. The profile picker asks only when stdin and stdout are
+// terminals, the rule the questions ask by.
+
+/// Settings that turn prompts off.
+#[cfg(unix)]
+const PROMPTS_OFF: [(&str, &str); 6] = [
+    ("CI", "true"),
+    ("CI", "1"),
+    ("CI", "TRUE"),
+    ("CI", "woodpecker"),
+    ("VENDO_NO_INPUT", "1"),
+    ("VENDO_NO_INPUT", "true"),
+];
+
+/// Settings that leave them on.
+#[cfg(unix)]
+const PROMPTS_ON: [(&str, &str); 7] = [
+    ("CI", "false"),
+    ("CI", "0"),
+    ("CI", "False"),
+    ("CI", ""),
+    ("VENDO_NO_INPUT", "0"),
+    ("VENDO_NO_INPUT", "FALSE"),
+    ("VENDO_NO_INPUT", ""),
+];
+
+#[cfg(unix)]
+#[tokio::test]
+async fn with_prompts_off_a_question_at_a_terminal_needs_yes_as_without_one() {
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut asking: Vec<(Vec<&str>, String)> =
+        confirming_commands().into_iter().map(|(args, what, _)| (args, what)).collect();
+    let reset = "This removes every saved profile and its API key.".to_string();
+    asking.extend([(vec!["logout", "--all"], reset.clone()), (vec!["config", "reset"], reset)]);
+    for (args, what) in &asking {
+        for setting in [("CI", "true"), ("VENDO_NO_INPUT", "1")] {
+            let (screen, code) = OnTerminal::start_env(&sandbox, args, &[setting]).finish();
+            assert_eq!(
+                (code, plain(&screen)),
+                (Some(1), format!("Error: {what} Re-run with --yes to confirm.\n")),
+                "{setting:?} {args:?}"
+            );
+        }
+    }
+    let (args, what) = &asking[0];
+    for setting in PROMPTS_OFF {
+        let (screen, code) = OnTerminal::start_env(&sandbox, args, &[setting]).finish();
+        assert_eq!((code, plain(&screen)), (Some(1), format!("Error: {what} Re-run with --yes to confirm.\n")));
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+    assert!(sandbox.home.path().join(".config/vendo/config.json").exists());
+
+    // `--yes` goes ahead.
+    let (screen, code) = OnTerminal::start_env(&sandbox, &["apps", "delete", ID, "--yes"], &[("CI", "true")]).finish();
+    assert_eq!(code, Some(0), "{screen:?}");
+    assert_eq!(sent(&server).await, vec![format!("DELETE /api/v1/accounts/acct-alpha/apps/{ID}")]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn with_ci_or_vendo_no_input_empty_0_or_false_the_questions_still_ask() {
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    for setting in PROMPTS_ON {
+        let (screen, code) =
+            answer_question(OnTerminal::start_env(&sandbox, &["apps", "delete", ID], &[setting]), "n\n");
+        assert_eq!(
+            (code, screen.replace("\r\n", "\n")),
+            (Some(0), "Delete app 550e8400...? (y/N) n\n".to_string()),
+            "{setting:?}"
+        );
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+#[cfg(unix)]
+#[test]
+fn with_prompts_off_a_bare_group_at_a_terminal_is_the_usage_error() {
+    let sandbox = Sandbox::new(CLOSED);
+    let help = text(&sandbox.run(&["apps", "--help"]).stdout);
+    for setting in PROMPTS_OFF {
+        let (screen, code) = OnTerminal::start_env(&sandbox, &["apps"], &[setting]).finish();
+        assert_eq!((code, plain(&screen)), (Some(2), help.clone()), "{setting:?}");
+    }
+    for setting in PROMPTS_ON {
+        let mut terminal = OnTerminal::start_env(&sandbox, &["apps"], &[setting]);
+        terminal.wait_for("Update an app");
+        terminal.press("\u{1b}");
+        assert_eq!(terminal.finish().1, Some(0), "{setting:?}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn on_a_dumb_terminal_a_bare_group_is_the_usage_error_and_the_questions_still_ask() {
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let help = text(&sandbox.run(&["apps", "--help"]).stdout);
+    let (screen, code) = OnTerminal::start_env(&sandbox, &["apps"], &[("TERM", "dumb")]).finish();
+    assert_eq!((code, plain(&screen)), (Some(2), help));
+    // Any other terminal draws the menu.
+    let mut terminal = OnTerminal::start_env(&sandbox, &["apps"], &[("TERM", "xterm-256color")]);
+    terminal.wait_for("Update an app");
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+
+    let terminal = OnTerminal::start_env(&sandbox, &["apps", "delete", ID], &[("TERM", "dumb")]);
+    let (screen, code) = answer_question(terminal, "n\n");
+    assert_eq!((code, screen.replace("\r\n", "\n")), (Some(0), "Delete app 550e8400...? (y/N) n\n".to_string()));
+    let mut terminal = OnTerminal::start_env(&sandbox, &["profile", "switch"], &[("TERM", "dumb")]);
+    terminal.wait_for("Search (ENTER for all, q to cancel) ");
+    terminal.press("q\r");
+    assert_eq!(terminal.finish().1, Some(0));
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+#[cfg(unix)]
+#[test]
+fn the_profile_picker_asks_only_when_stdin_and_stdout_are_terminals() {
+    use std::io::Write;
+    // `echo 1 | vendo profile switch` on a terminal: what the pipe holds is no answer. As without a
+    // terminal, "Cancelled." and nothing switched. ("\n2\n" would list every profile and pick beta.)
+    for input in ["1\n", "\n2\n"] {
+        let sandbox = Sandbox::new(CLOSED);
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        writer.write_all(input.as_bytes()).unwrap();
+        drop(writer);
+        let cmd = sandbox.command(&["profile", "switch"]);
+        let (screen, code) = OnTerminal::spawn(cmd, (40, 120), "", Some(reader.into()), None).finish();
+        assert_eq!((code, plain(&screen)), (Some(0), "Cancelled.\n".to_string()), "{input:?}");
+        assert_eq!(sandbox.config()["activeProfile"], "alpha", "{input:?}");
+    }
+    // Prompts off: the same at a terminal.
+    for setting in PROMPTS_OFF {
+        let sandbox = Sandbox::new(CLOSED);
+        let (screen, code) = OnTerminal::start_env(&sandbox, &["profile", "switch"], &[setting]).finish();
+        assert_eq!((code, plain(&screen)), (Some(0), "Cancelled.\n".to_string()), "{setting:?}");
+        assert_eq!(sandbox.config()["activeProfile"], "alpha", "{setting:?}");
+    }
+    // Prompts on, at a terminal it asks: ENTER lists every profile, and 2 picks beta.
+    for setting in PROMPTS_ON {
+        let sandbox = Sandbox::new(CLOSED);
+        let mut terminal = OnTerminal::start_env(&sandbox, &["profile", "switch"], &[setting]);
+        terminal.wait_for("Search (ENTER for all, q to cancel) ");
+        terminal.press("\r");
+        terminal.wait_for("Choose an option (ENTER to search again) ");
+        terminal.press("2\r");
+        let (screen, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{setting:?} {screen:?}");
+        assert!(plain(&screen).contains("Switched to profile beta."), "{setting:?} {screen:?}");
+        assert_eq!(sandbox.config()["activeProfile"], "beta", "{setting:?}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn with_prompts_off_login_reads_no_press_enter_and_says_what_it_says_without_a_terminal() {
+    // Without a terminal (stdin closed, as on a CI runner) login prints the sign-in URL and "Press
+    // ENTER to open in the browser...", which nothing answers, and waits for the browser. With
+    // prompts off it does that at a terminal too: it never reads the terminal. Ctrl-D is the key
+    // pressed, so a login that reads it opens no browser either: it reads as no answer.
+    for (setting, reads) in [
+        (("CI", "true"), false),
+        (("VENDO_NO_INPUT", "1"), false),
+        (("CI", "0"), true),
+        (("CI", "false"), true),
+        (("VENDO_NO_INPUT", "0"), true),
+    ] {
+        let server = sign_in_stub(&[NEW_KEY], 401).await;
+        let stub = server.uri();
+        let sandbox = Sandbox::without_api_keys(&stub);
+        let mut terminal = OnTerminal::start_env(&sandbox, &["login"], &[setting]);
+        let shown = plain(&terminal.wait_for("Waiting for authorization...\r\n"));
+        terminal.press("\u{4}");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert_eq!(terminal.takes_typed_end_of_input(), !reads, "{setting:?}: login should read the terminal: {reads}");
+
+        let url = reqwest::Url::parse(shown.lines().find(|line| line.contains("/cli-auth?")).unwrap()).unwrap();
+        assert_eq!(url.host_str(), Some("127.0.0.1"), "tests sign in at their local stub only: {url}");
+        assert_eq!(reqwest::get(url.clone()).await.unwrap().status(), 200);
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{setting:?} {rest:?}");
+        let mut shown = shown;
+        for (key, value) in url.query_pairs() {
+            shown = shown.replace(&format!("{key}={value}"), &format!("{key}=[{key}]"));
+        }
+        assert_eq!(shown, browser_sign_in("No API key found. Starting browser login...", &stub), "{setting:?}");
+        assert!(plain(&rest).ends_with(&signed_in("demo-account", &stub, "acct-alpha")), "{setting:?} {rest:?}");
     }
 }

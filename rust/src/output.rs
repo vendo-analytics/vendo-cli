@@ -847,25 +847,39 @@ pub fn quit_quietly() -> ! {
     std::process::exit(0)
 }
 
+/// Whether `CI` or `VENDO_NO_INPUT` turns every prompt off, also at a terminal (VE-3826,
+/// decided by Yalcin 2026-10-06): CI runners can give a job a terminal, where a question or a
+/// menu would wait for no one. There is no `--no-input` flag. Every prompt asks by it: the
+/// questions, the group menu and the profile picker through [`can_prompt`], and login's
+/// "Press ENTER to open in the browser" read.
+pub fn prompts_off() -> bool {
+    turns_prompts_off(std::env::var_os("CI").as_deref())
+        || turns_prompts_off(std::env::var_os("VENDO_NO_INPUT").as_deref())
+}
+
+/// A value of `CI` or `VENDO_NO_INPUT` that turns prompts off: any but empty, `0` and `false`
+/// (in any case).
+fn turns_prompts_off(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_some_and(|value| !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false"))
+}
+
 /// Whether someone can answer a question: it is shown on stdout and read from
-/// stdin, so both must be terminals. Never in unit tests, for the same reason
-/// as [`stdout_is_tty`]. [`confirm`] asks by it (VE-3823), and the menu of a
-/// group run without its command by it and stderr ([`can_show_menu`], VE-3826).
-/// Not every prompt does: the profile picker ([`search_select_option`]) asks
-/// whenever stdout is a terminal, and login's "Press ENTER to open in the
-/// browser" reads stdin whatever it is. A setting that turns prompts off (`CI`,
-/// `--no-input`, `VENDO_NO_INPUT`; not decided) would need those places too.
+/// stdin, so both must be terminals, and [`prompts_off`] must not hold. Never in
+/// unit tests, for the same reason as [`stdout_is_tty`]. [`confirm`] asks by it
+/// (VE-3823), the profile picker ([`search_select_option`]) too, and the menu of
+/// a group run without its command by it and more ([`can_show_menu`], VE-3826).
 pub fn can_prompt() -> bool {
-    !cfg!(test) && std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+    !cfg!(test) && !prompts_off() && std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
 /// Whether a group run without its command opens its menu ([`choose_command`]):
 /// someone can answer ([`can_prompt`]), and stderr, where inquire draws the
-/// menu, is a terminal too. With stderr redirected (`vendo apps 2>err.log`)
-/// the menu would wait for keys with nothing on the screen, so the usage error
-/// stays.
+/// menu, is a terminal that can draw it. With stderr redirected (`vendo apps
+/// 2>err.log`) the menu would wait for keys with nothing on the screen, and
+/// `TERM=dumb` says the terminal moves no cursor (decided by Yalcin 2026-10-06),
+/// so the usage error stays. The questions still ask on `TERM=dumb`.
 pub fn can_show_menu() -> bool {
-    can_prompt() && std::io::stderr().is_terminal()
+    can_prompt() && std::io::stderr().is_terminal() && std::env::var_os("TERM").is_none_or(|term| term != "dumb")
 }
 
 /// What happens before a delete, cancel or reset (VE-3823).
@@ -895,7 +909,7 @@ fn accepts(answer: &str) -> bool {
 /// Confirm a delete, cancel or reset; `Ok(false)` when the person says no.
 /// `--yes` goes ahead. At a terminal it asks `question (y/N)` as the TS CLI
 /// did; Ctrl-C or Ctrl-D there ends the command quietly. Without a terminal
-/// (a script, a pipe, an agent) and without `--yes` it fails with
+/// (a script, a pipe, an agent) or with [`prompts_off`], and without `--yes`, it fails with
 /// "`what` Re-run with --yes to confirm." before anything is changed, where
 /// the TS CLI went ahead (decided by Yalcin, 2026-10-05, VE-3823).
 pub fn confirm(yes: bool, question: &str, what: &str) -> anyhow::Result<bool> {
@@ -1117,11 +1131,13 @@ pub struct SelectOption {
     pub search_text: String,
 }
 
-/// Search-then-pick prompt (the TS `searchSelectOption`). `None` when not a
-/// terminal, there are no options, or the user types `q`; Ctrl-C and Ctrl-D
-/// end the command quietly.
+/// Search-then-pick prompt (the TS `searchSelectOption`). `None` when no one can
+/// answer ([`can_prompt`]: the TS CLI asked whenever stdout was a terminal, so
+/// `echo 1 | vendo profile switch` read its answers from the pipe; decided by
+/// Yalcin 2026-10-06, VE-3826), there are no options, or the user types `q`;
+/// Ctrl-C and Ctrl-D end the command quietly.
 pub fn search_select_option(message: &str, options: &[SelectOption]) -> Option<String> {
-    if !stdout_is_tty() || options.is_empty() {
+    if !can_prompt() || options.is_empty() {
         return None;
     }
     let ask = |question: String| match prompt(&question) {
@@ -1556,6 +1572,18 @@ mod tests {
             .map(|(name, about)| MenuCommand { name: name.to_string(), about: about.to_string() });
         let rows: Vec<String> = commands.iter().map(|command| MenuRow { command, width: 8 }.to_string()).collect();
         assert_eq!(rows, ["list      List all apps", "diagnose  Show apps that need attention"]);
+    }
+
+    #[test]
+    fn ci_and_vendo_no_input_turn_prompts_off_unless_unset_empty_0_or_false() {
+        // VE-3826 (Yalcin, 2026-10-06): one rule for both settings.
+        for value in ["true", "1", "TRUE", "yes", "woodpecker"] {
+            assert!(turns_prompts_off(Some(std::ffi::OsStr::new(value))), "{value:?}");
+        }
+        for value in ["", "0", "false", "False", "FALSE"] {
+            assert!(!turns_prompts_off(Some(std::ffi::OsStr::new(value))), "{value:?}");
+        }
+        assert!(!turns_prompts_off(None));
     }
 
     #[test]

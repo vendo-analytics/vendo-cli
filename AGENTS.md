@@ -28,14 +28,17 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   (`scripts/gen-ymd-patterns.mjs`, `scripts/gen-usd-patterns.mjs`), and `scripts/gen-locale-fixture.mjs`
   writes the Node values the tests check. Regenerate all three when Node's ICU changes.
 - Confirmation (VE-3823, decided by Yalcin, 2026-10-05): delete, cancel, reset and `logout --all` ask y/N only when
-  stdin and stdout are both terminals. Otherwise they need `--yes` and stop with exit 1 before any request, where the
-  TS CLI went ahead; `--json` no longer implies `--yes`. `output::confirm` owns this.
+  stdin and stdout are both terminals and prompts are not off (`CI`/`VENDO_NO_INPUT`, VE-3826). Otherwise they need
+  `--yes` and stop with exit 1 before any request, where the TS CLI went ahead; `--json` no longer implies `--yes`.
+  `output::confirm` owns this.
 - Stack: clap 4, reqwest (rustls), tokio, serde_json (`preserve_order`, `arbitrary_precision`), ICU4X,
   comfy-table, indicatif, inquire and crossterm (the group menus).
   Toolchain: `rustup` stable (`~/.cargo/bin`); `pnpm rust:test`, `pnpm rust:build`,
   `cargo clippy --all-targets` and `cargo fmt` (120 columns, `rust/rustfmt.toml`) from `rust/`.
 - Tests: unit tests sit next to the code; `rust/tests/cli.rs` runs the built binary end to end with an isolated
-  HOME, fake keys, a local stub server and a fresh update-check cache, so nothing leaves the machine (VE-3727).
+  HOME, fake keys, a local stub server and a fresh update-check cache, so nothing leaves the machine (VE-3727). The
+  caller's `CI`, `VENDO_NO_INPUT` and `TERM` are removed, so prompts behave as on a person's terminal on CI runners
+  too (VE-3826).
 - Snapshots (VE-3824), the regression net once the parity harness goes at 1.0.0: `rust/tests/cli/snapshots.rs`
   records every `--help` screen, found by walking the real command tree, in `rust/tests/snapshots/help/`, and the
   table, `--json` and confirmation output of each command against the stub's synthetic account in
@@ -120,20 +123,29 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     do for `--profile`, without saying where the name came from.
 - Group menus (VE-3826, decided by Yalcin 2026-10-05, CLI 1.1): a group run without its command (`vendo apps`,
   `vendo measurement ltv`, the hidden `config`; bare `vendo` is unchanged) opens an arrow-key menu of its visible
-  commands and their descriptions where `output::can_show_menu` holds: `can_prompt` (stdin and stdout terminals, the
-  rule `confirm` asks by) and stderr a terminal too, as inquire draws the menu there (`vendo apps 2>err.log` keeps
-  the usage error). ↑↓ move, typing filters by name and description, and Enter puts the chosen name where it would
-  have been typed and parses again (`cli::chosen_command`), so global options, `MOVED`, confirmations and usage
-  errors (a missing `<appId>`) apply as typed; a chosen group opens its own menu. Esc, Ctrl-C and Ctrl-D exit 0
-  (`output::quit_quietly`) and leave the title and `<canceled>`: inquire leaves the menu standing on Ctrl-C, so
-  `output::clear_menu` redraws it from the line `choose_command` saved. The menu takes the screen's height less one
-  line at most, and on a short screen its list scrolls (`output::menu_page`). Without a terminal the usage error
-  stays: the group's help on stderr, exit 2. The menu is inquire with its crossterm backend and no fuzzy matching
-  (`output::choose_command`); crossterm, inquire's version, is a direct dependency for the screen size and the
-  Ctrl-C redraw. Turning prompts off for CI, `--no-input` or `VENDO_NO_INPUT` is not decided; it would go in
-  `can_prompt` and in the two prompts that do not ask by it, the profile picker (`output::search_select_option`, on
-  a terminal stdout) and login's "Press ENTER" read. Tests drive the menu on a pseudo-terminal that is `vendo`'s
-  controlling terminal (`OnTerminal` in `rust/tests/cli.rs`; `screen` there replays what the terminal shows).
+  commands and their descriptions where `output::can_show_menu` holds: `can_prompt` (stdin and stdout terminals and
+  prompts not off, the rule `confirm` asks by), stderr a terminal too, as inquire draws the menu there (`vendo apps
+  2>err.log` keeps the usage error), and `TERM` not `dumb` (Yalcin, 2026-10-06). ↑↓ move, typing filters by name
+  and description, and Enter puts the chosen name where it would have been typed and parses again
+  (`cli::chosen_command`), so global options, `MOVED`, confirmations and usage errors (a missing `<appId>`) apply as
+  typed; a chosen group opens its own menu. Esc, Ctrl-C and Ctrl-D exit 0 (`output::quit_quietly`) and leave the
+  title and `<canceled>`: inquire leaves the menu standing on Ctrl-C, so `output::clear_menu` redraws it from the
+  line `choose_command` saved. The menu takes the screen's height less one line at most, and on a short screen its
+  list scrolls (`output::menu_page`). Without a terminal the usage error stays: the group's help on stderr, exit 2.
+  The menu is inquire with its crossterm backend and no fuzzy matching (`output::choose_command`); crossterm,
+  inquire's version, is a direct dependency for the screen size and the Ctrl-C redraw. Tests drive the menu on a
+  pseudo-terminal that is `vendo`'s controlling terminal (`OnTerminal` in `rust/tests/cli.rs`; `screen` there replays
+  what the terminal shows). `OnTerminal` keeps its own copy of the terminal end until `vendo` exits: macOS drops what
+  the reader has not read yet when the last copy closes.
+- Prompts off (VE-3826, decided by Yalcin 2026-10-06, CLI 1.1): `CI` or `VENDO_NO_INPUT` set to anything but empty,
+  `0` or `false` (any case) turns every prompt off, also at a terminal; there is no `--no-input` flag.
+  `output::prompts_off` owns the rule, and every prompt asks by it: the y/N questions refuse without `--yes`, a bare
+  group is the usage error (exit 2), and the profile picker does not ask (`profile switch` prints "Cancelled."),
+  each as without a terminal, through `can_prompt`; login does not read its "Press ENTER to open in the browser"
+  (`commands/login.rs`), so it does what it does with stdin closed: it prints the sign-in URL and that line, opens no
+  browser and waits for the sign-in. The profile picker (`output::search_select_option`) asks by `can_prompt`, so
+  only when stdin and stdout are terminals (`echo 1 | vendo profile switch` reads no answer from the pipe). On
+  `TERM=dumb` only the group menu is off; the questions and the picker still ask.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).
