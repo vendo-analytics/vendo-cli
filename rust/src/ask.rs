@@ -180,9 +180,9 @@ fn asked_by(command: &str, value: &str) -> Option<Ask> {
 /// returns `args` (the words as given) with them where they would have been typed. `None` keeps the
 /// usage error: another error, no terminal to ask at, a value [`VALUES`] does not name (all three
 /// known before anything is read, sent or printed), nothing to choose from, or a prompt that cannot
-/// run. With no API key, a list of the account's and no account, a list that cannot be read, or a
-/// typed app whose type cannot be read, the CLI ends with the error the command would give (exit 1,
-/// the JSON error with `--json`), before anything more is asked.
+/// run. With no API key, no account for a command that needs one ([`needs_account`]), a list that
+/// cannot be read, or a typed app whose type cannot be read, the CLI ends with the error the command
+/// would give (exit 1, the JSON error with `--json`), before anything more is asked.
 pub async fn missing_values(
     root: &clap::Command,
     args: &[OsString],
@@ -200,7 +200,7 @@ pub async fn missing_values(
         .map(|arg| Some((arg, asked_by(&command, arg.get_id().as_str())?)))
         .collect::<Option<_>>()?;
     let ctx = Ctx::new(profile, debug);
-    let client = ready(&ctx, &wanted).unwrap_or_else(|err| fail(&err, json));
+    let client = ready(&ctx, &command).unwrap_or_else(|err| fail(&err, json));
     let mut answers = Vec::new();
     // The rows chosen from a list so far, by the value's clap ID: the app whose type goes with it.
     let mut chosen: Vec<(&str, Value)> = Vec::new();
@@ -273,15 +273,26 @@ fn left_out<'a>(root: &'a clap::Command, typed: &[OsString]) -> Option<LeftOut<'
 
 /// The client the lists and the command need, checked before anything is asked: the API key (the
 /// error a command gives without one, or for a `VENDO_PROFILE` that names no profile), and for a
-/// list of the account's, or a typed app to read the type of, the account (the client's own
-/// error). The platforms are the key's (the catalog route needs no account), so `apps create`
-/// lists them without one.
-fn ready(ctx: &Ctx, wanted: &[(&clap::Arg, Ask)]) -> anyhow::Result<Client> {
+/// command that cannot run without an account ([`needs_account`]) the account (the client's own
+/// error), whichever of its values are asked: there is no point asking what cannot run.
+fn ready(ctx: &Ctx, command: &str) -> anyhow::Result<Client> {
     let client = ctx.client()?;
-    if wanted.iter().any(|(_, ask)| matches!(ask, Ask::Listed(_) | Ask::TypeOfApp(_))) {
+    if needs_account(command) {
         client.require_account()?;
     }
     Ok(client)
+}
+
+/// Whether `command` (as the tree names it after `vendo`) cannot run without an account: a command
+/// of a group whose requests go to the account (`/accounts/{acct}/…`: apps, sources, destinations,
+/// jobs, models and the dictionary; VE-3881), by command, not by the value asked, so `destinations
+/// create --dest-app <id>` needs one before its data type and path are asked too. `apps create` is
+/// left out: the platforms it asks for first are the key's (the catalog route needs no account), so
+/// it lists them without one.
+fn needs_account(command: &str) -> bool {
+    const ACCOUNT_GROUPS: [&str; 6] = ["apps", "sources", "destinations", "jobs", "models", "dictionary"];
+    let group = command.split(' ').next().unwrap_or_default();
+    ACCOUNT_GROUPS.contains(&group) && command != "apps create"
 }
 
 /// Ends the CLI with `err` as the command would end with it: `Error: …`, or with `--json` the JSON
@@ -511,6 +522,49 @@ mod tests {
             );
             assert_eq!(asked_by(command, app), Some(Ask::Listed(Listed::Apps)), "{command} {app}");
         }
+    }
+
+    #[test]
+    fn the_account_is_needed_by_command_not_by_the_value_asked() {
+        let mut found = Vec::new();
+        commands(&crate::cli::command(), &[], &mut found);
+        let needing: Vec<&str> = found
+            .iter()
+            .filter(|(command, required)| !required.is_empty() && needs_account(command))
+            .map(|(command, _)| command.as_str())
+            .collect();
+        // Every command of apps (but `apps create`, whose platforms are the key's), sources,
+        // destinations, jobs, models and the dictionary; none of the catalog, metrics or measurement.
+        assert_eq!(
+            needing,
+            [
+                "apps get",
+                "apps pause",
+                "apps resume",
+                "apps delete",
+                "apps update",
+                "sources get",
+                "sources sync",
+                "sources pause",
+                "sources resume",
+                "sources delete",
+                "sources create",
+                "sources update",
+                "destinations get",
+                "destinations sync",
+                "destinations refresh-source",
+                "destinations pause",
+                "destinations resume",
+                "destinations delete",
+                "destinations create",
+                "destinations update",
+                "jobs get",
+                "jobs cancel",
+                "dictionary search",
+                "dictionary get",
+                "models get",
+            ]
+        );
     }
 
     #[test]

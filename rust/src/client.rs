@@ -310,8 +310,8 @@ impl Client {
     }
 
     /// The account the account-scoped routes go to, or the error a request to one fails with, before
-    /// anything is sent, when there is none. A command missing a value checks it before it asks for
-    /// one from a list of the account's (VE-3881).
+    /// anything is sent, when there is none. A command missing a value whose requests go to the
+    /// account checks it before it asks for any (VE-3881, `ask::needs_account`).
     pub fn require_account(&self) -> Result<String, ApiError> {
         self.account_id.clone().ok_or_else(|| {
             client_error(

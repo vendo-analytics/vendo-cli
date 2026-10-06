@@ -267,10 +267,12 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   question and the `<canceled>` line start with `?` either way. The values go into the words where they would have been
   typed (an option as `--type=shopify`, an ID whole) and `cli::parse` parses again, once, so global options, `MOVED`,
   the y/N of a delete, `--dry-run`, `--json` and `--output` apply as typed. Before anything is asked: no API key, or an
-  unknown `VENDO_PROFILE`, is that error, and a list of the account's, or a typed app to read the type of, without an
-  account is the client's "No account configured" error (`Client::require_account`), exit 1 with nothing sent; the
-  platforms are the key's, so `apps create` lists them without an account. A list that fails is its error (exit 1, the
-  JSON error with `--json`); an empty one says `No apps to choose from.` (`sources`, `destinations`) and is the usage
+  unknown `VENDO_PROFILE`, is that error, and without an account a command whose requests go to the account (apps,
+  sources, destinations, jobs, models, the dictionary; `ask::needs_account`) is the client's "No account configured"
+  error (`Client::require_account`), whichever of its values is missing (`destinations create --dest-app <id>` too,
+  before its data type and path), exit 1 with nothing sent; the platforms are the key's, so `apps create` lists them
+  without an account. A list that fails is its error (exit 1, the JSON error with `--json`); an empty one says
+  `No apps to choose from.` (`sources`, `destinations`) and is the usage
   error (exit 2). Esc, Ctrl-C, Ctrl-D and a hang-up exit 0 with nothing run. ❓ Open for Yalcin, built with the spec's
   cautious defaults: lists not narrowed beyond what the list command shows (Q2: `sources create`'s apps not narrowed to
   active source apps, nor by a typed `--sync-type`), the sync type as a one-row list to confirm (Q3), the empty-list

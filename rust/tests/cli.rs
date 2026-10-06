@@ -5761,12 +5761,22 @@ async fn sources_and_destinations_without_an_account_are_that_error_before_anyth
         // The typed app is read for its type, in the account.
         &["sources", "create", "--app", CHOOSE_BQ],
         &["destinations", "create"],
+        // By command, not by question: the data type and the path need no list, but the destination
+        // they are for cannot be created without an account.
+        &["destinations", "create", "--dest-app", CHOOSE_BQ],
+        &["int", "create", "--dest-app", CHOOSE_BQ, "--data-type", "events"],
     ] {
         let mut terminal = OnTerminal::start(&sandbox, args);
         let (_, code) = terminal.finish();
         let shown = shown_lines(&terminal, (40, 120)).join("\n");
         assert_eq!((code, shown), (Some(1), no_account.trim_end().to_string()), "{args:?}");
     }
+    let json_error = text(&sandbox.run(&["sources", "list", "--json"]).stderr);
+    let args = ["destinations", "create", "--dest-app", CHOOSE_BQ, "--data-type", "events", "--json"];
+    let mut terminal = OnTerminal::start_with(&sandbox, &args, WIDE, "", None);
+    let (_, code) = terminal.finish();
+    let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into())).join("\n");
+    assert_eq!((code, shown), (Some(1), json_error.trim_end().to_string()));
     assert_eq!(sent(&server).await, Vec::<String>::new());
 }
 
