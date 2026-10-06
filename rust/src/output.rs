@@ -981,8 +981,8 @@ pub fn choose_command(title: &str, commands: &[MenuCommand]) -> Option<usize> {
     use inquire::Select;
     let width = commands.iter().map(|command| command.name.chars().count()).max()?;
     let rows: Vec<MenuRow> = commands.iter().map(|command| MenuRow { command, width }).collect();
-    let row_widths: Vec<usize> = rows.iter().map(|row| row.to_string().chars().count()).collect();
-    let (page, height) = menu_page(title, &row_widths, Select::<MenuRow>::DEFAULT_HELP_MESSAGE, screen_size());
+    let shown: Vec<String> = rows.iter().map(MenuRow::to_string).collect();
+    let (page, height) = menu_page(title, &shown, Select::<MenuRow>::DEFAULT_HELP_MESSAGE, screen_size());
     let menu = Select::new(title, rows).with_page_size(page).with_formatter(&|row| row.value.command.name.clone());
     run_prompt(title, height, || menu.raw_prompt()).map(|chosen| chosen.index)
 }
@@ -1006,8 +1006,10 @@ impl std::fmt::Display for ValueRow {
 /// is ([`choose_command`]): `title` (the command, `vendo apps get`), then `rows`; ↑↓ move, typing
 /// filters (by substring, in any case), Enter chooses, and the chosen row's answer replaces the
 /// list after the title. `note` follows the menu's hint (`… type to filter · newest 500 shown`).
-/// Esc, Ctrl-C, Ctrl-D and a terminal that hangs up leave quietly, as at the menu. `None` when the
-/// list cannot run (no rows, the terminal refused it). Only where [`can_show_menu`].
+/// Keys typed before the list opened, while it loaded, are thrown away ([`discard_typed_ahead`]):
+/// an Enter among them would choose the first row unseen. Esc, Ctrl-C, Ctrl-D and a terminal that
+/// hangs up leave quietly, as at the menu. `None` when the list cannot run (no rows, the terminal
+/// refused it). Only where [`can_show_menu`].
 #[cfg(feature = "menu")]
 pub fn choose_value(title: &str, rows: &[ValueRow], note: Option<&str>) -> Option<usize> {
     use inquire::Select;
@@ -1016,25 +1018,55 @@ pub fn choose_value(title: &str, rows: &[ValueRow], note: Option<&str>) -> Optio
         Some(note) => format!("{hint} · {note}"),
         None => hint.to_string(),
     };
-    let row_widths: Vec<usize> = rows.iter().map(|row| row.shown.chars().count()).collect();
-    let (page, height) = menu_page(title, &row_widths, Some(&hint), screen_size());
+    let shown: Vec<&str> = rows.iter().map(|row| row.shown.as_str()).collect();
+    let (page, height) = menu_page(title, &shown, Some(&hint), screen_size());
     let list = Select::new(title, rows.iter().collect())
         .with_page_size(page)
         .with_help_message(&hint)
         .with_formatter(&|row| row.value.answer.clone());
-    run_prompt(title, height, || list.raw_prompt()).map(|chosen| chosen.index)
+    run_prompt(title, height, || {
+        discard_typed_ahead();
+        list.raw_prompt()
+    })
+    .map(|chosen| chosen.index)
 }
 
 /// The one-line question a command missing a value with no list asks (VE-3881): `title` (the
 /// command and the option, `vendo apps create --name`), then what is typed; Enter answers, and an
-/// empty answer is refused with inquire's "A response is required." line above the question. Esc,
-/// Ctrl-C, Ctrl-D and a terminal that hangs up leave quietly, as at the group menu. `None` when the
-/// question cannot run. Only where [`can_show_menu`].
+/// empty answer is refused with inquire's "A response is required." line above the question. Keys
+/// typed before it opened are thrown away ([`discard_typed_ahead`]). Esc, Ctrl-C, Ctrl-D and a
+/// terminal that hangs up leave quietly, as at the group menu. `None` when the question cannot run.
+/// Only where [`can_show_menu`].
 #[cfg(feature = "menu")]
 pub fn ask_text(title: &str) -> Option<String> {
     let question = inquire::Text::new(title).with_validator(inquire::validator::ValueRequiredValidator::default());
     // The question, and the refusal above it.
-    run_prompt(title, 2, || question.prompt())
+    run_prompt(title, 2, || {
+        discard_typed_ahead();
+        question.prompt()
+    })
+}
+
+/// Throws away the keys typed before a list or question for a missing value opened (VE-3881): those
+/// the terminal holds unread (`tcflush`), typed while the list loaded, and those crossterm read
+/// already and keeps for its next read, typed with the Enter that answered the menu or the list
+/// before. Until inquire turns raw mode on, the terminal holds an Enter typed twice, or pressed
+/// again while `Fetching apps...` showed, as a line; inquire then read it as Enter and chose the
+/// first row, unseen, and `apps pause` or `apps delete --yes` acted on it. A y/N question takes
+/// such an Enter as its default, No. Called once the prompt's [`HangUpWatch`] runs: on a terminal
+/// that hung up, crossterm's read would spin.
+#[cfg(feature = "menu")]
+fn discard_typed_ahead() {
+    #[cfg(unix)]
+    // SAFETY: tcflush only discards what stdin's terminal received and nothing read yet.
+    unsafe {
+        libc::tcflush(libc::STDIN_FILENO, libc::TCIFLUSH);
+    }
+    while crossterm::event::poll(Duration::ZERO).unwrap_or(false) {
+        if crossterm::event::read().is_err() {
+            break;
+        }
+    }
 }
 
 /// Runs an inquire prompt titled `title` that takes up to `height` lines, as the group menu runs
@@ -1275,19 +1307,25 @@ fn menu_lost() -> bool {
 }
 
 /// How many commands the menu lists at once, and the most lines it then takes, on a screen of
-/// `columns` × `lines`; `rows` are the commands' widths as the menu shows them. inquire wraps a
+/// `columns` × `lines`; `rows` are the commands as the menu shows them. inquire wraps a
 /// line wider than the screen but does not fit the menu to the screen's height, and a menu
 /// taller than the screen drew over itself. So the list holds as many commands as fit between
-/// the title and the hint, counting the ones that take the most lines, and scrolls (`^`, `v`);
-/// at least one. The screen's last line stays free for the line after the menu: Enter or Esc
-/// there scrolled the answer off a full screen.
+/// the title and the hint, counting the ones that take the most lines ([`lines_taken`]), and
+/// scrolls (`^`, `v`); at least one. The screen's last line stays free for the line after the
+/// menu: Enter or Esc there scrolled the answer off a full screen. The lists for a missing value
+/// (VE-3881) fit the same way.
 #[cfg(feature = "menu")]
-fn menu_page(title: &str, rows: &[usize], hint: Option<&str>, (columns, lines): (usize, usize)) -> (usize, usize) {
-    let height = |width: usize| width.div_ceil(columns).max(1);
+fn menu_page(
+    title: &str,
+    rows: &[impl AsRef<str>],
+    hint: Option<&str>,
+    (columns, lines): (usize, usize),
+) -> (usize, usize) {
+    let height = |text: &str| lines_taken(text, columns);
     let lines = lines.saturating_sub(1);
     // `? <title> ` and the cursor's space; the hint in brackets; a row after `> ` (or `^ `, `v `).
-    let mut used = height(title.chars().count() + 4) + hint.map_or(0, |hint| height(hint.chars().count() + 2));
-    let mut tallest: Vec<usize> = rows.iter().map(|width| height(width + 2)).collect();
+    let mut used = height(&format!("? {title}  ")) + hint.map_or(0, |hint| height(&format!("[{hint}]")));
+    let mut tallest: Vec<usize> = rows.iter().map(|row| height(&format!("> {}", row.as_ref()))).collect();
     tallest.sort_unstable_by(|a, b| b.cmp(a));
     let mut page = 0;
     for row in tallest {
@@ -1298,6 +1336,26 @@ fn menu_page(title: &str, rows: &[usize], hint: Option<&str>, (columns, lines): 
         page += 1;
     }
     (page, used)
+}
+
+/// How many lines `text` takes on a screen `columns` wide, wrapped as inquire wraps a line: by the
+/// columns each character takes (`unicode-width`: two for a wide one such as 東, as the terminal
+/// draws it), a character that does not fit on the line going to the next. Counted one column a
+/// character, the rows of an app named in Japanese took more lines than counted, and the list ran
+/// off the top of a short screen, the title and the row marked `>` with it (VE-3881).
+#[cfg(feature = "menu")]
+fn lines_taken(text: &str, columns: usize) -> usize {
+    use unicode_width::UnicodeWidthChar;
+    let (mut lines, mut used) = (1, 0);
+    for c in text.chars() {
+        let width = c.width().unwrap_or(0);
+        if used > 0 && width > columns.saturating_sub(used) {
+            lines += 1;
+            used = 0;
+        }
+        used += width;
+    }
+    lines
 }
 
 /// The terminal's columns and lines as inquire reads them, and 80 × 24 when they are unknown,
@@ -1824,10 +1882,11 @@ mod tests {
     #[test]
     fn the_menu_lists_as_many_commands_as_the_screen_holds() {
         let hint = Some("↑↓ to move, enter to select, type to filter");
-        // The widths of `vendo apps`' rows, and of `vendo destinations`', whose refresh-source row
+        // Rows as wide as `vendo apps`' rows, and as `vendo destinations`', whose refresh-source row
         // takes two lines on 80 columns.
-        let apps = [23, 39, 25, 22, 29, 37, 26, 23];
-        let destinations = [37, 39, 37, 105, 35, 43, 50, 74, 36];
+        let rows = |widths: &[usize]| widths.iter().map(|width| "x".repeat(*width)).collect::<Vec<_>>();
+        let apps = rows(&[23, 39, 25, 22, 29, 37, 26, 23]);
+        let destinations = rows(&[37, 39, 37, 105, 35, 43, 50, 74, 36]);
         // Every command with the title and the hint, if they fit with a line to spare.
         assert_eq!(menu_page("vendo apps", &apps, hint, (120, 40)), (8, 10));
         assert_eq!(menu_page("vendo apps", &apps, hint, (80, 11)), (8, 10));
@@ -1841,6 +1900,24 @@ mod tests {
         assert_eq!(menu_page("vendo destinations", &destinations, hint, (40, 8)), (1, 6));
         // At least one, however short the screen.
         assert_eq!(menu_page("vendo apps", &apps, hint, (80, 2)), (1, 3));
+        // A row of an app named in Japanese (VE-3881): 62 characters, but 87 columns on the screen
+        // after `> `, so two lines on 80 columns, and three such rows fit on a 10-line screen, not seven.
+        let wide = format!("b0000000...  {}東京N  shopify  source  active", "東京ストア本店".repeat(3));
+        assert_eq!((wide.chars().count(), lines_taken(&format!("> {wide}"), 80)), (62, 2));
+        assert_eq!(menu_page("vendo apps get", &vec![wide; 8], hint, (80, 10)), (3, 8));
+    }
+
+    #[cfg(feature = "menu")]
+    #[test]
+    fn a_line_takes_the_columns_its_characters_take_as_inquire_wraps_it() {
+        assert_eq!(lines_taken("", 80), 1);
+        assert_eq!(lines_taken(&"x".repeat(80), 80), 1);
+        assert_eq!(lines_taken(&"x".repeat(81), 80), 2);
+        // A wide character takes two columns.
+        assert_eq!(lines_taken(&"東".repeat(40), 80), 1);
+        assert_eq!(lines_taken(&"東".repeat(41), 80), 2);
+        // One that does not fit in the last column goes to the next line: 160 columns, three lines.
+        assert_eq!(lines_taken(&format!("x{}x", "東".repeat(79)), 80), 3);
     }
 
     #[cfg(feature = "menu")]

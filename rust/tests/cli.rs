@@ -3975,8 +3975,13 @@ fn plain(screen: &str) -> String {
 /// What a terminal of `lines` × `columns` shows after `output`, its lines without trailing spaces,
 /// and where its cursor is (line, column): enough of a VT100 to follow the menu (text that wraps at
 /// the last column, CR, LF that scrolls at the bottom, cursor moves, erasing, saving and restoring
-/// the cursor). Colours and modes change nothing.
+/// the cursor). A wide character such as 東 takes two columns, going to the next line when one is
+/// left, as a terminal draws it (VE-3881); a character of no width (a combining mark) is left out.
+/// Colours and modes change nothing.
 fn screen(output: &str, lines: usize, columns: usize) -> (Vec<String>, (usize, usize)) {
+    use unicode_width::UnicodeWidthChar;
+    // The second column of a wide character.
+    const RIGHT_HALF: char = '\0';
     let mut shown = vec![vec![' '; columns]; lines];
     let (mut line, mut column, mut saved, mut wrap): (usize, usize, _, _) = (0, 0, (0, 0), false);
     let line_feed = |shown: &mut Vec<Vec<char>>, line: &mut usize| {
@@ -4028,20 +4033,28 @@ fn screen(output: &str, lines: usize, columns: usize) -> (Vec<String>, (usize, u
                 wrap = false;
             }
             c => {
-                if wrap {
+                let width = c.width().unwrap_or(1);
+                if width == 0 {
+                    continue;
+                }
+                if wrap || column + width > columns {
                     line_feed(&mut shown, &mut line);
                     (column, wrap) = (0, false);
                 }
                 shown[line][column] = c;
-                if column + 1 == columns {
-                    wrap = true;
+                if width == 2 {
+                    shown[line][column + 1] = RIGHT_HALF;
+                }
+                if column + width == columns {
+                    (column, wrap) = (columns - 1, true);
                 } else {
-                    column += 1;
+                    column += width;
                 }
             }
         }
     }
-    (shown.iter().map(|line| line.iter().collect::<String>().trim_end().to_string()).collect(), (line, column))
+    let shown = shown.iter().map(|line| line.iter().filter(|c| **c != RIGHT_HALF).collect::<String>());
+    (shown.map(|line| line.trim_end().to_string()).collect(), (line, column))
 }
 
 /// The rows of `vendo <group> --help`'s `Commands:` list, without their indent: what its menu lists.
@@ -5048,6 +5061,142 @@ async fn of_more_than_500_apps_the_newest_500_are_listed_and_the_hint_says_so() 
     assert_eq!(terminal.finish().1, Some(0));
     let pages: Vec<String> = (0..5).map(|page| format!("GET {V1}/apps?limit=100&offset={}", page * 100)).collect();
     assert_eq!(sent(&server).await, pages);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn keys_typed_before_a_list_or_question_opens_are_thrown_away() {
+    // An Enter typed before the list opened (twice with the command, or again while
+    // `Fetching apps...` showed) waited at the terminal, and inquire took it as Enter and chose the
+    // first app, never shown: `apps pause` paused it and `apps delete --yes` deleted it. One typed
+    // with the Enter that answered the menu, or the list before a question, did the same from
+    // crossterm's queue. The list and the question now open with nothing typed ahead.
+    let server = MockServer::start().await;
+    let apps = format!("{V1}/apps");
+    // The list answers after a while, as on a slow connection.
+    Mock::given(wiremock::matchers::method("GET"))
+        .and(path(apps.clone()))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(page_of(apps_to_choose(), 0, false))
+                .set_delay(std::time::Duration::from_millis(1500)),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(wiremock::matchers::path_regex(format!("^{apps}/.+$")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": apps_to_choose()[0] })))
+        .mount(&server)
+        .await;
+    serve_platforms(&server).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let list = format!("GET {V1}/apps?limit=100&offset=0");
+    // Typed with the command, and again while the list loads: the list opens and waits for a key.
+    // With a `TERM`, as in a terminal window, the spinner shows while it loads.
+    for args in [&["apps", "pause"][..], &["apps", "delete", "--yes"]] {
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start_env(&sandbox, args, &[("TERM", "xterm-256color")]);
+        terminal.press("\r");
+        terminal.wait_for("Fetching apps...");
+        terminal.press("\r");
+        terminal.wait_for("type to filter]");
+        terminal.press("\u{1b}[B");
+        terminal.wait_for(&format!("> {}", APP_ROWS[1]));
+        terminal.press("\u{1b}");
+        let (shown, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{args:?}: {shown:?}");
+        assert!(plain(&shown).contains(&format!("vendo {} <canceled>", args[..2].join(" "))), "{args:?}: {shown:?}");
+        assert_eq!(sent(&server).await[before..], [list.as_str()], "{args:?}");
+    }
+    // Typed with the Enter that chose `pause` in the menu.
+    let before = sent(&server).await.len();
+    let mut terminal = OnTerminal::start(&sandbox, &["apps"]);
+    terminal.wait_for("Update an app");
+    terminal.press("pause\r\r");
+    terminal.wait_for("vendo apps pause");
+    terminal.wait_for(APP_ROWS[2]);
+    terminal.press("\u{1b}[B");
+    terminal.wait_for(&format!("> {}", APP_ROWS[1]));
+    terminal.press("\u{1b}");
+    let (shown, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{shown:?}");
+    assert!(plain(&shown).contains("vendo apps pause <canceled>"), "{shown:?}");
+    assert_eq!(sent(&server).await[before..], [list]);
+    // Typed with the Enter that chose a platform: the name is asked, not refused as empty.
+    let before = sent(&server).await.len();
+    let credentials = credentials_file(&sandbox);
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "create", "--credentials-file", &credentials]);
+    terminal.wait_for("type to filter]");
+    terminal.press("\r\r");
+    terminal.wait_for("vendo apps create --type bigquery");
+    terminal.wait_for("vendo apps create --name");
+    terminal.press("x");
+    terminal.wait_for("vendo apps create --name x");
+    terminal.press("\u{1b}");
+    let (_, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{:?}", terminal.screen);
+    assert!(!terminal.screen.contains("A response is required."), "{:?}", terminal.screen);
+    assert_eq!(sent(&server).await[before..], ["GET /api/v1/catalog"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn names_in_wide_characters_keep_the_columns_in_line_and_the_list_on_a_short_screen() {
+    // A wide character such as 東 takes two columns on the screen. The list padded its columns and
+    // fitted the screen counting one: a name in Japanese put the columns after it out of line, and
+    // rows that took two lines, counted as one, ran the list off the top of a short screen, the
+    // title and the row marked `>` with it, so that Enter chose an app never seen.
+    let server = MockServer::start().await;
+    let apps = vec![
+        app_to_choose(MENU_APP, "東京ストア本店", "shopify", &["source"], "active"),
+        app_to_choose(CHOOSE_BQ, "Plain Name", "bigquery", &["source"], "active"),
+        app_to_choose(CHOOSE_PIXEL, "大阪", "meta_ads", &["destination"], "inactive"),
+    ];
+    serve(&server, "GET", &format!("{V1}/apps"), 200, page_of(apps, 0, false)).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "get"]);
+    terminal.wait_for("type to filter]");
+    assert_eq!(
+        shown_lines(&terminal, (40, 120)),
+        [
+            "? vendo apps get",
+            "> a1b2c3d4...  東京ストア本店  shopify   source       active",
+            "  e5f6a7b8...  Plain Name      bigquery  source       active",
+            "  0c0d0e0f...  大阪            meta_ads  destination  inactive",
+            "[↑↓ to move, enter to select, type to filter]",
+        ]
+    );
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+
+    // Eight apps whose rows take two lines each on 80 columns, on a screen of 10 lines.
+    let server = MockServer::start().await;
+    let name = |n: u64| format!("{}東京{n}", "東京ストア本店".repeat(3));
+    let id = |n: u64| uuid_with(&format!("b000000{n}"), n);
+    let apps: Vec<Value> = (0..8).map(|n| app_to_choose(&id(n), &name(n), "shopify", &["source"], "active")).collect();
+    serve(&server, "GET", &format!("{V1}/apps"), 200, page_of(apps.clone(), 0, false)).await;
+    serve(&server, "GET", &format!("{V1}/apps/{}", id(1)), 200, json!({ "data": apps[1] })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let (lines, columns) = (10, 80);
+    let mut terminal = OnTerminal::start_with(&sandbox, &["apps", "get"], (lines, columns), "", None);
+    terminal.wait_for("type to filter]");
+    // The end of that frame: inquire shows the cursor again.
+    terminal.wait_for("\u{1b}[?25h");
+    // As many as fit between the title and the hint, with a line to spare, and the list scrolls.
+    let row = |mark: char, n: u64| [format!("{mark} b000000{n}...  {}  shopify  source", name(n)), " active".into()];
+    let mut expected = vec!["? vendo apps get".to_string()];
+    expected.extend([row('>', 0), row(' ', 1), row('v', 2)].concat());
+    expected.extend(["[↑↓ to move, enter to select, type to filter]".to_string(), String::new(), String::new()]);
+    assert_eq!(screen(&terminal.screen, lines.into(), columns.into()).0, expected);
+    // Down marks the second app, on the screen, and Enter chooses it.
+    terminal.press("\u{1b}[B");
+    terminal.wait_for("> b0000001...");
+    terminal.wait_for("\u{1b}[?25h");
+    let (shown, _) = screen(&terminal.screen, lines.into(), columns.into());
+    assert_eq!((shown[0].as_str(), shown[3].as_str()), ("? vendo apps get", row('>', 1)[0].as_str()), "{shown:#?}");
+    terminal.press("\r");
+    terminal.wait_for(&format!("vendo apps get b0000001... ({})", name(1)));
+    assert_eq!(terminal.finish().1, Some(0));
+    assert_eq!(sent(&server).await, [format!("GET {V1}/apps?limit=100&offset=0"), format!("GET {V1}/apps/{}", id(1))]);
 }
 
 // ── VE-3826: CI and VENDO_NO_INPUT turn prompts off; no menu on TERM=dumb ───

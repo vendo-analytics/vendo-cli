@@ -206,20 +206,24 @@ fn choose(
     output::choose_value(title, &rows, cut.then_some(note.as_str()))
 }
 
-/// The rows of a list: each cell padded to its column's width (in characters, as the menu counts
-/// them), two spaces apart as the tables' columns are, the last column as it is. Plain text: typing
-/// filters by what the row shows.
+/// The rows of a list: each cell padded to its column's width in the columns the screen gives it
+/// (`unicode-width`: a wide character such as 東 takes two, so a name in Japanese keeps the columns
+/// after it in line, as the tables keep them), two spaces apart as the tables' columns are, the last
+/// column as it is. Plain text: typing filters by what the row shows.
 fn padded(rows: Vec<Vec<String>>) -> Vec<String> {
+    use unicode_width::UnicodeWidthStr;
     let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
     let widths: Vec<usize> = (0..columns)
-        .map(|i| rows.iter().filter_map(|row| row.get(i)).map(|cell| cell.chars().count()).max().unwrap_or(0))
+        .map(|i| rows.iter().filter_map(|row| row.get(i)).map(|cell| cell.width()).max().unwrap_or(0))
         .collect();
     rows.into_iter()
         .map(|row| {
             let last = row.len().saturating_sub(1);
             let cells = row.into_iter().enumerate();
-            let cells =
-                cells.map(|(i, cell)| if i < last { format!("{cell:<width$}", width = widths[i]) } else { cell });
+            let cells = cells.map(|(i, cell)| {
+                let pad = if i < last { widths[i].saturating_sub(cell.width()) } else { 0 };
+                cell + &" ".repeat(pad)
+            });
             cells.collect::<Vec<_>>().join("  ")
         })
         .collect()
@@ -449,10 +453,22 @@ mod tests {
                 "0c0d0e0f...                bigquery  active",
             ]
         );
-        // Widths in characters, as the menu counts them.
+        // Widths in the screen's columns: é takes one, a wide character such as 東 two.
         assert_eq!(
             padded(vec![vec!["Café".into(), "x".into()], vec!["Shop".into(), "y".into()]]),
             ["Café  x", "Shop  y"]
+        );
+        assert_eq!(
+            padded(vec![
+                vec!["東京ストア本店".into(), "shopify".into(), "active".into()],
+                vec!["Plain Name".into(), "bigquery".into(), "active".into()],
+                vec!["大阪".into(), "meta_ads".into(), "inactive".into()],
+            ]),
+            [
+                "東京ストア本店  shopify   active",
+                "Plain Name      bigquery  active",
+                "大阪            meta_ads  inactive",
+            ]
         );
     }
 }

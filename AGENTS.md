@@ -248,12 +248,18 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   stopping with clap's usage error; optional values are not asked. `rust/src/ask.rs` (the `menu` feature) owns it:
   `VALUES` says how each value is asked for, and a value not there keeps the usage error. A value with choices opens an
   arrow-key list with type-to-filter (`output::choose_value`: the menu's inquire Select and hint, plain-text rows padded
-  per column, filtered by substring in any case): an app of the account's as `apps list` lists them (newest first,
+  per column in the screen's columns, a wide character such as 東 taking two as inquire and the terminal count it
+  (`unicode-width`; `output::menu_page` fits the list to the screen by them too), filtered by substring in any case):
+  an app of the account's as `apps list` lists them (newest first,
   pages of 100, at most 5 like a short-ID lookup; with more, the hint ends `· newest 500 shown`), a platform ready to
   connect as `catalog list` lists them by default (VE-3829). Free text (`apps create --name`) is a one-line question
-  (`output::ask_text`, refusing an empty answer). Each is titled with the command as the tree names it
-  (`vendo apps get`, `vendo apps create --type`), and the answered line reads like the command so far
-  (`? vendo apps get a1b2c3d4... (Menu Shop)`). The values go into the words where they would have been typed (an
+  (`output::ask_text`, refusing an empty answer). Keys typed before a list or question opens (while the list loads, or
+  with the Enter that answered the menu or the list before) are thrown away (`output::discard_typed_ahead`), so a stray
+  Enter chooses nothing unseen. Each is titled with the command as the tree names it
+  (`vendo apps get`, `vendo apps create --type`), and the answered line reads like the command so far,
+  `vendo apps get a1b2c3d4... (Menu Shop)`, after inquire's mark for an answer: a green `>`, or `?` with `NO_COLOR`
+  (as the tests run); the title of an open list or question and the `<canceled>` line start with `?` either way. The
+  values go into the words where they would have been typed (an
   option as `--type=shopify`, an ID whole) and `cli::parse` parses again, once, so global options, `MOVED`, the y/N
   of a delete, `--dry-run`, `--json` and `--output` apply as typed. Before anything is asked: no API key, or an
   unknown `VENDO_PROFILE`, is that error, and a list of the account's without an account is the client's "No account
