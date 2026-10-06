@@ -2301,6 +2301,75 @@ async fn catalog_list_shows_the_ready_platforms_and_counts_from_meta() {
 }
 
 #[tokio::test]
+async fn catalog_list_footer_hint_repeats_the_filters() {
+    // Yalcin, 2026-10-06: the counts are taken within --category and --role, so the hint that lists
+    // the rest keeps them, --category first and the values as typed.
+    let server = MockServer::start().await;
+    let meta = json!({ "total": 9, "selfServeTotal": 9, "requestAccessTotal": 5 });
+    let body = json!({ "data": [platform("google_ads", "Google Ads", "self_serve", Value::Null)], "meta": meta });
+    serve_catalog(&server, false, body).await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, hint) in [
+        (&["--category", "advertising"][..], "vendo catalog list --category advertising --all"),
+        (&["--role", "source"], "vendo catalog list --role source --all"),
+        (&["--role", "destination", "--category", "crm"], "vendo catalog list --category crm --role destination --all"),
+        (&[], "vendo catalog list --all"),
+    ] {
+        let out = cells(ok_output(&sandbox.run(&[&["catalog", "list"][..], args].concat())).as_bytes());
+        assert_eq!(out.last().cloned(), Some(vec![format!("9 ready · 5 more on request ({hint})")]), "{args:?}");
+    }
+}
+
+#[tokio::test]
+async fn catalog_get_shows_the_availability_the_list_shows() {
+    // Yalcin, 2026-10-06: `Availability:` with the list's words, from the API's `availability`, in
+    // place of `Self-Serve: yes/no`; `--json` prints the response as sent, as before.
+    let server = MockServer::start().await;
+    let entries = [
+        platform("google_ads", "Google Ads", "self_serve", Value::Null),
+        platform("tiktok_ads", "TikTok Ads", "request_access", json!("request_access_required")),
+    ];
+    for entry in &entries {
+        serve(
+            &server,
+            "GET",
+            &format!("{CATALOG}/{}", entry["appType"].as_str().unwrap()),
+            200,
+            json!({ "data": entry }),
+        )
+        .await;
+    }
+    let sandbox = Sandbox::new(&server.uri());
+    let view = |app_type: &str, name: &str, words: &str| {
+        format!(
+            "\n{name} ({app_type})\n\n  Category:      ads\n  Roles:         source\n  Availability:  {words}\n  \
+             Lifecycle:     live\n  Provider:      vendo\n\n  {name} connector (synthetic)\n"
+        )
+    };
+    assert_eq!(ok_output(&sandbox.run(&["catalog", "get", "google_ads"])), view("google_ads", "Google Ads", "ready"));
+    assert_eq!(
+        ok_output(&sandbox.run(&["catalog", "get", "tiktok_ads"])),
+        view("tiktok_ads", "TikTok Ads", "on request")
+    );
+    let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&["catalog", "get", "tiktok_ads", "--json"])))
+        .expect("--json prints JSON");
+    assert_eq!(printed, json!({ "data": entries[1] }));
+}
+
+#[tokio::test]
+async fn catalog_get_from_an_api_without_availability_keeps_the_self_serve_line() {
+    // Before VE-2436 the route sent `selfServe` and no `availability`: the view as it was.
+    let server = MockServer::start().await;
+    let old = json!({ "appType": "stripe", "displayName": "Stripe", "category": "payments",
+                      "supportedRoles": ["source"], "selfServe": true });
+    serve(&server, "GET", &format!("{CATALOG}/stripe"), 200, json!({ "data": old })).await;
+    assert_eq!(
+        ok_output(&Sandbox::new(&server.uri()).run(&["catalog", "get", "stripe"])),
+        "\nStripe (stripe)\n\n  Category:    payments\n  Roles:       source\n  Self-Serve:  yes\n"
+    );
+}
+
+#[tokio::test]
 async fn catalog_list_footer_leaves_out_an_empty_request_access_count() {
     let server = MockServer::start().await;
     let meta = json!({ "total": 1, "selfServeTotal": 1, "requestAccessTotal": 0 });

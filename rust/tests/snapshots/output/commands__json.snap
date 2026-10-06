@@ -2351,7 +2351,7 @@ exit: 0
         {
           "name": "list",
           "path": "catalog list",
-          "description": "List all available platforms",
+          "description": "List the platforms ready to connect",
           "aliases": [],
           "arguments": [],
           "options": [

@@ -6,7 +6,7 @@ Browse available platforms
 Usage: vendo catalog [OPTIONS] <COMMAND>
 
 Commands:
-  list  List all available platforms
+  list  List the platforms ready to connect
   get   Get details for a specific platform
 
 Options:

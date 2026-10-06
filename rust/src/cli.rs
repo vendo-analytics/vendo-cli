@@ -1113,7 +1113,7 @@ pub enum IntegrationsCommand {
 
 #[derive(Subcommand)]
 pub enum CatalogCommand {
-    /// List all available platforms
+    /// List the platforms ready to connect
     #[command(
         after_help = "Examples:\n  $ vendo catalog list\n  $ vendo catalog list --role source\n  $ vendo catalog list --output appType"
     )]

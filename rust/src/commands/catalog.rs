@@ -23,28 +23,39 @@ fn self_serve(item: &Value) -> String {
     if item.get("selfServe").is_some_and(js_truthy) { green("yes") } else { dim("no") }
 }
 
-/// The Availability column (VE-3829): the API's own `availability` in plain words. The route sends
-/// `self_serve` or `request_access` (it drops `hidden` entries); any other value prints as sent, and
-/// an API that sends none (before VE-2436) leaves the cell empty.
+/// The API's own `availability` in plain words (VE-3829), as the list's Availability column and
+/// `catalog get` show it. The routes send `self_serve` or `request_access` (they drop `hidden`
+/// entries); any other value prints as sent. `None` when the API sends none (before VE-2436).
+fn availability_words(item: &Value) -> Option<String> {
+    let availability = Job(item).text("availability")?;
+    Some(match availability.as_str() {
+        "self_serve" => green("ready"),
+        "request_access" => dim("on request"),
+        _ => availability,
+    })
+}
+
+/// The Availability column: empty when the API sends no `availability`, with no guess from `selfServe`.
 fn availability(item: &Value) -> String {
-    match Job(item).text("availability").as_deref() {
-        Some("self_serve") => green("ready"),
-        Some("request_access") => dim("on request"),
-        other => other.unwrap_or_default().to_string(),
-    }
+    availability_words(item).unwrap_or_default()
 }
 
 /// `35 ready · 560 more on request (vendo catalog list --all)`, from the counts in the response's
-/// `meta`. The API counts after `--category` and `--role`, so the footer does too. `None` when the
-/// API sends no counts (before VE-2436): the plain count line stays.
-fn ready_footer(res: &Value) -> Option<String> {
+/// `meta`. The API counts after `--category` and `--role`, so the footer does too, and its hint
+/// repeats them, `--category` first and the values as given (Yalcin, 2026-10-06), so it lists the
+/// platforms counted. An empty value filters nothing at the API, so the hint leaves it out. `None`
+/// when the API sends no counts (before VE-2436): the plain count line stays.
+fn ready_footer(res: &Value, category: Option<&str>, role: Option<&str>) -> Option<String> {
     let count = |key: &str| res.get("meta")?.get(key)?.as_u64();
     let (ready, on_request) = (count("selfServeTotal")?, count("requestAccessTotal")?);
-    Some(if on_request == 0 {
-        format!("{ready} ready")
-    } else {
-        format!("{ready} ready · {on_request} more on request (vendo catalog list --all)")
-    })
+    if on_request == 0 {
+        return Some(format!("{ready} ready"));
+    }
+    let filters: String = [("--category", category), ("--role", role)]
+        .into_iter()
+        .filter_map(|(flag, value)| value.filter(|v| !v.is_empty()).map(|v| format!(" {flag} {v}")))
+        .collect();
+    Some(format!("{ready} ready · {on_request} more on request (vendo catalog list{filters} --all)"))
 }
 
 pub async fn list(
@@ -58,7 +69,11 @@ pub async fn list(
     let client = ctx.client()?;
     // The route returns every entry at once (no pagination); without the flag it leaves out the
     // request-access ones.
-    let query = [("category", category), ("role", role), ("include_request_access", all.then(|| "true".to_string()))];
+    let query = [
+        ("category", category.clone()),
+        ("role", role.clone()),
+        ("include_request_access", all.then(|| "true".to_string())),
+    ];
     let res = run_action("Fetching catalog...", client.get("/catalog", &query)).await?;
     let rows = payload(&res).as_array().cloned().unwrap_or_default();
     match resolve_output_mode(json, output.as_deref()) {
@@ -78,7 +93,7 @@ pub async fn list(
             }
             println!("{grid}");
             // `--all` shows every entry, so it keeps the plain count line.
-            match if all { None } else { ready_footer(&res) } {
+            match if all { None } else { ready_footer(&res, category.as_deref(), role.as_deref()) } {
                 Some(footer) => println!("{}", dim(&footer)),
                 None => print_count(rows.len() as u64, "platform"),
             }
@@ -103,6 +118,15 @@ pub async fn get(ctx: &Ctx, app_type: &str, json: bool) -> Result<()> {
 /// The `catalog get` view, with the TS CLI's `${…}` rendering and truthiness checks.
 fn catalog_lines(item: &Value) -> Vec<String> {
     let field = |key: &str| item.get(key);
+    // The list's words for the API's `availability` (Yalcin, 2026-10-06); an API that sends none
+    // (before VE-2436) keeps the Self-Serve line.
+    let (availability_label, availability_value) = match availability_words(item) {
+        Some(words) => ("Availability:", words),
+        None => ("Self-Serve:", self_serve(item)),
+    };
+    // Values line up two spaces after the longest label, as they did after `Self-Serve:`.
+    let width = availability_label.len() + 2;
+    let row = |label: &str, value: &str| format!("  {label:<width$}{value}");
     let mut lines = vec![
         String::new(),
         format!(
@@ -111,15 +135,15 @@ fn catalog_lines(item: &Value) -> Vec<String> {
             dim(&format!("({})", js_template(field("appType"))))
         ),
         String::new(),
-        format!("  Category:    {}", js_template(field("category"))),
-        format!("  Roles:       {}", roles(item)),
-        format!("  Self-Serve:  {}", self_serve(item)),
+        row("Category:", &js_template(field("category"))),
+        row("Roles:", &roles(item)),
+        row(availability_label, &availability_value),
     ];
     if let Some(lifecycle) = js_if(field("lifecycle")) {
-        lines.push(format!("  Lifecycle:   {lifecycle}"));
+        lines.push(row("Lifecycle:", &lifecycle));
     }
     if let Some(provider) = js_if(field("provider")) {
-        lines.push(format!("  Provider:    {provider}"));
+        lines.push(row("Provider:", &provider));
     }
     if let Some(description) = js_if(field("description")) {
         lines.extend([String::new(), format!("  {description}")]);
@@ -181,8 +205,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn get_shows_the_availability_the_list_shows_in_place_of_self_serve() {
+        // Yalcin, 2026-10-06 (VE-3829): the list's words from the API's `availability`, not `selfServe`;
+        // the labels line up two spaces after the longest one, as they did after `Self-Serve:`.
+        let item = |availability: Value| {
+            json!({ "appType": "tiktok_ads", "displayName": "TikTok Ads", "category": "advertising",
+                    "supportedRoles": ["source"], "selfServe": true, "availability": availability,
+                    "lifecycle": "ga", "provider": "tiktok" })
+        };
+        for (availability, words) in
+            [(json!("self_serve"), "ready"), (json!("request_access"), "on request"), (json!("beta"), "beta")]
+        {
+            assert_eq!(
+                catalog_lines(&item(availability.clone())),
+                [
+                    "",
+                    "TikTok Ads (tiktok_ads)",
+                    "",
+                    "  Category:      advertising",
+                    "  Roles:         source",
+                    &format!("  Availability:  {words}"),
+                    "  Lifecycle:     ga",
+                    "  Provider:      tiktok",
+                ],
+                "{availability}"
+            );
+        }
+        // No availability (an API from before VE-2436): the view as it was, Self-Serve line and all.
+        assert_eq!(
+            catalog_lines(&item(Value::Null))[3..6],
+            ["  Category:    advertising", "  Roles:       source", "  Self-Serve:  yes"]
+        );
+    }
+
+    #[test]
     fn get_prints_missing_null_and_falsy_fields_like_the_ts_cli() {
-        // Expected lines from the TS CLI 0.3.1 run against a local stub with the same body (VE-3728).
+        // Expected lines from the TS CLI 0.3.1 run against a local stub with the same body (VE-3728),
+        // which has no `availability`: an API from before VE-2436 keeps the Self-Serve line.
         let item = json!({
             "appType": "x", "displayName": null, "supportedRoles": ["source", null], "selfServe": "yes", "lifecycle": 0,
             "provider": "", "description": "d", "documentationUrl": null,
@@ -238,8 +297,34 @@ mod tests {
     }
 
     #[test]
+    fn the_footer_hint_repeats_the_filters() {
+        // Yalcin, 2026-10-06: the hint lists the platforms the counts counted, so it keeps `--category`
+        // and `--role`, in that order, with the values as given.
+        let res = json!({ "data": [], "meta": { "total": 9, "selfServeTotal": 9, "requestAccessTotal": 5 } });
+        let hint = |category: Option<&str>, role: Option<&str>| ready_footer(&res, category, role);
+        let on_request = |command: &str| Some(format!("9 ready · 5 more on request ({command})"));
+        assert_eq!(hint(Some("advertising"), None), on_request("vendo catalog list --category advertising --all"));
+        assert_eq!(hint(None, Some("source")), on_request("vendo catalog list --role source --all"));
+        assert_eq!(
+            hint(Some("crm"), Some("destination")),
+            on_request("vendo catalog list --category crm --role destination --all")
+        );
+        assert_eq!(
+            hint(Some("Ads"), Some("Source")),
+            on_request("vendo catalog list --category Ads --role Source --all")
+        );
+        assert_eq!(hint(None, None), on_request("vendo catalog list --all"), "no filters: the text as decided");
+        // An empty value filters nothing at the API (`if (categoryFilter)`), so the hint leaves it out
+        // rather than print a command that does not parse.
+        assert_eq!(hint(Some(""), Some("source")), on_request("vendo catalog list --role source --all"));
+        // Nothing on request: no hint to repeat them in.
+        let none = json!({ "data": [], "meta": { "total": 2, "selfServeTotal": 2, "requestAccessTotal": 0 } });
+        assert_eq!(ready_footer(&none, Some("crm"), Some("source")).as_deref(), Some("2 ready"));
+    }
+
+    #[test]
     fn the_footer_takes_its_counts_from_meta() {
-        let footer = |meta: Value| ready_footer(&json!({ "data": [], "meta": meta }));
+        let footer = |meta: Value| ready_footer(&json!({ "data": [], "meta": meta }), None, None);
         assert_eq!(
             footer(json!({ "total": 35, "selfServeTotal": 35, "requestAccessTotal": 560 })).as_deref(),
             Some("35 ready · 560 more on request (vendo catalog list --all)")
@@ -253,7 +338,7 @@ mod tests {
             Some("0 ready · 4 more on request (vendo catalog list --all)")
         );
         // An API without the counts (before VE-2436), or with only one of them: the plain count line.
-        assert_eq!(ready_footer(&json!({ "data": [] })), None);
+        assert_eq!(ready_footer(&json!({ "data": [] }), None, None), None);
         assert_eq!(footer(json!({ "total": 3 })), None);
         assert_eq!(footer(json!({ "selfServeTotal": 3 })), None);
         assert_eq!(footer(json!({ "selfServeTotal": 3, "requestAccessTotal": "1" })), None);

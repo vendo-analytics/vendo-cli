@@ -40,7 +40,7 @@ jobs get                        Get job details
 jobs cancel                     Cancel a pending or running job
 jobs watch                      Watch running and pending jobs (live polling)
 jobs tail                       Tail a single job or the latest job for a source/destination
-catalog list                    List all available platforms
+catalog list                    List the platforms ready to connect
 catalog get                     Get details for a specific platform
 dictionary list                 List catalog definitions (events by default)
 dictionary search               Search one subject type by text in subject ID, name and description

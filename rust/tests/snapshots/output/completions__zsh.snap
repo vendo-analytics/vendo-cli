@@ -1689,7 +1689,7 @@ _vendo__subcmd__apps__subcmd__update_commands() {
 (( $+functions[_vendo__subcmd__catalog_commands] )) ||
 _vendo__subcmd__catalog_commands() {
     local commands; commands=(
-'list:List all available platforms' \
+'list:List the platforms ready to connect' \
 'get:Get details for a specific platform' \
 'credential-schema:Print the credential fields required to create an app of this type' \
     )
@@ -1892,7 +1892,7 @@ _vendo__subcmd__help__subcmd__apps__subcmd__update_commands() {
 (( $+functions[_vendo__subcmd__help__subcmd__catalog_commands] )) ||
 _vendo__subcmd__help__subcmd__catalog_commands() {
     local commands; commands=(
-'list:List all available platforms' \
+'list:List the platforms ready to connect' \
 'get:Get details for a specific platform' \
 'credential-schema:Print the credential fields required to create an app of this type' \
     )

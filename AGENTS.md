@@ -65,12 +65,18 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   set it never opens a browser. Tests act as the browser (`login_at_browser` in `rust/tests/cli.rs` visits the printed
   sign-in URL on the stub); stdin stays closed, so no real browser opens. The one test of a piped stdin (VE-3826)
   writes no line end and keeps the pipe open until `vendo` has exited (`OnTerminal` stops it first on a failure).
-- Catalog (VE-3829, CLI 1.1): `vendo catalog list` shows what the API lists by default, the platforms ready to
-  connect, and ends with a footer built from the response's `meta` counts (`35 ready · 560 more on request (vendo
-  catalog list --all)`; only `35 ready` when none is on request; the plain count line when the API sends no counts).
-  `--all` sends `include_request_access=true` (the route has no pagination) and ends with the count line. The
-  Availability column says the API's `availability` in plain words: `self_serve` "ready", `request_access` "on
-  request", anything else as sent. `--json` prints the response as sent; without `--all` the request is unchanged.
+- Catalog (VE-3829, CLI 1.1): `vendo catalog list` ("List the platforms ready to connect", Yalcin 2026-10-06) shows
+  what the API lists by default, the platforms ready to connect, and ends with a footer built from the response's
+  `meta` counts (`35 ready · 560 more on request (vendo catalog list --all)`; only `35 ready` when none is on
+  request; the plain count line when the API sends no counts). The API counts within `--category` and `--role`, so
+  the hint repeats them, `--category` first and the values as typed (`(vendo catalog list --category advertising
+  --all)`; Yalcin, 2026-10-06); an empty value, which the API ignores, is left out. `--all` sends
+  `include_request_access=true` (the route has no pagination) and ends with the count line. The Availability column
+  says the API's `availability` in plain words: `self_serve` "ready", `request_access` "on request", anything else
+  as sent. `catalog get` shows the same words and colours on an `Availability:` line in place of `Self-Serve:
+  yes/no`, its labels widened to line up with it (Yalcin, 2026-10-06); an API that sends no `availability` (before
+  VE-2436) keeps the old view, Self-Serve line and all. `--json` prints the response as sent, list and get alike;
+  without `--all` the request is unchanged.
 - Completions (VE-3830, CLI 1.1): `vendo completions <shell>` prints the script the installer saves. Bare, it exits 0
   and says on stderr what it does, whether completions are set up for the shell `$SHELL` names, and how to set them
   up, and stdout stays empty: without `--json`, stdout carries nothing but a script, so an `eval` or redirect that

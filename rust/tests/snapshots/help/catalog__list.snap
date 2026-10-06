@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-List all available platforms
+List the platforms ready to connect
 
 Usage: vendo catalog list [OPTIONS]
 

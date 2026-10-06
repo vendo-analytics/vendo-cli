@@ -7,11 +7,11 @@ exit: 0
 
 Shopify (shopify)
 
-  Category:    ecommerce
-  Roles:       source
-  Self-Serve:  yes
-  Lifecycle:   ga
-  Provider:    shopify
+  Category:      ecommerce
+  Roles:         source
+  Availability:  ready
+  Lifecycle:     ga
+  Provider:      shopify
 
   Shopify connector (synthetic description)
 
