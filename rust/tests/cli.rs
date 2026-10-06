@@ -102,6 +102,9 @@ fn a_closed_stdout_is_ignored_like_nodes_console() {
         assert_eq!(out.status.code(), Some(0), "completions {shell}: {}", text(&out.stderr));
         assert_eq!(text(&out.stderr), "");
     }
+    // Bare, it explains itself on stderr (VE-3830).
+    let out = run_with_closed_output(&sandbox, &["completions"], true);
+    assert_eq!(out.status.code(), Some(0));
     let out = run_with_closed_output(&sandbox, &["--version"], false);
     assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), String::new()));
 }

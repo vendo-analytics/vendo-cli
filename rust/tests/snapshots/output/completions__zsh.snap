@@ -1,0 +1,2563 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo completions zsh
+exit: 0
+--- stdout ---
+#compdef vendo
+
+autoload -U is-at-least
+
+_vendo() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-V[Print version]' \
+'--version[Print version]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo_commands" \
+"*::: :->vendo" \
+&& ret=0
+    case $state in
+    (vendo)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-command-$line[1]:"
+        case $line[1] in
+            (login)
+_arguments "${_arguments_options[@]}" : \
+'--api-key=[API key for headless/CI login (requires --account)]:key:_default' \
+'--account=[Account ID for headless/CI login (requires --api-key)]:id:_default' \
+'--env=[Target instance\: "staging" or "prod" (default\: VENDO_API_URL/profile, else prod)]:environment:(staging prod)' \
+'--base-url=[Explicit API base URL (overrides --env)]:url:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--force[Sign in through the browser again, even when the saved API key works]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(logout)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--all[Remove every saved profile, not just the active one]' \
+'-y[Skip the confirmation prompt for --all]' \
+'--yes[Skip the confirmation prompt for --all]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(profile)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__profile_commands" \
+"*::: :->profile" \
+&& ret=0
+
+    case $state in
+    (profile)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-profile-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(switch)
+_arguments "${_arguments_options[@]}" : \
+'--account=[Switch by account ID instead of profile name]:accountId:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'::profile_name:_default' \
+&& ret=0
+;;
+(set)
+_arguments "${_arguments_options[@]}" : \
+'--api-key=[API key for authentication]:key:_default' \
+'--base-url=[Base URL for the Vendo API]:url:_default' \
+'--account=[Account ID to operate on]:id:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(status)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(whoami)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(apps)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__apps_commands" \
+"*::: :->apps" \
+&& ret=0
+
+    case $state in
+    (apps)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-apps-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--state=[Filter by state (active, inactive)]:state:(active inactive)' \
+'--type=[Filter by app type]:type:_default' \
+'--role=[Filter by capability (source, destination) — derived from permissions]:role:(source destination)' \
+'--limit=[Number of results]:n:_default' \
+'--offset=[Pagination offset]:n:_default' \
+'--output=[Print a single field per row (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(diagnose)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(pause)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(resume)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(delete)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'-y[Skip confirmation prompt]' \
+'--yes[Skip confirmation prompt]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(create)
+_arguments "${_arguments_options[@]}" : \
+'--type=[App type (e.g. google_ads, onesignal). See\: vendo catalog list]:appType:_default' \
+'--name=[Human-readable name for this app]:displayName:_default' \
+'--role=[Comma-separated capability\: source, destination (derives default permissions)]:role:(source destination)' \
+'--permissions=[Comma-separated granular permissions (e.g. performance_data,send_conversions). Overrides --role.]:permissions:(performance_data read_leads read_organic_content send_conversions read_warehouse write_warehouse sync_audiences campaign_changes campaign_adjust_bids campaign_adjust_spend campaign_toggle google_tag_manager google_analytics)' \
+'--credentials-file=[Path to a JSON file with the credential payload]:path:_default' \
+'--config-file=[Path to a JSON file with app-specific config]:path:_default' \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : \
+'--name=[New display name]:displayName:_default' \
+'--role=[Comma-separated capability\: source, destination (derives permissions)]:role:(source destination)' \
+'--permissions=[Comma-separated granular permissions. Overrides --role.]:permissions:(performance_data read_leads read_organic_content send_conversions read_warehouse write_warehouse sync_audiences campaign_changes campaign_adjust_bids campaign_adjust_spend campaign_toggle google_tag_manager google_analytics)' \
+'--credentials-file=[Replace credentials from a JSON file]:path:_default' \
+'--config-file=[Replace config from a JSON file]:path:_default' \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(sources)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__sources_commands" \
+"*::: :->sources" \
+&& ret=0
+
+    case $state in
+    (sources)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-sources-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--state=[Filter by state (active, inactive)]:state:(active inactive)' \
+'--type=[Filter by sync type]:type:_default' \
+'--app=[Filter by app ID]:appId:_default' \
+'--limit=[Number of results]:n:_default' \
+'--offset=[Pagination offset]:n:_default' \
+'--output=[Print a single field per row (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(sync)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id for job ID)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--watch[Watch the job until it completes]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(pause)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(resume)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(delete)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'-y[Skip confirmation prompt]' \
+'--yes[Skip confirmation prompt]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(create)
+_arguments "${_arguments_options[@]}" : \
+'--app=[App ID (must have source role)]:appId:_default' \
+'--sync-type=[Connector type (e.g. google_ads)]:syncType:_default' \
+'--import-tasks=[Comma-separated import task IDs (streams to pull)]:tasks:_default' \
+'--frequency=[Sync frequency value]:value:_default' \
+'--unit=[Sync frequency unit (hours, days)]:unit:(hours days)' \
+'--config-file=[Path to a JSON file with source-specific config]:path:_default' \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--run-now[Trigger an initial sync immediately after creation]' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : \
+'--import-tasks=[Comma-separated import task IDs]:tasks:_default' \
+'--frequency=[Sync frequency value]:value:_default' \
+'--unit=[Sync frequency unit (hours, days)]:unit:(hours days)' \
+'--config-file=[Replace config from a JSON file]:path:_default' \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(destinations)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__destinations_commands" \
+"*::: :->destinations" \
+&& ret=0
+
+    case $state in
+    (destinations)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-destinations-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--state=[Filter by state (active, inactive)]:state:(active inactive)' \
+'--status=[Filter by status]:status:(pending running completed warning errored auth_expired failed_permanently paused draft)' \
+'--type=[Filter by data type]:type:_default' \
+'--limit=[Number of results]:n:_default' \
+'--offset=[Pagination offset]:n:_default' \
+'--output=[Print a single field per row (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(sync)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id for job ID)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--watch[Watch the job until it completes]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(refresh-source)
+_arguments "${_arguments_options[@]}" : \
+'--from=[Window start — ISO datetime or YYYY-MM-DD (default\: 7 days before --to)]:date:_default' \
+'--to=[Window end — ISO datetime or YYYY-MM-DD (default\: now)]:date:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(pause)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(resume)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(delete)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'-y[Skip confirmation prompt]' \
+'--yes[Skip confirmation prompt]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(create)
+_arguments "${_arguments_options[@]}" : \
+'--dest-app=[Destination app ID (must have destination role)]:appId:_default' \
+'--source-app=[Source app ID (optional for some data types)]:appId:_default' \
+'--data-type=[Data type (e.g. events, user_properties, conversions)]:type:_default' \
+'--config-file=[Path to JSON with { global?, tasks\: \[...\] }]:path:_default' \
+'--schedule-file=[Path to JSON with schedule overrides]:path:_default' \
+'--frequency=[Sync frequency value]:value:_default' \
+'--unit=[Sync frequency unit (hours, days, weeks, months)]:unit:(hours days weeks months)' \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--run-now[Trigger first sync immediately]' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : \
+'--config-file=[Replace config from a JSON file]:path:_default' \
+'--schedule-file=[Replace schedule from a JSON file]:path:_default' \
+'--frequency=[Sync frequency value]:value:_default' \
+'--unit=[Sync frequency unit]:unit:(hours days weeks months)' \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(jobs)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__jobs_commands" \
+"*::: :->jobs" \
+&& ret=0
+
+    case $state in
+    (jobs)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-jobs-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--status=[Filter by status (pending, running, completed, failed, cancelled)]:status:(queued pending running completed warning failed canceled)' \
+'--type=[Filter by job type (import, export)]:type:(import export data_quality attribution)' \
+'--source=[Filter by source ID]:sourceId:_default' \
+'--integration=[Filter by destination ID]:integrationId:_default' \
+'--limit=[Number of results]:n:_default' \
+'--offset=[Pagination offset]:n:_default' \
+'--output=[Print a single field per row (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':job_id:_default' \
+&& ret=0
+;;
+(cancel)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print a single field (e.g. id)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'-y[Skip confirmation prompt]' \
+'--yes[Skip confirmation prompt]' \
+'--dry-run[Preview the action without executing]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':job_id:_default' \
+&& ret=0
+;;
+(watch)
+_arguments "${_arguments_options[@]}" : \
+'--interval=[Polling interval in seconds]:seconds:_default' \
+'--source=[Filter by source ID]:sourceId:_default' \
+'--integration=[Filter by destination ID]:integrationId:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(tail)
+_arguments "${_arguments_options[@]}" : \
+'--source=[Tail the latest job for a source]:sourceId:_default' \
+'--integration=[Tail the latest job for a destination]:integrationId:_default' \
+'--interval=[Polling interval in seconds]:seconds:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--next[Wait for the next new job when tailing a source or destination]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'::job_id:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(catalog)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__catalog_commands" \
+"*::: :->catalog" \
+&& ret=0
+
+    case $state in
+    (catalog)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-catalog-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--category=[Filter by category]:category:(advertising analytics crm mobile_attribution payment platforms messaging webinar data ai)' \
+'--role=[Filter by role (source, destination)]:role:(source destination)' \
+'--output=[Print a single field per row (e.g. appType)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--all[List every platform, including the ones on request]' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':app_type:_default' \
+&& ret=0
+;;
+(credential-schema)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':app_type:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(dictionary)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__dictionary_commands" \
+"*::: :->dictionary" \
+&& ret=0
+
+    case $state in
+    (dictionary)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-dictionary-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--type=[Filter by subject type (event, prop, group, column, metric, model, audience)]:type:(event prop group column metric model audience)' \
+'-q+[Text search across subject ID, name and description]:text:_default' \
+'--query=[Text search across subject ID, name and description]:text:_default' \
+'--limit=[Number of results]:n:_default' \
+'--offset=[Pagination offset]:n:_default' \
+'--output=[Print a single field per row (e.g. subjectId, displayName)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(search)
+_arguments "${_arguments_options[@]}" : \
+'--type=[Filter by subject type (event, prop, group, column, metric, model, audience)]:type:(event prop group column metric model audience)' \
+'--limit=[Number of results]:n:_default' \
+'--offset=[Pagination offset]:n:_default' \
+'--output=[Print a single field per row (e.g. subjectId, displayName)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':query:_default' \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':subject_id:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(metrics)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__metrics_commands" \
+"*::: :->metrics" \
+&& ret=0
+
+    case $state in
+    (metrics)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-metrics-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--status=[Filter by status (draft, active, archived)]:status:(draft active archived)' \
+'--limit=[Number of results]:n:_default' \
+'--offset=[Pagination offset]:n:_default' \
+'--output=[Print a single field per row (e.g. id, name)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(create)
+_arguments "${_arguments_options[@]}" : \
+'--name=[Metric name]:name:_default' \
+'--definition=[QuerySpec v2 definition JSON file]:file:_default' \
+'--description=[Description]:desc:_default' \
+'--format=[Display format\: number, currency, percentage, multiplier]:format:(number currency percentage multiplier)' \
+'--unit=[Unit suffix (e.g., "\$", "%")]:unit:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : \
+'--name=[New name]:name:_default' \
+'--description=[New description]:desc:_default' \
+'--definition=[New QuerySpec v2 definition JSON file]:file:_default' \
+'--format=[New format]:format:(number currency percentage multiplier)' \
+'--unit=[New unit]:unit:_default' \
+'--status=[New status]:status:(draft active archived)' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(activate)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(delete)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'-y[Skip confirmation]' \
+'--yes[Skip confirmation]' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(models)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__models_commands" \
+"*::: :->models" \
+&& ret=0
+
+    case $state in
+    (models)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-models-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--type=[Filter by data type]:type:_default' \
+'--limit=[Number of results]:n:_default' \
+'--offset=[Pagination offset]:n:_default' \
+'--output=[Print a single field per row (e.g. id, name)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--valid[Only show valid models]' \
+'--invalid[Only show invalid models]' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(measurement)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__measurement_commands" \
+"*::: :->measurement" \
+&& ret=0
+
+    case $state in
+    (measurement)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-measurement-command-$line[1]:"
+        case $line[1] in
+            (methodologies)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__measurement__subcmd__methodologies_commands" \
+"*::: :->methodologies" \
+&& ret=0
+
+    case $state in
+    (methodologies)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-measurement-methodologies-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--output=[Print one field per row (e.g. id, name)]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--no-system[Exclude system-seeded methodologies]' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(rules)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__measurement__subcmd__rules_commands" \
+"*::: :->rules" \
+&& ret=0
+
+    case $state in
+    (rules)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-measurement-rules-command-$line[1]:"
+        case $line[1] in
+            (preview)
+_arguments "${_arguments_options[@]}" : \
+'--from=[Inclusive ISO date (YYYY-MM-DD)]:date:_default' \
+'--to=[Inclusive ISO date (YYYY-MM-DD)]:date:_default' \
+'--limit=[Max distinct contexts to return]:n:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(ltv)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__measurement__subcmd__ltv_commands" \
+"*::: :->ltv" \
+&& ret=0
+
+    case $state in
+    (ltv)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-measurement-ltv-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--granularity=[daily | weekly | monthly]:value:(daily weekly monthly)' \
+'--segment=[Segment key (e.g. "all", "channel\:meta")]:key:_default' \
+'--from=[Inclusive ISO cohort period (YYYY-MM-DD)]:period:_default' \
+'--to=[Inclusive ISO cohort period (YYYY-MM-DD)]:period:_default' \
+'--limit=[Max rows]:n:_default' \
+'--output=[Print one field per row]:field:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--no-predicted[Skip the naive-decay prediction join]' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(cohort)
+_arguments "${_arguments_options[@]}" : \
+'--granularity=[daily | weekly | monthly]:value:(daily weekly monthly)' \
+'--segment=[Segment key]:key:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':period:_default' \
+&& ret=0
+;;
+(customer)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':customer_id:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(signals)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_vendo__subcmd__measurement__subcmd__signals_commands" \
+"*::: :->signals" \
+&& ret=0
+
+    case $state in
+    (signals)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-measurement-signals-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(click-path)
+_arguments "${_arguments_options[@]}" : \
+'--sample-limit=[Number of recent SignalEstimates to fetch (1..500)]:n:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(mcp)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output only the mcpServers JSON block]' \
+'--show-key[Embed your actual API key instead of a \${VENDO_API_KEY} placeholder]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(completions)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':shell:(bash zsh fish)' \
+&& ret=0
+;;
+(doctor)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(self-update)
+_arguments "${_arguments_options[@]}" : \
+'--version=[Install a specific version]:version:_default' \
+'--profile=[Use a specific account profile]:name:_default' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-command-$line[1]:"
+        case $line[1] in
+            (login)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(logout)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(profile)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__profile_commands" \
+"*::: :->profile" \
+&& ret=0
+
+    case $state in
+    (profile)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-profile-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(switch)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(set)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(status)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(whoami)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(apps)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__apps_commands" \
+"*::: :->apps" \
+&& ret=0
+
+    case $state in
+    (apps)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-apps-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(diagnose)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(pause)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(resume)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(delete)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(create)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(sources)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__sources_commands" \
+"*::: :->sources" \
+&& ret=0
+
+    case $state in
+    (sources)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-sources-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(sync)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(pause)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(resume)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(delete)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(create)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(destinations)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__destinations_commands" \
+"*::: :->destinations" \
+&& ret=0
+
+    case $state in
+    (destinations)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-destinations-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(sync)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(refresh-source)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(pause)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(resume)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(delete)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(create)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(jobs)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__jobs_commands" \
+"*::: :->jobs" \
+&& ret=0
+
+    case $state in
+    (jobs)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-jobs-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(cancel)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(watch)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(tail)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(catalog)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__catalog_commands" \
+"*::: :->catalog" \
+&& ret=0
+
+    case $state in
+    (catalog)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-catalog-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(credential-schema)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(dictionary)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__dictionary_commands" \
+"*::: :->dictionary" \
+&& ret=0
+
+    case $state in
+    (dictionary)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-dictionary-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(search)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(metrics)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__metrics_commands" \
+"*::: :->metrics" \
+&& ret=0
+
+    case $state in
+    (metrics)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-metrics-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(create)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(activate)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(delete)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(models)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__models_commands" \
+"*::: :->models" \
+&& ret=0
+
+    case $state in
+    (models)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-models-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(measurement)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__measurement_commands" \
+"*::: :->measurement" \
+&& ret=0
+
+    case $state in
+    (measurement)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-measurement-command-$line[1]:"
+        case $line[1] in
+            (methodologies)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__measurement__subcmd__methodologies_commands" \
+"*::: :->methodologies" \
+&& ret=0
+
+    case $state in
+    (methodologies)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-measurement-methodologies-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(rules)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__measurement__subcmd__rules_commands" \
+"*::: :->rules" \
+&& ret=0
+
+    case $state in
+    (rules)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-measurement-rules-command-$line[1]:"
+        case $line[1] in
+            (preview)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(ltv)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__measurement__subcmd__ltv_commands" \
+"*::: :->ltv" \
+&& ret=0
+
+    case $state in
+    (ltv)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-measurement-ltv-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(cohort)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(customer)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(signals)
+_arguments "${_arguments_options[@]}" : \
+":: :_vendo__subcmd__help__subcmd__measurement__subcmd__signals_commands" \
+"*::: :->signals" \
+&& ret=0
+
+    case $state in
+    (signals)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vendo-help-measurement-signals-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(click-path)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(mcp)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(completions)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(doctor)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(self-update)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+}
+
+(( $+functions[_vendo_commands] )) ||
+_vendo_commands() {
+    local commands; commands=(
+'login:Authenticate with your Vendo account' \
+'logout:Remove stored credentials' \
+'profile:Manage account profiles' \
+'status:Account health overview' \
+'whoami:Show the current authenticated account' \
+'apps:Manage apps' \
+'sources:Manage data sources' \
+'destinations:Manage data export destinations' \
+'jobs:Monitor sync jobs' \
+'catalog:Browse available platforms' \
+'dictionary:Browse the data dictionary catalog' \
+'metrics:Manage custom metrics in the Metrics Library' \
+'models:Manage data models' \
+'measurement:Inspect Marketing Measurement methodologies, LTV, and signals' \
+'mcp:Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo' \
+'completions:Generate shell completion script (bash, zsh, fish)' \
+'doctor:Run local configuration and connectivity checks' \
+'self-update:Update the Vendo CLI using the hosted installer' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'vendo commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__apps_commands] )) ||
+_vendo__subcmd__apps_commands() {
+    local commands; commands=(
+'list:List all apps' \
+'diagnose:Show apps that need attention' \
+'get:Get app details' \
+'pause:Pause an app' \
+'resume:Resume a paused app' \
+'delete:Delete an app (soft delete)' \
+'create:Create a new app' \
+'update:Update an app' \
+    )
+    _describe -t commands 'vendo apps commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__apps__subcmd__create_commands] )) ||
+_vendo__subcmd__apps__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo apps create commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__apps__subcmd__delete_commands] )) ||
+_vendo__subcmd__apps__subcmd__delete_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo apps delete commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__apps__subcmd__diagnose_commands] )) ||
+_vendo__subcmd__apps__subcmd__diagnose_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo apps diagnose commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__apps__subcmd__get_commands] )) ||
+_vendo__subcmd__apps__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo apps get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__apps__subcmd__list_commands] )) ||
+_vendo__subcmd__apps__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo apps list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__apps__subcmd__pause_commands] )) ||
+_vendo__subcmd__apps__subcmd__pause_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo apps pause commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__apps__subcmd__resume_commands] )) ||
+_vendo__subcmd__apps__subcmd__resume_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo apps resume commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__apps__subcmd__update_commands] )) ||
+_vendo__subcmd__apps__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo apps update commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__catalog_commands] )) ||
+_vendo__subcmd__catalog_commands() {
+    local commands; commands=(
+'list:List all available platforms' \
+'get:Get details for a specific platform' \
+'credential-schema:Print the credential fields required to create an app of this type' \
+    )
+    _describe -t commands 'vendo catalog commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__catalog__subcmd__credential-schema_commands] )) ||
+_vendo__subcmd__catalog__subcmd__credential-schema_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo catalog credential-schema commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__catalog__subcmd__get_commands] )) ||
+_vendo__subcmd__catalog__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo catalog get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__catalog__subcmd__list_commands] )) ||
+_vendo__subcmd__catalog__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo catalog list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__completions_commands] )) ||
+_vendo__subcmd__completions_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo completions commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__destinations_commands] )) ||
+_vendo__subcmd__destinations_commands() {
+    local commands; commands=(
+'list:List all destinations' \
+'get:Get destination details' \
+'sync:Trigger a manual sync' \
+'refresh-source:Check source-data availability for a window and trigger top-up imports for missing ranges' \
+'pause:Pause a destination' \
+'resume:Resume a paused destination' \
+'delete:Delete a destination (soft delete)' \
+'create:Create a new destination (source → destination pipeline)' \
+'update:Update a destination' \
+    )
+    _describe -t commands 'vendo destinations commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__destinations__subcmd__create_commands] )) ||
+_vendo__subcmd__destinations__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo destinations create commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__destinations__subcmd__delete_commands] )) ||
+_vendo__subcmd__destinations__subcmd__delete_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo destinations delete commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__destinations__subcmd__get_commands] )) ||
+_vendo__subcmd__destinations__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo destinations get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__destinations__subcmd__list_commands] )) ||
+_vendo__subcmd__destinations__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo destinations list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__destinations__subcmd__pause_commands] )) ||
+_vendo__subcmd__destinations__subcmd__pause_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo destinations pause commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__destinations__subcmd__refresh-source_commands] )) ||
+_vendo__subcmd__destinations__subcmd__refresh-source_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo destinations refresh-source commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__destinations__subcmd__resume_commands] )) ||
+_vendo__subcmd__destinations__subcmd__resume_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo destinations resume commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__destinations__subcmd__sync_commands] )) ||
+_vendo__subcmd__destinations__subcmd__sync_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo destinations sync commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__destinations__subcmd__update_commands] )) ||
+_vendo__subcmd__destinations__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo destinations update commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__dictionary_commands] )) ||
+_vendo__subcmd__dictionary_commands() {
+    local commands; commands=(
+'list:List catalog definitions (events by default)' \
+'search:Search one subject type by text in subject ID, name and description' \
+'get:Look up one catalog definition by the subject ID from list or search, or an alias such as event\:<name>' \
+    )
+    _describe -t commands 'vendo dictionary commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__dictionary__subcmd__get_commands] )) ||
+_vendo__subcmd__dictionary__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo dictionary get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__dictionary__subcmd__list_commands] )) ||
+_vendo__subcmd__dictionary__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo dictionary list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__dictionary__subcmd__search_commands] )) ||
+_vendo__subcmd__dictionary__subcmd__search_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo dictionary search commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__doctor_commands] )) ||
+_vendo__subcmd__doctor_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo doctor commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help_commands] )) ||
+_vendo__subcmd__help_commands() {
+    local commands; commands=(
+'login:Authenticate with your Vendo account' \
+'logout:Remove stored credentials' \
+'profile:Manage account profiles' \
+'status:Account health overview' \
+'whoami:Show the current authenticated account' \
+'apps:Manage apps' \
+'sources:Manage data sources' \
+'destinations:Manage data export destinations' \
+'jobs:Monitor sync jobs' \
+'catalog:Browse available platforms' \
+'dictionary:Browse the data dictionary catalog' \
+'metrics:Manage custom metrics in the Metrics Library' \
+'models:Manage data models' \
+'measurement:Inspect Marketing Measurement methodologies, LTV, and signals' \
+'mcp:Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo' \
+'completions:Generate shell completion script (bash, zsh, fish)' \
+'doctor:Run local configuration and connectivity checks' \
+'self-update:Update the Vendo CLI using the hosted installer' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'vendo help commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__apps_commands] )) ||
+_vendo__subcmd__help__subcmd__apps_commands() {
+    local commands; commands=(
+'list:List all apps' \
+'diagnose:Show apps that need attention' \
+'get:Get app details' \
+'pause:Pause an app' \
+'resume:Resume a paused app' \
+'delete:Delete an app (soft delete)' \
+'create:Create a new app' \
+'update:Update an app' \
+    )
+    _describe -t commands 'vendo help apps commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__apps__subcmd__create_commands] )) ||
+_vendo__subcmd__help__subcmd__apps__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help apps create commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__apps__subcmd__delete_commands] )) ||
+_vendo__subcmd__help__subcmd__apps__subcmd__delete_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help apps delete commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__apps__subcmd__diagnose_commands] )) ||
+_vendo__subcmd__help__subcmd__apps__subcmd__diagnose_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help apps diagnose commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__apps__subcmd__get_commands] )) ||
+_vendo__subcmd__help__subcmd__apps__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help apps get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__apps__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__apps__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help apps list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__apps__subcmd__pause_commands] )) ||
+_vendo__subcmd__help__subcmd__apps__subcmd__pause_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help apps pause commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__apps__subcmd__resume_commands] )) ||
+_vendo__subcmd__help__subcmd__apps__subcmd__resume_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help apps resume commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__apps__subcmd__update_commands] )) ||
+_vendo__subcmd__help__subcmd__apps__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help apps update commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__catalog_commands] )) ||
+_vendo__subcmd__help__subcmd__catalog_commands() {
+    local commands; commands=(
+'list:List all available platforms' \
+'get:Get details for a specific platform' \
+'credential-schema:Print the credential fields required to create an app of this type' \
+    )
+    _describe -t commands 'vendo help catalog commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__catalog__subcmd__credential-schema_commands] )) ||
+_vendo__subcmd__help__subcmd__catalog__subcmd__credential-schema_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help catalog credential-schema commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__catalog__subcmd__get_commands] )) ||
+_vendo__subcmd__help__subcmd__catalog__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help catalog get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__catalog__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__catalog__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help catalog list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__completions_commands] )) ||
+_vendo__subcmd__help__subcmd__completions_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help completions commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__destinations_commands] )) ||
+_vendo__subcmd__help__subcmd__destinations_commands() {
+    local commands; commands=(
+'list:List all destinations' \
+'get:Get destination details' \
+'sync:Trigger a manual sync' \
+'refresh-source:Check source-data availability for a window and trigger top-up imports for missing ranges' \
+'pause:Pause a destination' \
+'resume:Resume a paused destination' \
+'delete:Delete a destination (soft delete)' \
+'create:Create a new destination (source → destination pipeline)' \
+'update:Update a destination' \
+    )
+    _describe -t commands 'vendo help destinations commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__destinations__subcmd__create_commands] )) ||
+_vendo__subcmd__help__subcmd__destinations__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help destinations create commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__destinations__subcmd__delete_commands] )) ||
+_vendo__subcmd__help__subcmd__destinations__subcmd__delete_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help destinations delete commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__destinations__subcmd__get_commands] )) ||
+_vendo__subcmd__help__subcmd__destinations__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help destinations get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__destinations__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__destinations__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help destinations list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__destinations__subcmd__pause_commands] )) ||
+_vendo__subcmd__help__subcmd__destinations__subcmd__pause_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help destinations pause commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__destinations__subcmd__refresh-source_commands] )) ||
+_vendo__subcmd__help__subcmd__destinations__subcmd__refresh-source_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help destinations refresh-source commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__destinations__subcmd__resume_commands] )) ||
+_vendo__subcmd__help__subcmd__destinations__subcmd__resume_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help destinations resume commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__destinations__subcmd__sync_commands] )) ||
+_vendo__subcmd__help__subcmd__destinations__subcmd__sync_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help destinations sync commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__destinations__subcmd__update_commands] )) ||
+_vendo__subcmd__help__subcmd__destinations__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help destinations update commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__dictionary_commands] )) ||
+_vendo__subcmd__help__subcmd__dictionary_commands() {
+    local commands; commands=(
+'list:List catalog definitions (events by default)' \
+'search:Search one subject type by text in subject ID, name and description' \
+'get:Look up one catalog definition by the subject ID from list or search, or an alias such as event\:<name>' \
+    )
+    _describe -t commands 'vendo help dictionary commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__dictionary__subcmd__get_commands] )) ||
+_vendo__subcmd__help__subcmd__dictionary__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help dictionary get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__dictionary__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__dictionary__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help dictionary list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__dictionary__subcmd__search_commands] )) ||
+_vendo__subcmd__help__subcmd__dictionary__subcmd__search_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help dictionary search commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__doctor_commands] )) ||
+_vendo__subcmd__help__subcmd__doctor_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help doctor commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__help_commands] )) ||
+_vendo__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help help commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__jobs_commands] )) ||
+_vendo__subcmd__help__subcmd__jobs_commands() {
+    local commands; commands=(
+'list:List sync jobs' \
+'get:Get job details' \
+'cancel:Cancel a pending or running job' \
+'watch:Watch running and pending jobs (live polling)' \
+'tail:Tail a single job or the latest job for a source/destination' \
+    )
+    _describe -t commands 'vendo help jobs commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__jobs__subcmd__cancel_commands] )) ||
+_vendo__subcmd__help__subcmd__jobs__subcmd__cancel_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help jobs cancel commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__jobs__subcmd__get_commands] )) ||
+_vendo__subcmd__help__subcmd__jobs__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help jobs get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__jobs__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__jobs__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help jobs list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__jobs__subcmd__tail_commands] )) ||
+_vendo__subcmd__help__subcmd__jobs__subcmd__tail_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help jobs tail commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__jobs__subcmd__watch_commands] )) ||
+_vendo__subcmd__help__subcmd__jobs__subcmd__watch_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help jobs watch commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__login_commands] )) ||
+_vendo__subcmd__help__subcmd__login_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help login commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__logout_commands] )) ||
+_vendo__subcmd__help__subcmd__logout_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help logout commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__mcp_commands] )) ||
+_vendo__subcmd__help__subcmd__mcp_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help mcp commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement_commands() {
+    local commands; commands=(
+'methodologies:List measurement methodologies' \
+'rules:Methodology segmentation rules' \
+'ltv:Cohort lifetime-value views' \
+'signals:Measurement signal availability' \
+    )
+    _describe -t commands 'vendo help measurement commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__ltv_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__ltv_commands() {
+    local commands; commands=(
+'list:List cohort LTV rows' \
+'cohort:Show one cohort by period — retention matrix + cumulative LTV curve + prediction' \
+'customer:Show one customer'\''s cohort + realised LTV + revenue timeline' \
+    )
+    _describe -t commands 'vendo help measurement ltv commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__cohort_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__cohort_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help measurement ltv cohort commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__customer_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__customer_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help measurement ltv customer commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help measurement ltv list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__methodologies_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__methodologies_commands() {
+    local commands; commands=(
+'list:List methodologies (system + account)' \
+'get:Show one methodology by ID' \
+    )
+    _describe -t commands 'vendo help measurement methodologies commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__methodologies__subcmd__get_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__methodologies__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help measurement methodologies get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__methodologies__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__methodologies__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help measurement methodologies list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__rules_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__rules_commands() {
+    local commands; commands=(
+'preview:Preview which segmentation rule fires for recent rows' \
+    )
+    _describe -t commands 'vendo help measurement rules commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__rules__subcmd__preview_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__rules__subcmd__preview_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help measurement rules preview commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__signals_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__signals_commands() {
+    local commands; commands=(
+'list:Per-signal availability summary' \
+'click-path:Click-path signal status — readiness, last-computed, recent SignalEstimates' \
+    )
+    _describe -t commands 'vendo help measurement signals commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__signals__subcmd__click-path_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__signals__subcmd__click-path_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help measurement signals click-path commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__signals__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__measurement__subcmd__signals__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help measurement signals list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__metrics_commands] )) ||
+_vendo__subcmd__help__subcmd__metrics_commands() {
+    local commands; commands=(
+'list:List all custom metrics' \
+'get:Get metric details' \
+'create:Create a new metric' \
+'update:Update a metric' \
+'activate:Activate a draft metric' \
+'delete:Delete a metric' \
+    )
+    _describe -t commands 'vendo help metrics commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__metrics__subcmd__activate_commands] )) ||
+_vendo__subcmd__help__subcmd__metrics__subcmd__activate_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help metrics activate commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__metrics__subcmd__create_commands] )) ||
+_vendo__subcmd__help__subcmd__metrics__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help metrics create commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__metrics__subcmd__delete_commands] )) ||
+_vendo__subcmd__help__subcmd__metrics__subcmd__delete_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help metrics delete commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__metrics__subcmd__get_commands] )) ||
+_vendo__subcmd__help__subcmd__metrics__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help metrics get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__metrics__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__metrics__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help metrics list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__metrics__subcmd__update_commands] )) ||
+_vendo__subcmd__help__subcmd__metrics__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help metrics update commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__models_commands] )) ||
+_vendo__subcmd__help__subcmd__models_commands() {
+    local commands; commands=(
+'list:List all data models' \
+'get:Get model details' \
+    )
+    _describe -t commands 'vendo help models commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__models__subcmd__get_commands] )) ||
+_vendo__subcmd__help__subcmd__models__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help models get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__models__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__models__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help models list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__profile_commands] )) ||
+_vendo__subcmd__help__subcmd__profile_commands() {
+    local commands; commands=(
+'list:List all configured profiles' \
+'switch:Switch to a different profile' \
+'set:Set configuration values' \
+    )
+    _describe -t commands 'vendo help profile commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__profile__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__profile__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help profile list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__profile__subcmd__set_commands] )) ||
+_vendo__subcmd__help__subcmd__profile__subcmd__set_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help profile set commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__profile__subcmd__switch_commands] )) ||
+_vendo__subcmd__help__subcmd__profile__subcmd__switch_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help profile switch commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__self-update_commands] )) ||
+_vendo__subcmd__help__subcmd__self-update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help self-update commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__sources_commands] )) ||
+_vendo__subcmd__help__subcmd__sources_commands() {
+    local commands; commands=(
+'list:List all data sources' \
+'get:Get source details' \
+'sync:Trigger a manual sync' \
+'pause:Pause a data source' \
+'resume:Resume a paused data source' \
+'delete:Delete a data source (soft delete)' \
+'create:Create a new data source' \
+'update:Update a data source' \
+    )
+    _describe -t commands 'vendo help sources commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__sources__subcmd__create_commands] )) ||
+_vendo__subcmd__help__subcmd__sources__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help sources create commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__sources__subcmd__delete_commands] )) ||
+_vendo__subcmd__help__subcmd__sources__subcmd__delete_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help sources delete commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__sources__subcmd__get_commands] )) ||
+_vendo__subcmd__help__subcmd__sources__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help sources get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__sources__subcmd__list_commands] )) ||
+_vendo__subcmd__help__subcmd__sources__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help sources list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__sources__subcmd__pause_commands] )) ||
+_vendo__subcmd__help__subcmd__sources__subcmd__pause_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help sources pause commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__sources__subcmd__resume_commands] )) ||
+_vendo__subcmd__help__subcmd__sources__subcmd__resume_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help sources resume commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__sources__subcmd__sync_commands] )) ||
+_vendo__subcmd__help__subcmd__sources__subcmd__sync_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help sources sync commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__sources__subcmd__update_commands] )) ||
+_vendo__subcmd__help__subcmd__sources__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help sources update commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__status_commands] )) ||
+_vendo__subcmd__help__subcmd__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help status commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__whoami_commands] )) ||
+_vendo__subcmd__help__subcmd__whoami_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help whoami commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__jobs_commands] )) ||
+_vendo__subcmd__jobs_commands() {
+    local commands; commands=(
+'list:List sync jobs' \
+'get:Get job details' \
+'cancel:Cancel a pending or running job' \
+'watch:Watch running and pending jobs (live polling)' \
+'tail:Tail a single job or the latest job for a source/destination' \
+    )
+    _describe -t commands 'vendo jobs commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__jobs__subcmd__cancel_commands] )) ||
+_vendo__subcmd__jobs__subcmd__cancel_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo jobs cancel commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__jobs__subcmd__get_commands] )) ||
+_vendo__subcmd__jobs__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo jobs get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__jobs__subcmd__list_commands] )) ||
+_vendo__subcmd__jobs__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo jobs list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__jobs__subcmd__tail_commands] )) ||
+_vendo__subcmd__jobs__subcmd__tail_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo jobs tail commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__jobs__subcmd__watch_commands] )) ||
+_vendo__subcmd__jobs__subcmd__watch_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo jobs watch commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__login_commands] )) ||
+_vendo__subcmd__login_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo login commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__logout_commands] )) ||
+_vendo__subcmd__logout_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo logout commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__mcp_commands] )) ||
+_vendo__subcmd__mcp_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo mcp commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement_commands] )) ||
+_vendo__subcmd__measurement_commands() {
+    local commands; commands=(
+'methodologies:List measurement methodologies' \
+'rules:Methodology segmentation rules' \
+'ltv:Cohort lifetime-value views' \
+'signals:Measurement signal availability' \
+    )
+    _describe -t commands 'vendo measurement commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__ltv_commands] )) ||
+_vendo__subcmd__measurement__subcmd__ltv_commands() {
+    local commands; commands=(
+'list:List cohort LTV rows' \
+'cohort:Show one cohort by period — retention matrix + cumulative LTV curve + prediction' \
+'customer:Show one customer'\''s cohort + realised LTV + revenue timeline' \
+    )
+    _describe -t commands 'vendo measurement ltv commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__ltv__subcmd__cohort_commands] )) ||
+_vendo__subcmd__measurement__subcmd__ltv__subcmd__cohort_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo measurement ltv cohort commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__ltv__subcmd__customer_commands] )) ||
+_vendo__subcmd__measurement__subcmd__ltv__subcmd__customer_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo measurement ltv customer commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__ltv__subcmd__list_commands] )) ||
+_vendo__subcmd__measurement__subcmd__ltv__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo measurement ltv list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__methodologies_commands] )) ||
+_vendo__subcmd__measurement__subcmd__methodologies_commands() {
+    local commands; commands=(
+'list:List methodologies (system + account)' \
+'get:Show one methodology by ID' \
+    )
+    _describe -t commands 'vendo measurement methodologies commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__methodologies__subcmd__get_commands] )) ||
+_vendo__subcmd__measurement__subcmd__methodologies__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo measurement methodologies get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__methodologies__subcmd__list_commands] )) ||
+_vendo__subcmd__measurement__subcmd__methodologies__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo measurement methodologies list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__rules_commands] )) ||
+_vendo__subcmd__measurement__subcmd__rules_commands() {
+    local commands; commands=(
+'preview:Preview which segmentation rule fires for recent rows' \
+    )
+    _describe -t commands 'vendo measurement rules commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__rules__subcmd__preview_commands] )) ||
+_vendo__subcmd__measurement__subcmd__rules__subcmd__preview_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo measurement rules preview commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__signals_commands] )) ||
+_vendo__subcmd__measurement__subcmd__signals_commands() {
+    local commands; commands=(
+'list:Per-signal availability summary' \
+'click-path:Click-path signal status — readiness, last-computed, recent SignalEstimates' \
+    )
+    _describe -t commands 'vendo measurement signals commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__signals__subcmd__click-path_commands] )) ||
+_vendo__subcmd__measurement__subcmd__signals__subcmd__click-path_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo measurement signals click-path commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__measurement__subcmd__signals__subcmd__list_commands] )) ||
+_vendo__subcmd__measurement__subcmd__signals__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo measurement signals list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__metrics_commands] )) ||
+_vendo__subcmd__metrics_commands() {
+    local commands; commands=(
+'list:List all custom metrics' \
+'get:Get metric details' \
+'create:Create a new metric' \
+'update:Update a metric' \
+'activate:Activate a draft metric' \
+'delete:Delete a metric' \
+    )
+    _describe -t commands 'vendo metrics commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__metrics__subcmd__activate_commands] )) ||
+_vendo__subcmd__metrics__subcmd__activate_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo metrics activate commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__metrics__subcmd__create_commands] )) ||
+_vendo__subcmd__metrics__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo metrics create commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__metrics__subcmd__delete_commands] )) ||
+_vendo__subcmd__metrics__subcmd__delete_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo metrics delete commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__metrics__subcmd__get_commands] )) ||
+_vendo__subcmd__metrics__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo metrics get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__metrics__subcmd__list_commands] )) ||
+_vendo__subcmd__metrics__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo metrics list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__metrics__subcmd__update_commands] )) ||
+_vendo__subcmd__metrics__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo metrics update commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__models_commands] )) ||
+_vendo__subcmd__models_commands() {
+    local commands; commands=(
+'list:List all data models' \
+'get:Get model details' \
+    )
+    _describe -t commands 'vendo models commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__models__subcmd__get_commands] )) ||
+_vendo__subcmd__models__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo models get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__models__subcmd__list_commands] )) ||
+_vendo__subcmd__models__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo models list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__profile_commands] )) ||
+_vendo__subcmd__profile_commands() {
+    local commands; commands=(
+'list:List all configured profiles' \
+'switch:Switch to a different profile' \
+'set:Set configuration values' \
+    )
+    _describe -t commands 'vendo profile commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__profile__subcmd__list_commands] )) ||
+_vendo__subcmd__profile__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo profile list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__profile__subcmd__set_commands] )) ||
+_vendo__subcmd__profile__subcmd__set_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo profile set commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__profile__subcmd__switch_commands] )) ||
+_vendo__subcmd__profile__subcmd__switch_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo profile switch commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__self-update_commands] )) ||
+_vendo__subcmd__self-update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo self-update commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__sources_commands] )) ||
+_vendo__subcmd__sources_commands() {
+    local commands; commands=(
+'list:List all data sources' \
+'get:Get source details' \
+'sync:Trigger a manual sync' \
+'pause:Pause a data source' \
+'resume:Resume a paused data source' \
+'delete:Delete a data source (soft delete)' \
+'create:Create a new data source' \
+'update:Update a data source' \
+    )
+    _describe -t commands 'vendo sources commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__sources__subcmd__create_commands] )) ||
+_vendo__subcmd__sources__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo sources create commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__sources__subcmd__delete_commands] )) ||
+_vendo__subcmd__sources__subcmd__delete_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo sources delete commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__sources__subcmd__get_commands] )) ||
+_vendo__subcmd__sources__subcmd__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo sources get commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__sources__subcmd__list_commands] )) ||
+_vendo__subcmd__sources__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo sources list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__sources__subcmd__pause_commands] )) ||
+_vendo__subcmd__sources__subcmd__pause_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo sources pause commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__sources__subcmd__resume_commands] )) ||
+_vendo__subcmd__sources__subcmd__resume_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo sources resume commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__sources__subcmd__sync_commands] )) ||
+_vendo__subcmd__sources__subcmd__sync_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo sources sync commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__sources__subcmd__update_commands] )) ||
+_vendo__subcmd__sources__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo sources update commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__status_commands] )) ||
+_vendo__subcmd__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo status commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__whoami_commands] )) ||
+_vendo__subcmd__whoami_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo whoami commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_vendo" ]; then
+    _vendo "$@"
+else
+    compdef _vendo vendo
+fi

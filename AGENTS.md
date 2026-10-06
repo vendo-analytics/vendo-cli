@@ -65,6 +65,17 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `--all` sends `include_request_access=true` (the route has no pagination) and ends with the count line. The
   Availability column says the API's `availability` in plain words: `self_serve` "ready", `request_access` "on
   request", anything else as sent. `--json` prints the response as sent; without `--all` the request is unchanged.
+- Completions (VE-3830, CLI 1.1): `vendo completions <shell>` prints the script the installer saves. Bare, it exits 0
+  and says on stderr what it does, whether completions are set up for the shell `$SHELL` names, and how to set them
+  up; stdout only ever carries a script, so an `eval` or redirect that leaves the shell out gets nothing.
+  `rust/src/commands/completions.rs` owns that detection (the installer's saved script and startup-file block, or a
+  line in `~/.bashrc`/`~/.zshrc` that runs `vendo completions <shell>`), and doctor's check uses it. A flag with a
+  fixed set of values offers them on TAB through `Suggest` in `cli.rs`, each list citing its source: parsing still
+  takes any string (the API decides), and clap sees the values only while a script is generated
+  (`cli::suggesting`), so help screens and parse errors are as they were. The scripts are generated with the shell
+  argument required, so they complete `completions` as before; `rust/tests/snapshots/output/completions__*` record
+  them whole. `completions --help` shows `[shell]` where the TS CLI shows `<shell>`, which `pnpm parity:help`
+  reports.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 use crate::{
     client::payload,
+    commands::completions::{self, Setup},
     config::{EffectiveConfig, Source, mask_api_key},
     context::Ctx,
     identity::{Identity, IdentityError, fetch_identity},
@@ -21,7 +22,7 @@ use crate::{
         bold, dim, gray, green, js_length, js_slice, js_string, js_template, js_truthy, print_json, print_success, red,
         run_action, table, time_ago, yellow,
     },
-    update_check,
+    update_check::{self, INSTALL_COMMAND},
 };
 
 // ── status ─────────────────────────────────────────────────────────────────
@@ -295,46 +296,23 @@ pub fn auth_check(result: Option<&Result<Identity, IdentityError>>) -> DoctorChe
     }
 }
 
+/// `vendo completions <shell>` only prints a script, so the fixes point at the installer, which
+/// sets completions up, and at bare `vendo completions`, which says how (VE-3830).
 fn completion_check(shell: Option<&str>, home: &Path) -> DoctorCheck {
-    use CheckStatus::*;
-    let installed = |file: &str, rc: Option<&str>| {
-        home.join(file).exists()
-            && rc.is_none_or(|rc| {
-                std::fs::read_to_string(home.join(rc)).is_ok_and(|text| text.contains("# >>> vendo completions >>>"))
-            })
-    };
-    let missing = |label: &str, shell: &str| {
-        check(
-            "Shell completions",
-            Warn,
-            format!("{label} completions are not installed yet"),
-            Some(&format!(
-                "Run `vendo completions {shell}` or reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash`."
+    let setup = completions::setup(shell, home);
+    let (status, fix) = match setup {
+        Setup::Installed(_) => (CheckStatus::Ok, None),
+        Setup::Missing(_) => (
+            CheckStatus::Warn,
+            Some(format!(
+                "Reinstall with `{INSTALL_COMMAND}` to set them up, or run `vendo completions` for the manual steps."
             )),
-        )
-    };
-    match shell {
-        Some("bash") if installed(".local/share/vendo/completions/vendo.bash", Some(".bashrc")) => {
-            check("Shell completions", Ok, "Bash completions are installed in ~/.bashrc".into(), None)
-        }
-        Some("bash") => missing("Bash", "bash"),
-        Some("zsh") if installed(".local/share/vendo/completions/vendo.zsh", Some(".zshrc")) => {
-            check("Shell completions", Ok, "Zsh completions are installed in ~/.zshrc".into(), None)
-        }
-        Some("zsh") => missing("Zsh", "zsh"),
-        Some("fish") if installed(".config/fish/completions/vendo.fish", None) => {
-            check("Shell completions", Ok, "Fish completions are installed".into(), None)
-        }
-        Some("fish") => missing("Fish", "fish"),
-        _ => check(
-            "Shell completions",
-            Warn,
-            "Current shell could not be detected automatically".into(),
-            Some(
-                "Run `vendo completions <shell>` manually after choosing your shell, or reinstall with the hosted installer.",
-            ),
         ),
-    }
+        Setup::Unknown => {
+            (CheckStatus::Warn, Some("Run `vendo completions` to see how to set them up for bash, zsh or fish.".into()))
+        }
+    };
+    check("Shell completions", status, setup.detail(), fix.as_deref())
 }
 
 fn path_remediation(shell: Option<&str>) -> String {
@@ -366,8 +344,7 @@ fn format_source(source: Source) -> &'static str {
 
 pub async fn doctor(ctx: &Ctx, json: bool) -> Result<ExitCode> {
     let config = ctx.effective();
-    let shell =
-        std::env::var("SHELL").ok().and_then(|s| s.rsplit('/').next().map(str::to_string)).filter(|s| !s.is_empty());
+    let shell = completions::login_shell();
     let env = DoctorEnv {
         binary: running_binary(),
         standard_binary: doctor_standard_binary(&ctx.home),
@@ -498,7 +475,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let h = home.path();
         std::fs::create_dir_all(h.join(".local/share/vendo/completions")).unwrap();
-        std::fs::write(h.join(".local/share/vendo/completions/vendo.zsh"), "").unwrap();
+        std::fs::write(h.join(".local/share/vendo/completions/vendo.zsh"), "# the script\n").unwrap();
         std::fs::write(h.join(".zshrc"), "# >>> vendo completions >>>\n").unwrap();
         let binary = h.join(".local/bin/vendo");
         let checks = local_checks(
@@ -529,6 +506,22 @@ mod tests {
         assert_eq!(by_name("Selected profile").detail, "No active profile selected");
         assert_eq!((by_name("API key").status, by_name("Account ID").status), (CheckStatus::Fail, CheckStatus::Fail));
         assert_eq!(by_name("Shell completions").detail, "Bash completions are not installed yet");
+    }
+
+    #[test]
+    fn completions_set_up_by_hand_are_ok() {
+        // The lines bare `vendo completions` gives for zsh, in ~/.zshrc without the installer (VE-3830).
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(
+            home.path().join(".zshrc"),
+            "autoload -Uz compinit && compinit\neval \"$(vendo completions zsh)\"\n",
+        )
+        .unwrap();
+        let check = completion_check(Some("zsh"), home.path());
+        assert_eq!(
+            (check.status, check.detail.as_str(), check.remediation),
+            (CheckStatus::Ok, "Zsh completions are installed in ~/.zshrc", None)
+        );
     }
 
     #[test]

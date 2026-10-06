@@ -16,7 +16,7 @@ Vendo CLI Doctor
 [ok] Base URL: [stub] (from profile)
 [ok] Account ID: acct-alpha (from profile)
 [warn] Shell completions: Zsh completions are not installed yet
-       Fix: Run `vendo completions zsh` or reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash`.
+       Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` to set them up, or run `vendo completions` for the manual steps.
 [ok] API auth: Authenticated as Demo Account (synthetic)
 
 Summary: 6 ok, 2 warnings, 1 failures
@@ -24,4 +24,4 @@ Summary: 6 ok, 2 warnings, 1 failures
 Suggested next steps
   - Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.
   - Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc`, then restart your shell.
-  - Run `vendo completions zsh` or reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash`.
+  - Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` to set them up, or run `vendo completions` for the manual steps.

@@ -248,7 +248,7 @@ pub enum Command {
         #[arg(long, value_name = "id")]
         account: Option<String>,
         /// Target instance: "staging" or "prod" (default: VENDO_API_URL/profile, else prod)
-        #[arg(long, value_name = "environment")]
+        #[arg(long, value_name = "environment", value_parser = ENVIRONMENTS)]
         env: Option<String>,
         /// Explicit API base URL (overrides --env)
         #[arg(long, value_name = "url")]
@@ -351,8 +351,9 @@ pub enum Command {
         after_help = "Examples:\n  $ vendo completions bash\n  $ vendo completions zsh\n  $ vendo completions fish"
     )]
     Completions {
+        // Without a shell it explains itself and whether completions are set up (VE-3830).
         #[arg(value_name = "shell")]
-        shell: Shell,
+        shell: Option<Shell>,
     },
     /// Run local configuration and connectivity checks
     #[command(after_help = "Examples:\n  $ vendo doctor\n  $ vendo doctor --json")]
@@ -413,13 +414,13 @@ pub enum AppsCommand {
     )]
     List {
         /// Filter by state (active, inactive)
-        #[arg(long, value_name = "state")]
+        #[arg(long, value_name = "state", value_parser = STATES)]
         state: Option<String>,
         /// Filter by app type
         #[arg(long = "type", value_name = "type")]
         app_type: Option<String>,
         /// Filter by capability (source, destination) — derived from permissions
-        #[arg(long, value_name = "role")]
+        #[arg(long, value_name = "role", value_parser = ROLES)]
         role: Option<String>,
         /// Number of results
         #[arg(long, value_name = "n", default_value = "20")]
@@ -512,13 +513,14 @@ pub enum AppsCommand {
         #[arg(long, value_name = "displayName", required = true)]
         name: String,
         /// Comma-separated capability: source, destination (derives default permissions)
-        #[arg(long, value_name = "role", default_value = "source")]
+        #[arg(long, value_name = "role", default_value = "source", value_parser = ROLES)]
         role: String,
         // `help =`, not a doc comment: clap drops a doc comment's trailing period, and TS keeps it.
         #[arg(
             long,
             value_name = "permissions",
-            help = "Comma-separated granular permissions (e.g. performance_data,send_conversions). Overrides --role."
+            help = "Comma-separated granular permissions (e.g. performance_data,send_conversions). Overrides --role.",
+            value_parser = PERMISSIONS
         )]
         permissions: Option<String>,
         /// Path to a JSON file with the credential payload
@@ -545,9 +547,14 @@ pub enum AppsCommand {
         #[arg(long, value_name = "displayName")]
         name: Option<String>,
         /// Comma-separated capability: source, destination (derives permissions)
-        #[arg(long, value_name = "role")]
+        #[arg(long, value_name = "role", value_parser = ROLES)]
         role: Option<String>,
-        #[arg(long, value_name = "permissions", help = "Comma-separated granular permissions. Overrides --role.")]
+        #[arg(
+            long,
+            value_name = "permissions",
+            help = "Comma-separated granular permissions. Overrides --role.",
+            value_parser = PERMISSIONS
+        )]
         permissions: Option<String>,
         /// Replace credentials from a JSON file
         #[arg(long, value_name = "path")]
@@ -572,7 +579,7 @@ pub enum SourcesCommand {
     )]
     List {
         /// Filter by state (active, inactive)
-        #[arg(long, value_name = "state")]
+        #[arg(long, value_name = "state", value_parser = STATES)]
         state: Option<String>,
         /// Filter by sync type
         #[arg(long = "type", value_name = "type")]
@@ -694,7 +701,7 @@ pub enum SourcesCommand {
         #[arg(long, value_name = "value", default_value = "24")]
         frequency: String,
         /// Sync frequency unit (hours, days)
-        #[arg(long, value_name = "unit", default_value = "hours")]
+        #[arg(long, value_name = "unit", default_value = "hours", value_parser = SOURCE_UNITS)]
         unit: String,
         /// Path to a JSON file with source-specific config
         #[arg(long, value_name = "path")]
@@ -723,7 +730,7 @@ pub enum SourcesCommand {
         #[arg(long, value_name = "value")]
         frequency: Option<String>,
         /// Sync frequency unit (hours, days)
-        #[arg(long, value_name = "unit")]
+        #[arg(long, value_name = "unit", value_parser = SOURCE_UNITS)]
         unit: Option<String>,
         /// Replace config from a JSON file
         #[arg(long, value_name = "path")]
@@ -745,10 +752,10 @@ pub enum IntegrationsCommand {
     )]
     List {
         /// Filter by state (active, inactive)
-        #[arg(long, value_name = "state")]
+        #[arg(long, value_name = "state", value_parser = STATES)]
         state: Option<String>,
         /// Filter by status
-        #[arg(long, value_name = "status")]
+        #[arg(long, value_name = "status", value_parser = DESTINATION_STATUSES)]
         status: Option<String>,
         /// Filter by data type
         #[arg(long = "type", value_name = "type")]
@@ -892,7 +899,7 @@ pub enum IntegrationsCommand {
         #[arg(long, value_name = "value", default_value = "1")]
         frequency: String,
         /// Sync frequency unit (hours, days, weeks, months)
-        #[arg(long, value_name = "unit", default_value = "days")]
+        #[arg(long, value_name = "unit", default_value = "days", value_parser = DESTINATION_UNITS)]
         unit: String,
         /// Trigger first sync immediately
         #[arg(long)]
@@ -921,7 +928,7 @@ pub enum IntegrationsCommand {
         #[arg(long, value_name = "value")]
         frequency: Option<String>,
         /// Sync frequency unit
-        #[arg(long, value_name = "unit")]
+        #[arg(long, value_name = "unit", value_parser = DESTINATION_UNITS)]
         unit: Option<String>,
         /// Output raw JSON
         #[arg(long)]
@@ -940,10 +947,10 @@ pub enum CatalogCommand {
     )]
     List {
         /// Filter by category
-        #[arg(long, value_name = "category")]
+        #[arg(long, value_name = "category", value_parser = CATEGORIES)]
         category: Option<String>,
         /// Filter by role (source, destination)
-        #[arg(long, value_name = "role")]
+        #[arg(long, value_name = "role", value_parser = ROLES)]
         role: Option<String>,
         /// List every platform, including the ones on request
         #[arg(long)]
@@ -987,7 +994,13 @@ pub enum DictionaryCommand {
         after_help = "Examples:\n  $ vendo dictionary list\n  $ vendo dictionary list --type event --query checkout\n  $ vendo dictionary list --type prop -q email --json\n  $ vendo dictionary list --output subjectId"
     )]
     List {
-        #[arg(long = "type", value_name = "type", default_value = "event", help = crate::dictionary::type_help())]
+        #[arg(
+            long = "type",
+            value_name = "type",
+            default_value = "event",
+            help = crate::dictionary::type_help(),
+            value_parser = SUBJECT_TYPES
+        )]
         subject_type: String,
         /// Text search across subject ID, name and description
         #[arg(short, long, value_name = "text")]
@@ -1012,7 +1025,13 @@ pub enum DictionaryCommand {
     Search {
         #[arg(value_name = "query")]
         query: String,
-        #[arg(long = "type", value_name = "type", default_value = "event", help = crate::dictionary::type_help())]
+        #[arg(
+            long = "type",
+            value_name = "type",
+            default_value = "event",
+            help = crate::dictionary::type_help(),
+            value_parser = SUBJECT_TYPES
+        )]
         subject_type: String,
         /// Number of results
         #[arg(long, value_name = "n", default_value = "20")]
@@ -1048,7 +1067,7 @@ pub enum MetricsCommand {
     )]
     List {
         /// Filter by status (draft, active, archived)
-        #[arg(long, value_name = "status")]
+        #[arg(long, value_name = "status", value_parser = METRIC_STATUSES)]
         status: Option<String>,
         /// Number of results
         #[arg(long, value_name = "n", default_value = "20")]
@@ -1087,7 +1106,7 @@ pub enum MetricsCommand {
         #[arg(long, value_name = "desc")]
         description: Option<String>,
         /// Display format: number, currency, percentage, multiplier
-        #[arg(long, value_name = "format", default_value = "number")]
+        #[arg(long, value_name = "format", default_value = "number", value_parser = METRIC_FORMATS)]
         format: String,
         /// Unit suffix (e.g., "$", "%")
         #[arg(long, value_name = "unit")]
@@ -1113,13 +1132,13 @@ pub enum MetricsCommand {
         #[arg(long, value_name = "file")]
         definition: Option<String>,
         /// New format
-        #[arg(long, value_name = "format")]
+        #[arg(long, value_name = "format", value_parser = METRIC_FORMATS)]
         format: Option<String>,
         /// New unit
         #[arg(long, value_name = "unit")]
         unit: Option<String>,
         /// New status
-        #[arg(long, value_name = "status")]
+        #[arg(long, value_name = "status", value_parser = METRIC_STATUSES)]
         status: Option<String>,
         /// Output raw JSON
         #[arg(long)]
@@ -1272,7 +1291,7 @@ pub enum LtvCommand {
     )]
     List {
         /// daily | weekly | monthly
-        #[arg(long, value_name = "value", default_value = "monthly")]
+        #[arg(long, value_name = "value", default_value = "monthly", value_parser = GRANULARITIES)]
         granularity: String,
         /// Segment key (e.g. "all", "channel:meta")
         #[arg(long, value_name = "key", default_value = "all")]
@@ -1304,7 +1323,7 @@ pub enum LtvCommand {
         #[arg(value_name = "period")]
         period: String,
         /// daily | weekly | monthly
-        #[arg(long, value_name = "value", default_value = "monthly")]
+        #[arg(long, value_name = "value", default_value = "monthly", value_parser = GRANULARITIES)]
         granularity: String,
         /// Segment key
         #[arg(long, value_name = "key", default_value = "all")]
@@ -1357,10 +1376,10 @@ pub enum JobsCommand {
     )]
     List {
         /// Filter by status (pending, running, completed, failed, cancelled)
-        #[arg(long, value_name = "status")]
+        #[arg(long, value_name = "status", value_parser = JOB_STATUSES)]
         status: Option<String>,
         /// Filter by job type (import, export)
-        #[arg(long = "type", value_name = "type")]
+        #[arg(long = "type", value_name = "type", value_parser = JOB_TYPES)]
         job_type: Option<String>,
         /// Filter by source ID
         #[arg(long, value_name = "sourceId")]
@@ -1447,8 +1466,122 @@ pub enum JobsCommand {
     },
 }
 
+/// TAB suggestions for a flag whose values come from a fixed list (VE-3830). The completion
+/// scripts offer the values, and parsing still takes any string and passes it on as before: the
+/// API decides, so a list that falls behind it never blocks a value. clap learns the values only
+/// while a script is generated ([`suggesting`]), so help screens and parse errors (a flag given no
+/// value) read as they did.
+#[derive(Clone)]
+pub struct Suggest(&'static [&'static str]);
+
+thread_local! {
+    static SUGGESTING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs `generate` with every [`Suggest`] listing its values, as the completion scripts need them.
+pub fn suggesting<T>(generate: impl FnOnce() -> T) -> T {
+    SUGGESTING.set(true);
+    let result = generate();
+    SUGGESTING.set(false);
+    result
+}
+
+impl clap::builder::TypedValueParser for Suggest {
+    type Value = String;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&Arg>,
+        value: &std::ffi::OsStr,
+    ) -> Result<String, clap::Error> {
+        clap::builder::StringValueParser::new().parse_ref(cmd, arg, value)
+    }
+
+    fn possible_values(&self) -> Option<Box<dyn Iterator<Item = clap::builder::PossibleValue> + '_>> {
+        let values = self.0.iter().map(|value| clap::builder::PossibleValue::new(*value));
+        SUGGESTING.get().then(|| Box::new(values) as Box<dyn Iterator<Item = _>>)
+    }
+}
+
+// Each list names where its values come from: a vendo-web-v2 path is on its `staging` branch.
+
+/// `apps`, `sources` and `destinations list --state`: the two states their list routes filter on
+/// (`apps/web/app/api/v1/_lib/route-handlers/{apps,sources,integrations}/collection.ts`).
+const STATES: Suggest = Suggest(&["active", "inactive"]);
+/// `--role`: of `apps list`, the route's `capability` filter (`route-handlers/apps/collection.ts`); of `catalog
+/// list`, its `role` filter (`apps/web/app/api/v1/catalog/route.ts`); of `apps create|update`, the roles the CLI
+/// turns into permissions (`commands/apps.rs`).
+const ROLES: Suggest = Suggest(&["source", "destination"]);
+/// `apps create|update --permissions`: the keys of `GRANULAR_PERMISSIONS` (`apps/web/lib/vendo/constants.ts`),
+/// which the apps routes take as `z.enum(granularPermissionKeys)`.
+const PERMISSIONS: Suggest = Suggest(&[
+    "performance_data",
+    "read_leads",
+    "read_organic_content",
+    "send_conversions",
+    "read_warehouse",
+    "write_warehouse",
+    "sync_audiences",
+    "campaign_changes",
+    "campaign_adjust_bids",
+    "campaign_adjust_spend",
+    "campaign_toggle",
+    "google_tag_manager",
+    "google_analytics",
+]);
+/// `sources create|update --unit`: `syncFrequencyUnit` (`route-handlers/sources/{collection,item}.ts`).
+const SOURCE_UNITS: Suggest = Suggest(&["hours", "days"]);
+/// `destinations create|update --unit`: `schedule.frequencyUnit` (`route-handlers/integrations/{collection,item}.ts`).
+const DESTINATION_UNITS: Suggest = Suggest(&["hours", "days", "weeks", "months"]);
+/// `destinations list --status`: `IntegrationStatus` (`apps/web/lib/vendo/integration-lifecycle/types.ts`), the
+/// `app_status` values of `integrations.status` that `GET /api/v1/integrations` filters on, less `deleted`: the route
+/// leaves deleted destinations out. (Its doc comment names only six.)
+const DESTINATION_STATUSES: Suggest = Suggest(&[
+    "pending",
+    "running",
+    "completed",
+    "warning",
+    "errored",
+    "auth_expired",
+    "failed_permanently",
+    "paused",
+    "draft",
+]);
+/// `catalog list --category`: `IntegrationCategory` (`apps/web/lib/vendo/integrations/types.ts`), the category of
+/// every catalog entry `GET /api/v1/catalog` filters on.
+const CATEGORIES: Suggest = Suggest(&[
+    "advertising",
+    "analytics",
+    "crm",
+    "mobile_attribution",
+    "payment",
+    "platforms",
+    "messaging",
+    "webinar",
+    "data",
+    "ai",
+]);
+/// `dictionary list|search --type`: the subject types the server accepts, as the help lists them.
+const SUBJECT_TYPES: Suggest = Suggest(&crate::dictionary::SUBJECT_TYPES);
+/// `metrics list|update --status`: `MetricStatusSchema` (`apps/web/app/api/metrics/route.ts`).
+const METRIC_STATUSES: Suggest = Suggest(&["draft", "active", "archived"]);
+/// `metrics create|update --format`: `custom_metrics.format` as `savedMetricFormatDefaults` reads it
+/// (`apps/web/lib/vendo/catalog/format-defaults.ts`), the formats the help lists.
+const METRIC_FORMATS: Suggest = Suggest(&["number", "currency", "percentage", "multiplier"]);
+/// `measurement ltv list|cohort --granularity`: `VALID_GRANULARITIES` (`apps/web/app/api/measurement/ltv/route.ts`).
+const GRANULARITIES: Suggest = Suggest(&["daily", "weekly", "monthly"]);
+/// `jobs list --status`: the statuses `GET /api/v1/jobs` documents (`route-handlers/jobs/collection.ts`), which are
+/// vendo-pipelines-v2's `JobStatus` (`app/models/job_status.py`). The API spells `canceled` with one l.
+const JOB_STATUSES: Suggest = Suggest(&["queued", "pending", "running", "completed", "warning", "failed", "canceled"]);
+/// `jobs list --type`: the job types `GET /api/v1/jobs` documents for `job_type` (`route-handlers/jobs/collection.ts`).
+/// `jobs.job_type` allows more (internal DAG steps), which still pass.
+const JOB_TYPES: Suggest = Suggest(&["import", "export", "data_quality", "attribution"]);
+/// `login --env`: the instances its help names, as `ConfigStore::resolve_login_base_url` reads them.
+const ENVIRONMENTS: Suggest = Suggest(&["staging", "prod"]);
+
 /// The shells today's CLI supports.
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Shell {
     Bash,
     Zsh,
@@ -1825,5 +1958,104 @@ mod tests {
             panic!()
         };
         assert_eq!((app_type.as_str(), json), ("shopify", true));
+    }
+
+    /// Every argument that lists values to clap: `(path and flag, values)`. A switch (`--json`)
+    /// takes no value, so its parser's `true`/`false` are not offered.
+    fn offered_values(cmd: &clap::Command, path: &str, found: &mut Vec<(String, String)>) {
+        for arg in cmd.get_arguments().filter(|arg| arg.get_action().takes_values()) {
+            let values: Vec<String> = arg.get_possible_values().iter().map(|v| v.get_name().to_string()).collect();
+            if !values.is_empty() {
+                let name = arg.get_long().map_or_else(|| format!("<{}>", arg.get_id()), |long| format!("--{long}"));
+                found.push((format!("{path} {name}"), values.join(" ")));
+            }
+        }
+        for sub in cmd.get_subcommands() {
+            offered_values(sub, &format!("{path} {}", sub.get_name()), found);
+        }
+    }
+
+    #[test]
+    fn fixed_list_flags_offer_their_values_on_tab() {
+        // VE-3830: the lists, with where each comes from, are the `Suggest` constants.
+        let mut found = Vec::new();
+        suggesting(|| offered_values(&command(), "vendo", &mut found));
+        let suggested = |flag: &str, list: Suggest| (format!("vendo {flag}"), list.0.join(" "));
+        let expected = vec![
+            suggested("login --env", ENVIRONMENTS),
+            suggested("apps list --state", STATES),
+            suggested("apps list --role", ROLES),
+            suggested("apps create --role", ROLES),
+            suggested("apps create --permissions", PERMISSIONS),
+            suggested("apps update --role", ROLES),
+            suggested("apps update --permissions", PERMISSIONS),
+            suggested("sources list --state", STATES),
+            suggested("sources create --unit", SOURCE_UNITS),
+            suggested("sources update --unit", SOURCE_UNITS),
+            suggested("destinations list --state", STATES),
+            suggested("destinations list --status", DESTINATION_STATUSES),
+            suggested("destinations create --unit", DESTINATION_UNITS),
+            suggested("destinations update --unit", DESTINATION_UNITS),
+            suggested("jobs list --status", JOB_STATUSES),
+            suggested("jobs list --type", JOB_TYPES),
+            suggested("catalog list --category", CATEGORIES),
+            suggested("catalog list --role", ROLES),
+            suggested("dictionary list --type", SUBJECT_TYPES),
+            suggested("dictionary search --type", SUBJECT_TYPES),
+            suggested("metrics list --status", METRIC_STATUSES),
+            suggested("metrics create --format", METRIC_FORMATS),
+            suggested("metrics update --format", METRIC_FORMATS),
+            suggested("metrics update --status", METRIC_STATUSES),
+            suggested("measurement ltv list --granularity", GRANULARITIES),
+            suggested("measurement ltv cohort --granularity", GRANULARITIES),
+            // The one list clap always knew, which the help shows.
+            ("vendo completions <shell>".to_string(), "bash zsh fish".to_string()),
+        ];
+        assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn clap_learns_the_suggested_values_only_for_the_completion_scripts() {
+        // Outside `suggesting`, no `Suggest` flag lists values, so the help is as it was (the help snapshots
+        // check it) and a flag given no value fails as it did before VE-3830, without "[possible values: …]".
+        let mut found = Vec::new();
+        offered_values(&command(), "vendo", &mut found);
+        assert_eq!(found, [("vendo completions <shell>".to_string(), "bash zsh fish".to_string())]);
+        for args in [&["vendo", "jobs", "list", "--status"][..], &["vendo", "apps", "create", "--permissions"]] {
+            let error = parse(args).err().unwrap().to_string();
+            assert!(error.starts_with("error: a value is required for '--"), "{error}");
+            assert!(!error.contains("possible values"), "{error}");
+        }
+    }
+
+    #[test]
+    fn values_off_a_suggested_list_still_pass() {
+        // TAB suggests; the API decides, as before VE-3830.
+        let Command::Jobs { command: JobsCommand::List { status, .. } } =
+            parse(&["vendo", "jobs", "list", "--status", "running,queued"]).unwrap().command
+        else {
+            panic!()
+        };
+        assert_eq!(status.as_deref(), Some("running,queued"));
+        let Command::Dictionary { command: DictionaryCommand::List { subject_type, .. } } =
+            parse(&["vendo", "dictionary", "list", "--type", "table"]).unwrap().command
+        else {
+            panic!()
+        };
+        assert_eq!(subject_type, "table");
+        let create = ["vendo", "apps", "create", "--type", "x", "--name", "n", "--role", "source,destination"];
+        let Command::Apps { command: AppsCommand::Create { role, permissions, .. } } =
+            parse(&[&create[..], &["--permissions", "performance_data,new_one"]].concat()).unwrap().command
+        else {
+            panic!()
+        };
+        assert_eq!((role.as_str(), permissions.as_deref()), ("source,destination", Some("performance_data,new_one")));
+        let Command::Login { env, .. } = parse(&["vendo", "login", "--env", "Staging"]).unwrap().command else {
+            panic!()
+        };
+        assert_eq!(env.as_deref(), Some("Staging"));
+        let Command::Completions { shell } = parse(&["vendo", "completions"]).unwrap().command else { panic!() };
+        assert_eq!(shell, None);
+        assert!(parse(&["vendo", "completions", "tcsh"]).is_err(), "the shell is still checked");
     }
 }

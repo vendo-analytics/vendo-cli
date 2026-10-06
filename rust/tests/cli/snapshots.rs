@@ -8,7 +8,7 @@
 //!   automatically and a removed one leaves a stale snapshot that fails the run.
 //! - `output/`: the table and `--json` output of every command that prints
 //!   data, and the confirmation of write commands, run against the local stub
-//!   with the synthetic account below.
+//!   with the synthetic account below; and the three completion scripts, whole.
 //!
 //! What varies between machines or runs is replaced before comparing: the stub
 //! URL, HOME, the binary's path, the CLI version, request IDs and the few
@@ -358,8 +358,19 @@ fn completions_offer_no_moved_command_and_no_group_help() {
 /// The groups of `output/`, one test each. A Session's recorder only owns its
 /// own group's files, so a renamed or removed group would leave its snapshots
 /// behind unnoticed; [`every_output_snapshot_has_a_group`] catches them.
-const OUTPUT_GROUPS: [&str; 10] =
-    ["account", "apps", "catalog", "destinations", "dictionary", "jobs", "measurement", "metrics", "models", "sources"];
+const OUTPUT_GROUPS: [&str; 11] = [
+    "account",
+    "apps",
+    "catalog",
+    "completions",
+    "destinations",
+    "dictionary",
+    "jobs",
+    "measurement",
+    "metrics",
+    "models",
+    "sources",
+];
 
 #[test]
 fn every_output_snapshot_has_a_group() {
@@ -1200,6 +1211,53 @@ async fn measurement_output() {
     ] {
         s.record(name, &args);
         s.record(&format!("{name}_json"), &[&args[..], &["--json"][..]].concat());
+    }
+    s.finish();
+}
+
+#[tokio::test]
+async fn completions_output() {
+    // The scripts the installer saves, recorded whole: a change to what TAB offers shows in the diff
+    // (VE-3830 added the values of fixed-list flags and changed nothing else).
+    let (_server, mut s) = Session::start("completions").await;
+    for shell in ["bash", "zsh", "fish"] {
+        s.record(shell, &["completions", shell]);
+    }
+    // Bare, it says what it does, whether completions are set up for the shell `$SHELL` names, and how.
+    let shell = |value: &'static str| move |cmd: &mut Command| _ = cmd.env("SHELL", value);
+    s.record_with("bare_zsh", &["completions"], shell("/bin/zsh"));
+    s.record_with("bare_bash", &["completions"], shell("/bin/bash"));
+    s.record_with("bare_fish", &["completions"], shell("/opt/homebrew/bin/fish"));
+    s.record_with("bare_unknown_shell", &["completions"], |cmd| _ = cmd.env_remove("SHELL"));
+    fn bare(s: &Session, shell: Option<&str>) -> (Option<i32>, Vec<u8>, Vec<u8>) {
+        let mut cmd = s.sandbox.command(&["completions"]);
+        match shell {
+            Some(value) => cmd.env("SHELL", value),
+            None => cmd.env_remove("SHELL"),
+        };
+        let out = cmd.output().unwrap();
+        (out.status.code(), out.stdout, out.stderr)
+    }
+    // An empty `$SHELL`, or a shell other than bash, zsh and fish, reads as no shell.
+    for value in ["", "/bin/tcsh"] {
+        assert!(bare(&s, Some(value)) == bare(&s, None), "SHELL={value:?}");
+    }
+    // The lines it gives for zsh, added to ~/.zshrc by hand, count as set up.
+    s.file(".zshrc", "autoload -Uz compinit && compinit\neval \"$(vendo completions zsh)\"\n");
+    s.record_with("bare_zsh_by_hand", &["completions"], shell("/bin/zsh"));
+    // What install.sh leaves for zsh: the saved script and the block in ~/.zshrc that loads it.
+    std::fs::create_dir_all(s.home().join(".local/share/vendo/completions")).unwrap();
+    s.file(".local/share/vendo/completions/vendo.zsh", "# the script\n");
+    s.file(".zshrc", "\n# >>> vendo completions >>>\n# <<< vendo completions <<<\n");
+    s.record_with("bare_zsh_installed", &["completions"], shell("/bin/zsh"));
+    // The explanation goes to stderr and stdout stays empty, whatever the state: its indented lines are commands
+    // (the installer's among them), so `eval "$(vendo completions $shell)"` or `vendo completions > <file>` with the
+    // shell left out must get nothing, as before it could run bare.
+    s.file(".bashrc", "eval \"$(vendo completions bash)\"\n");
+    for value in [Some("/bin/zsh"), Some("/bin/bash"), Some("/opt/homebrew/bin/fish"), None] {
+        let (code, stdout, stderr) = bare(&s, value);
+        assert_eq!((code, text(&stdout)), (Some(0), String::new()), "SHELL={value:?}");
+        assert!(text(&stderr).starts_with("`vendo completions <shell>` prints"), "SHELL={value:?}");
     }
     s.finish();
 }

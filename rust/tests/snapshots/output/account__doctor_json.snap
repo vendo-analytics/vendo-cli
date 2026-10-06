@@ -52,7 +52,7 @@ exit: 1
       "name": "Shell completions",
       "status": "warn",
       "detail": "Zsh completions are not installed yet",
-      "remediation": "Run `vendo completions zsh` or reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash`."
+      "remediation": "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` to set them up, or run `vendo completions` for the manual steps."
     },
     {
       "name": "API auth",
@@ -63,7 +63,7 @@ exit: 1
   "suggestions": [
     "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.",
     "Add `export PATH=\"$HOME/.local/bin:$PATH\"` to `~/.zshrc`, then restart your shell.",
-    "Run `vendo completions zsh` or reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash`."
+    "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` to set them up, or run `vendo completions` for the manual steps."
   ],
   "identity": {
     "accountId": "acct-alpha",

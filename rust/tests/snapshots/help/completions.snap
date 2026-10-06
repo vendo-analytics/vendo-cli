@@ -3,10 +3,10 @@ source: tests/cli/snapshots.rs
 ---
 Generate shell completion script (bash, zsh, fish)
 
-Usage: vendo completions [OPTIONS] <shell>
+Usage: vendo completions [OPTIONS] [shell]
 
 Arguments:
-  <shell>  [possible values: bash, zsh, fish]
+  [shell]  [possible values: bash, zsh, fish]
 
 Options:
   -h, --help  Print help

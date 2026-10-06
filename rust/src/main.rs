@@ -11,7 +11,6 @@ macro_rules! println {
     () => { $crate::output::write_stdout(::std::format_args!(""), true) };
     ($($arg:tt)*) => { $crate::output::write_stdout(::std::format_args!($($arg)*), true) };
 }
-#[allow(unused_macros)]
 macro_rules! eprint {
     ($($arg:tt)*) => { $crate::output::write_stderr(::std::format_args!($($arg)*), false) };
 }
@@ -46,8 +45,8 @@ use crate::{
         RulesCommand, SignalsCommand, SourcesCommand,
     },
     commands::{
-        account, apps, catalog, dictionary as dictionary_cmd, health, integrations, jobs as jobs_cmd, login,
-        measurement, metrics, models,
+        account, apps, catalog, completions, dictionary as dictionary_cmd, health, integrations, jobs as jobs_cmd,
+        login, measurement, metrics, models,
         pipeline_resource::{self as resource, ActionOpts},
         sources,
     },
@@ -345,10 +344,7 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             Ok(ok)
         }
         Command::Completions { shell } => {
-            // Rendered to a buffer: clap_complete panics when its writer fails.
-            let mut script = Vec::new();
-            clap_complete::generate(clap_complete::Shell::from(shell), &mut cli::command(), "vendo", &mut script);
-            output::write_stdout_bytes(&script);
+            completions::run(ctx, shell);
             Ok(ok)
         }
         Command::Doctor { json } => health::doctor(ctx, json).await,
