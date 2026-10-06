@@ -7,7 +7,6 @@ Usage: vendo [OPTIONS] <COMMAND>
 
 Getting started:
   login         Authenticate with your Vendo account
-  init          Guide first-time Vendo CLI setup
   logout        Remove stored credentials
   whoami        Show the current authenticated account
   status        Account health overview

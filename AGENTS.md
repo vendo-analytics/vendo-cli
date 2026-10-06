@@ -53,6 +53,12 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   prints: clap hidden aliases where clap allows (`config` = `profile`, `use` = `profile switch`), `MOVED` in `cli.rs`
   where it does not (`profile current`/`config show` → `whoami`, `config reset` → `logout --all`). Give a new
   hidden path a byte-identity test.
+- Login (VE-3825, CLI 1.1): `vendo login` does what `init` did, and `init` is its hidden clap alias. It signs in
+  through the browser when there is no working key, checks the key with `/me` and prints the setup summary. A key it
+  has (profile or `VENDO_API_KEY`) is checked and kept; `--force`, `--env`/`--base-url` naming another instance, or a
+  401/403 from `/me` sign in again, and any other failed check exits 1 without creating a key. With `VENDO_API_KEY`
+  set it never opens a browser. Tests act as the browser (`login_at_browser` in `rust/tests/cli.rs` visits the printed
+  sign-in URL on the stub); stdin stays closed, so no real browser opens.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

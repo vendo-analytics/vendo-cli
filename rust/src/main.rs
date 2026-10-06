@@ -88,10 +88,9 @@ async fn main() -> ExitCode {
 async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
     let ok = ExitCode::SUCCESS;
     match command {
-        Command::Login { api_key, account, env, base_url } => {
-            login::run(ctx, api_key, account, env, base_url).await.map(|_| ok)
+        Command::Login { api_key, account, env, base_url, force } => {
+            login::run(ctx, login::LoginArgs { api_key, account, env, base_url, force }).await.map(|_| ok)
         }
-        Command::Init { env, base_url } => account::init(ctx, env, base_url).await.map(|_| ok),
         Command::Logout { all, yes } => account::logout(ctx, all, yes).map(|_| ok),
         Command::Profile { command } => match command {
             ProfileCommand::List => {

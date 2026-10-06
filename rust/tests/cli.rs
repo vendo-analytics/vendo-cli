@@ -1667,3 +1667,370 @@ async fn a_question_needs_stdin_and_stdout_on_a_terminal() {
 
     assert_eq!(sent(&server).await, Vec::<String>::new());
 }
+
+// ── VE-3825: `vendo login` signs in, checks the key and prints the summary ───
+// `login` does what `login` and `init` did (Yalcin, 2026-10-05, CLI 1.1): it signs in through the
+// browser when there is no working key, checks the key with `/me` and prints the setup summary.
+// `init` is its hidden alias. The browser is the test: stdin stays closed, so `vendo` never opens
+// one; the test visits the printed sign-in URL instead.
+
+/// The key the stub's sign-in page creates.
+const NEW_KEY: &str = "vendo_sk_fake_new_000000";
+const ALPHA_KEY: &str = "vendo_sk_fake_alpha_0000";
+const GAMMA_KEY: &str = "vendo_sk_fake_gamma_0000";
+
+/// The web app's `/cli-auth?port=&state=` page once the person approves: it creates an API key
+/// (`createApiKey`) and redirects to the CLI's local callback with it.
+pub struct SignInPage;
+
+impl wiremock::Respond for SignInPage {
+    fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
+        let param = |key: &str| {
+            request.url.query_pairs().find(|(k, _)| k == key).map(|(_, v)| v.into_owned()).unwrap_or_default()
+        };
+        let callback = format!(
+            "http://127.0.0.1:{}/callback?key={NEW_KEY}&account=demo-account&account_id=acct-alpha&state={}",
+            param("port"),
+            param("state")
+        );
+        ResponseTemplate::new(302).insert_header("Location", callback.as_str())
+    }
+}
+
+pub async fn mount_sign_in_page(server: &MockServer) {
+    Mock::given(wiremock::matchers::method("GET")).and(path("/cli-auth")).respond_with(SignInPage).mount(server).await;
+}
+
+/// A stub whose `/me` accepts `keys` and answers `refusal` to any other, with the sign-in page.
+async fn sign_in_stub(keys: &[&str], refusal: u16) -> MockServer {
+    let server = MockServer::start().await;
+    let me = json!({ "data": {
+        "accountId": "acct-alpha", "accountName": "Demo Account (synthetic)", "accountSlug": "demo-account",
+        "apiKeyId": "key_fake_0001", "scopes": [],
+    } });
+    for key in keys {
+        Mock::given(wiremock::matchers::method("GET"))
+            .and(path("/api/v1/me"))
+            .and(wiremock::matchers::header("authorization", format!("Bearer {key}").as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(me.clone()))
+            .with_priority(1)
+            .mount(&server)
+            .await;
+    }
+    let error = json!({ "error": { "code": "REFUSED", "message": "Refused by the stub" } });
+    serve(&server, "GET", "/api/v1/me", refusal, error).await;
+    mount_sign_in_page(&server).await;
+    server
+}
+
+/// What reached the stub: `GET /cli-auth` (a key created), `GET /api/v1/me <key>` (a key checked).
+async fn sign_in_requests(server: &MockServer) -> Vec<String> {
+    let requests = server.received_requests().await.unwrap();
+    requests
+        .iter()
+        .map(|r| match r.headers.get("authorization").and_then(|v| v.to_str().ok()) {
+            Some(auth) => format!("{} {} {}", r.method, r.url.path(), auth.trim_start_matches("Bearer ")),
+            None => format!("{} {}", r.method, r.url.path()),
+        })
+        .collect()
+}
+
+/// Run `cmd` as a person at the browser would: when `vendo` prints the sign-in URL, visit it (the
+/// stub's sign-in page creates a key and sends it to the CLI's callback). Returns the exit code,
+/// stdout with the callback's random port and state shown as `[port]` and `[state]`, and stderr.
+pub async fn login_at_browser(mut cmd: Command) -> (Option<i32>, String, String) {
+    use std::io::BufRead;
+    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let (mut shown, mut line) = (String::new(), String::new());
+    while stdout.read_line(&mut line).unwrap() > 0 {
+        if line.contains("/cli-auth?") {
+            let url = reqwest::Url::parse(line.trim_end()).unwrap();
+            assert_eq!(url.host_str(), Some("127.0.0.1"), "tests sign in at their local stub only: {url}");
+            let page = reqwest::get(url.clone()).await.unwrap();
+            assert_eq!(page.status(), 200);
+            assert!(page.text().await.unwrap().contains("<h1>Authenticated</h1>"));
+            for (key, value) in url.query_pairs() {
+                line = line.replace(&format!("{key}={value}"), &format!("{key}=[{key}]"));
+            }
+        }
+        shown.push_str(&line);
+        line.clear();
+    }
+    let out = child.wait_with_output().unwrap();
+    (out.status.code(), shown, text(&out.stderr))
+}
+
+/// The summary and next steps a successful login ends with.
+fn signed_in(profile: &str, base_url: &str, account_id: &str) -> String {
+    format!(
+        "\nSetup summary\n  Profile:     {profile}\n  Base URL:    {base_url}\n  Account ID:  {account_id}\n  Auth:        verified as Demo Account (synthetic)\n\nNext steps\n  vendo doctor\n  vendo whoami\n  vendo status\nDone: Vendo CLI setup complete.\n"
+    )
+}
+
+/// The lines before the browser sign-in's summary: `why`, then the sign-in URL on `base_url`.
+fn browser_sign_in(why: &str, base_url: &str) -> String {
+    format!(
+        "{why}\nLogin at:\n{base_url}/cli-auth?port=[port]&state=[state]\nPress ENTER to open in the browser...\nWaiting for authorization...\n"
+    )
+}
+
+#[tokio::test]
+async fn login_without_a_key_signs_in_through_the_browser_and_checks_the_new_key() {
+    let server = sign_in_stub(&[NEW_KEY], 401).await;
+    let stub = server.uri();
+    let sandbox = Sandbox::without_api_keys(&stub);
+    let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
+    assert_eq!((code, stderr.as_str()), (Some(0), ""));
+    let expected = browser_sign_in("No API key found. Starting browser login...", &stub);
+    assert_eq!(stdout, expected + &signed_in("demo-account", &stub, "acct-alpha"));
+    assert_eq!(sign_in_requests(&server).await, ["GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]);
+    let config = sandbox.config();
+    assert_eq!(config["activeProfile"], "demo-account");
+    assert_eq!(
+        config["profiles"]["demo-account"],
+        json!({ "apiKey": NEW_KEY, "accountId": "acct-alpha", "baseUrl": stub })
+    );
+}
+
+#[tokio::test]
+async fn login_with_a_working_key_checks_it_and_creates_no_key() {
+    let server = sign_in_stub(&[ALPHA_KEY], 401).await;
+    let stub = server.uri();
+    let sandbox = Sandbox::new(&stub);
+    let before = sandbox.config();
+    let expected = "Using existing profile alpha. Run `vendo login --force` to sign in again.\n".to_string()
+        + &signed_in("alpha", &stub, "acct-alpha");
+    // Naming the profile's own instance is the same login.
+    for args in [&["login"][..], &["login", "--base-url", &stub]] {
+        let (code, stdout, stderr) = login_at_browser(sandbox.command(args)).await;
+        assert_eq!((code, stdout.as_str(), stderr.as_str()), (Some(0), expected.as_str(), ""), "{args:?}");
+    }
+    // Only checks: no sign-in page, so no new key.
+    assert_eq!(sign_in_requests(&server).await, vec![format!("GET /api/v1/me {ALPHA_KEY}"); 2]);
+    assert_eq!(sandbox.config(), before);
+}
+
+#[tokio::test]
+async fn login_force_signs_in_again_without_checking_the_saved_key() {
+    let server = sign_in_stub(&[ALPHA_KEY, NEW_KEY], 401).await;
+    let stub = server.uri();
+    let sandbox = Sandbox::new(&stub);
+    let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login", "--force"])).await;
+    assert_eq!((code, stderr.as_str()), (Some(0), ""));
+    let expected = browser_sign_in("Signing in again (--force). Starting browser login...", &stub);
+    assert_eq!(stdout, expected + &signed_in("demo-account", &stub, "acct-alpha"));
+    assert_eq!(sign_in_requests(&server).await, ["GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]);
+    let config = sandbox.config();
+    assert_eq!(config["activeProfile"], "demo-account");
+    assert_eq!(config["profiles"]["alpha"]["apiKey"], ALPHA_KEY, "the other profiles are kept");
+}
+
+#[tokio::test]
+async fn login_with_a_rejected_key_signs_in_through_the_browser() {
+    for status in [401, 403] {
+        let server = sign_in_stub(&[NEW_KEY], status).await;
+        let stub = server.uri();
+        let sandbox = Sandbox::new(&stub);
+        let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
+        assert_eq!((code, stderr.as_str()), (Some(0), ""), "{status}");
+        let why = format!("The API key in profile alpha was rejected (HTTP {status}). Starting browser login...");
+        assert_eq!(stdout, browser_sign_in(&why, &stub) + &signed_in("demo-account", &stub, "acct-alpha"));
+        assert_eq!(
+            sign_in_requests(&server).await,
+            [format!("GET /api/v1/me {ALPHA_KEY}"), "GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]
+        );
+        assert_eq!(sandbox.config()["profiles"]["demo-account"]["apiKey"], NEW_KEY);
+    }
+}
+
+#[tokio::test]
+async fn login_that_cannot_check_the_key_creates_no_key() {
+    // A server error, an answer that is not the API's, or no answer: the key may still work, so
+    // nothing is replaced and login fails.
+    let not_checked = |stub: &str| {
+        "Using existing profile alpha. Run `vendo login --force` to sign in again.\n\nSetup summary\n  Profile:     alpha\n"
+            .to_string()
+            + &format!("  Base URL:    {stub}\n  Account ID:  acct-alpha\n  Auth:        not verified (API check failed)\n")
+    };
+    let error = |reason: &str| {
+        format!(
+            "Error: Could not verify the API key: {reason}. Nothing was changed: check your connection (`vendo doctor`) and run `vendo login` again.\n"
+        )
+    };
+    for (status, reason) in
+        [(500, "HTTP 500 Internal Server Error"), (404, "HTTP 404 Not Found"), (429, "HTTP 429 Too Many Requests")]
+    {
+        let server = sign_in_stub(&[], status).await;
+        let stub = server.uri();
+        let sandbox = Sandbox::new(&stub);
+        let before = sandbox.config();
+        let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
+        assert_eq!((code, stdout, stderr), (Some(1), not_checked(&stub), error(reason)), "{status}");
+        assert_eq!(sign_in_requests(&server).await, [format!("GET /api/v1/me {ALPHA_KEY}")], "{status}");
+        assert_eq!(sandbox.config(), before);
+    }
+    let sandbox = Sandbox::new(CLOSED);
+    let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
+    assert_eq!((code, stdout, stderr), (Some(1), not_checked(CLOSED), error("fetch failed")));
+}
+
+#[tokio::test]
+async fn a_new_key_that_cannot_be_checked_is_kept_and_login_fails() {
+    // The sign-in worked, so its key is saved; a failed check never starts another sign-in.
+    for (status, reason) in [(500, "HTTP 500 Internal Server Error"), (401, "HTTP 401 Unauthorized")] {
+        let server = sign_in_stub(&[], status).await;
+        let stub = server.uri();
+        let sandbox = Sandbox::without_api_keys(&stub);
+        let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
+        let summary = format!(
+            "\nSetup summary\n  Profile:     demo-account\n  Base URL:    {stub}\n  Account ID:  acct-alpha\n  Auth:        not verified (API check failed)\n"
+        );
+        let expected = browser_sign_in("No API key found. Starting browser login...", &stub) + &summary;
+        let error = format!(
+            "Error: Could not verify the API key: {reason}. The new key is saved in profile demo-account: run `vendo whoami` to check it again.\n"
+        );
+        assert_eq!((code, stdout, stderr), (Some(1), expected, error), "{status}");
+        assert_eq!(sign_in_requests(&server).await, ["GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]);
+        assert_eq!(sandbox.config()["profiles"]["demo-account"]["apiKey"], NEW_KEY, "{status}");
+    }
+}
+
+#[tokio::test]
+async fn a_key_without_an_account_is_kept_and_the_summary_says_what_is_missing() {
+    let server = sign_in_stub(&[ALPHA_KEY], 401).await;
+    let stub = server.uri();
+    let sandbox = Sandbox::new(&stub);
+    let mut config = sandbox.config();
+    config["profiles"]["alpha"].as_object_mut().unwrap().remove("accountId");
+    std::fs::write(sandbox.home.path().join(".config/vendo/config.json"), config.to_string()).unwrap();
+    let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
+    assert_eq!((code, stderr.as_str()), (Some(0), ""));
+    assert_eq!(
+        stdout,
+        format!(
+            "Using existing profile alpha. Run `vendo login --force` to sign in again.\n\nSetup summary\n  Profile:     alpha\n  Base URL:    {stub}\n  Account ID:  missing\n  Auth:        incomplete (account ID still required)\n\nNext steps\n  vendo doctor\n  vendo whoami\n  vendo status\n\nSet an account explicitly with `vendo profile set --account <account-id>` if your login flow did not provide one.\nDone: Vendo CLI setup complete.\n"
+        )
+    );
+    assert_eq!(sign_in_requests(&server).await, Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn login_for_another_instance_signs_in_there() {
+    let saved = MockServer::start().await;
+    let other = sign_in_stub(&[NEW_KEY], 401).await;
+    let sandbox = Sandbox::new(&saved.uri());
+    let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login", "--base-url", &other.uri()])).await;
+    assert_eq!((code, stderr.as_str()), (Some(0), ""));
+    let why = format!("Profile alpha is for {}. Starting browser login for {}...", saved.uri(), other.uri());
+    assert_eq!(stdout, browser_sign_in(&why, &other.uri()) + &signed_in("demo-account", &other.uri(), "acct-alpha"));
+    assert_eq!(sign_in_requests(&saved).await, Vec::<String>::new(), "the saved key is not for this instance");
+    assert_eq!(sign_in_requests(&other).await, ["GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]);
+    assert_eq!(sandbox.config()["profiles"]["demo-account"]["baseUrl"], other.uri());
+}
+
+#[tokio::test]
+async fn headless_login_never_opens_a_browser() {
+    let server = sign_in_stub(&[GAMMA_KEY], 401).await;
+    let stub = server.uri();
+    let sandbox = Sandbox::new(&stub);
+    // Both flags: the key is checked and saved, with or without --force (it signs in with the key given).
+    for force in [&[][..], &["--force"]] {
+        let args =
+            [&["login", "--api-key", GAMMA_KEY, "--account", "acct-gamma", "--base-url", &stub][..], force].concat();
+        let (code, stdout, stderr) = login_at_browser(sandbox.command(&args)).await;
+        assert_eq!((code, stdout, stderr), (Some(0), signed_in("demo-account", &stub, "acct-gamma"), String::new()));
+    }
+    let config = sandbox.config();
+    assert_eq!(config["activeProfile"], "demo-account");
+    assert_eq!(
+        config["profiles"]["demo-account"],
+        json!({ "apiKey": GAMMA_KEY, "accountId": "acct-gamma", "baseUrl": stub })
+    );
+    // A rejected key is refused and nothing is saved; one flag alone is refused before any request.
+    let rejected = ["login", "--api-key", "vendo_sk_fake_bad_00000", "--account", "acct-gamma", "--base-url", &stub];
+    let one_flag = ["login", "--api-key", GAMMA_KEY, "--base-url", &stub];
+    for (args, error) in [
+        (&rejected[..], "Error: Credential validation failed (HTTP 401). Check your API key and account ID.\n"),
+        (
+            &one_flag,
+            "Error: Both --api-key and --account are required for headless login.\n  Example: vendo login --api-key <key> --account <id>\n",
+        ),
+    ] {
+        let (code, stdout, stderr) = login_at_browser(sandbox.command(args)).await;
+        assert_eq!((code, stdout.as_str(), stderr.as_str()), (Some(1), "", error), "{args:?}");
+    }
+    assert_eq!(sandbox.config(), config);
+    let checks = [GAMMA_KEY, GAMMA_KEY, "vendo_sk_fake_bad_00000"].map(|key| format!("GET /api/v1/me {key}"));
+    assert_eq!(sign_in_requests(&server).await, checks, "no sign-in page");
+}
+
+#[tokio::test]
+async fn a_key_in_vendo_api_key_is_checked_and_never_opens_a_browser() {
+    const ENV_KEY: &str = "vendo_sk_fake_env_000000";
+    let server = sign_in_stub(&[ENV_KEY], 401).await;
+    let stub = server.uri();
+    let sandbox = Sandbox::without_api_keys(&stub);
+    let before = sandbox.config();
+    let with_key = |key: &str, args: &[&str]| {
+        let mut cmd = sandbox.command(args);
+        cmd.env("VENDO_API_KEY", key);
+        cmd
+    };
+    let (code, stdout, stderr) = login_at_browser(with_key(ENV_KEY, &["login"])).await;
+    assert_eq!((code, stderr.as_str()), (Some(0), ""));
+    assert_eq!(stdout, "Using the API key in VENDO_API_KEY.\n".to_string() + &signed_in("alpha", &stub, "acct-alpha"));
+
+    let unset = "`vendo login` does not open a browser while VENDO_API_KEY is set";
+    for (key, args, error) in [
+        (
+            "vendo_sk_fake_bad_00000",
+            &["login"][..],
+            format!(
+                "The API key in VENDO_API_KEY was rejected (HTTP 401). {unset}: set a working key, or unset it to sign in through the browser."
+            ),
+        ),
+        (ENV_KEY, &["login", "--force"], format!("{unset}: unset it to sign in through the browser.")),
+        (
+            ENV_KEY,
+            &["login", "--env", "staging"],
+            format!(
+                "VENDO_API_KEY is used with {stub}, not https://stg.vendodata.com. {unset}: unset it to sign in through the browser."
+            ),
+        ),
+    ] {
+        let (code, stdout, stderr) = login_at_browser(with_key(key, args)).await;
+        assert_eq!((code, stdout.as_str(), stderr), (Some(1), "", format!("Error: {error}\n")), "{args:?}");
+    }
+    // --force and another instance are refused before any request.
+    let checks = [ENV_KEY, "vendo_sk_fake_bad_00000"].map(|key| format!("GET /api/v1/me {key}"));
+    assert_eq!(sign_in_requests(&server).await, checks);
+    assert_eq!(sandbox.config(), before, "nothing saved");
+}
+
+#[tokio::test]
+async fn init_prints_exactly_what_login_prints() {
+    // `init` is a hidden alias of `login` since CLI 1.1 (VE-3825): the same output, requests and
+    // saved profiles from the same start, in every state.
+    async fn run(command: &str, state: &str) -> (Option<i32>, String, String, Vec<String>, String) {
+        let accepted: &[&str] = if state == "rejected key" { &[NEW_KEY] } else { &[ALPHA_KEY, GAMMA_KEY, NEW_KEY] };
+        let server = sign_in_stub(accepted, 401).await;
+        let stub = server.uri();
+        let sandbox = if state == "no key" { Sandbox::without_api_keys(&stub) } else { Sandbox::new(&stub) };
+        let mut args = vec![command];
+        match state {
+            "--force" => args.push("--force"),
+            "headless" => args.extend(["--api-key", GAMMA_KEY, "--account", "acct-gamma"]),
+            _ => {}
+        }
+        let (code, stdout, stderr) = login_at_browser(sandbox.command(&args)).await;
+        let config = sandbox.config().to_string();
+        let shown = |s: String| s.replace(&stub, "[stub]");
+        (code, shown(stdout), shown(stderr), sign_in_requests(&server).await, shown(config))
+    }
+    for state in ["no key", "working key", "--force", "headless", "rejected key"] {
+        let login = run("login", state).await;
+        assert_eq!(login.0, Some(0), "{state}: {login:?}");
+        assert_eq!(run("init", state).await, login, "{state}");
+    }
+}

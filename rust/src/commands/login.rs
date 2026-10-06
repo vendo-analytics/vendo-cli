@@ -1,6 +1,19 @@
-//! `vendo login` (port of `src/commands/login.ts`): headless with
-//! `--api-key` + `--account`, or the browser flow against the web app's
-//! `/cli-auth` page, which redirects to
+//! `vendo login` (port of `src/commands/login.ts` and `init.ts`, one command
+//! since CLI 1.1, VE-3825; `vendo init` is its hidden alias). It signs in when
+//! there is no working key, checks the key with `/me` and prints the setup
+//! summary:
+//!
+//! - `--api-key` + `--account`: checks that key and saves it, never a browser.
+//! - A key it already has (the selected profile's, or `VENDO_API_KEY`) is
+//!   checked and kept. It signs in through the browser instead when there is
+//!   no key, with `--force`, when `--env`/`--base-url` name another instance,
+//!   or when `/me` rejects the key (401/403). Any other failed check (no
+//!   answer, a server error) creates no key: login fails and changes nothing.
+//! - With `VENDO_API_KEY` set it never opens a browser: where it would, it
+//!   stops with an error instead.
+//!
+//! The browser flow goes through the web app's `/cli-auth` page, which creates
+//! an API key and redirects to
 //! `http://127.0.0.1:<port>/callback?key=&account=&account_id=&state=`.
 //! The server requires `state` to match `^[a-f0-9]{32}$`.
 
@@ -15,10 +28,10 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    config::DEFAULT_BASE_URL,
+    config::{DEFAULT_BASE_URL, EffectiveConfig, Source},
     context::Ctx,
     identity::{IdentityError, fetch_identity},
-    output::{bold, dim, green, run_action},
+    output::{bold, dim, green, print_success, run_action, yellow},
     update_check,
 };
 
@@ -27,23 +40,21 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// headers: Node's HTTP server default (`headersTimeout`).
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
-pub struct LoginResult {
-    pub account: String,
-    pub account_id: Option<String>,
+pub struct LoginArgs {
+    pub api_key: Option<String>,
+    pub account: Option<String>,
+    pub env: Option<String>,
+    pub base_url: Option<String>,
+    /// Sign in through the browser even when the key it has works.
+    pub force: bool,
 }
 
-pub async fn run(
-    ctx: &Ctx,
-    api_key: Option<String>,
-    account: Option<String>,
-    env: Option<String>,
-    base_url: Option<String>,
-) -> Result<()> {
+pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
     // Resolve the instance first so a typo fails before a browser opens at
     // the wrong one (VE-1563).
-    let base_url = ctx.store.resolve_login_base_url(env.as_deref(), base_url.as_deref())?;
+    let base_url = ctx.store.resolve_login_base_url(args.env.as_deref(), args.base_url.as_deref())?;
 
-    let result = if let Some((api_key, account_id)) = headless_credentials(api_key, account)? {
+    if let Some((api_key, account_id)) = headless_credentials(args.api_key, args.account)? {
         let identity = run_action("Validating credentials...", async {
             fetch_identity(&api_key, &account_id, &base_url, ctx.debug).await.map_err(|err| match err {
                 IdentityError::Http { status, .. } => {
@@ -53,15 +64,45 @@ pub async fn run(
             })
         })
         .await?;
+        let verified = Check::Verified(identity.me.display_name().to_string());
         let name = identity.me.account_slug.or(identity.me.account_name).unwrap_or_else(|| account_id.clone());
         ctx.store.save_profile(&name, profile(&api_key, Some(&account_id), &base_url))?;
-        LoginResult { account: name, account_id: Some(account_id) }
-    } else {
-        run_browser_login(ctx, &base_url).await?
-    };
+        let summary = Summary { profile: Some(name), base_url, account_id: Some(account_id) };
+        return finish(&summary, verified, NOTHING_CHANGED);
+    }
 
-    print_login_success(&result);
-    Ok(())
+    let config = ctx.effective();
+    let from_env = config.api_key_source == Source::Env;
+    let sign_in = match &config.api_key {
+        None => SignIn::NoKey,
+        Some(_) if args.force => SignIn::Force,
+        Some(_) if !same_instance(&config.base_url, &base_url) => SignIn::OtherInstance,
+        Some(key) => {
+            let check = check_key(ctx, key, config.account_id.as_deref(), &config.base_url).await;
+            match check.rejected() {
+                Some(status) => SignIn::Rejected(status),
+                None => {
+                    println!("{}", dim(&using_existing(&config)));
+                    let summary = Summary {
+                        profile: config.selected_profile.clone(),
+                        base_url: config.base_url.clone(),
+                        account_id: config.account_id.clone(),
+                    };
+                    return finish(&summary, check, NOTHING_CHANGED);
+                }
+            }
+        }
+    };
+    if from_env {
+        bail!(sign_in.refusal(&config, &base_url));
+    }
+    println!("{}", dim(&sign_in.announcement(&config, &base_url)));
+    let signed_in = run_browser_login(ctx, &base_url).await?;
+    let account_id = signed_in.account_id.filter(|id| !id.is_empty());
+    let check = check_key(ctx, &signed_in.key, account_id.as_deref(), &base_url).await;
+    let saved = format!("The new key is saved in profile {}: run `vendo whoami` to check it again.", signed_in.account);
+    let summary = Summary { profile: Some(signed_in.account), base_url, account_id };
+    finish(&summary, check, &saved)
 }
 
 /// `--api-key` and `--account` read as the TS CLI did (`opts.apiKey ||
@@ -78,33 +119,160 @@ pub fn headless_credentials(api_key: Option<String>, account: Option<String>) ->
     }
 }
 
-/// The browser flow, shared with `vendo init`.
-pub async fn run_browser_login(ctx: &Ctx, base_url: &str) -> Result<LoginResult> {
+/// Why login signs in through the browser instead of using the key it has.
+enum SignIn {
+    NoKey,
+    Force,
+    /// `--env`/`--base-url` name an instance the key is not used with.
+    OtherInstance,
+    /// `/me` refused the key with this status.
+    Rejected(u16),
+}
+
+impl SignIn {
+    /// What login prints before the browser flow.
+    fn announcement(&self, config: &EffectiveConfig, base_url: &str) -> String {
+        let profile = config.selected_profile.as_deref().unwrap_or_default();
+        match self {
+            SignIn::NoKey => "No API key found. Starting browser login...".into(),
+            SignIn::Force => "Signing in again (--force). Starting browser login...".into(),
+            SignIn::OtherInstance => {
+                format!("Profile {profile} is for {}. Starting browser login for {base_url}...", config.base_url)
+            }
+            SignIn::Rejected(status) => {
+                format!("The API key in profile {profile} was rejected (HTTP {status}). Starting browser login...")
+            }
+        }
+    }
+
+    /// The error when the key is in `VENDO_API_KEY`: headless, so no browser.
+    fn refusal(&self, config: &EffectiveConfig, base_url: &str) -> String {
+        let no_browser = "`vendo login` does not open a browser while VENDO_API_KEY is set";
+        match self {
+            SignIn::Rejected(status) => format!(
+                "The API key in VENDO_API_KEY was rejected (HTTP {status}). {no_browser}: set a working key, or unset it to sign in through the browser."
+            ),
+            SignIn::OtherInstance => format!(
+                "VENDO_API_KEY is used with {}, not {base_url}. {no_browser}: unset it to sign in through the browser.",
+                config.base_url
+            ),
+            SignIn::NoKey | SignIn::Force => format!("{no_browser}: unset it to sign in through the browser."),
+        }
+    }
+}
+
+fn using_existing(config: &EffectiveConfig) -> String {
+    match (config.api_key_source, config.selected_profile.as_deref()) {
+        (Source::Env, _) => "Using the API key in VENDO_API_KEY.".into(),
+        (_, profile) => format!(
+            "Using existing profile {}. Run `vendo login --force` to sign in again.",
+            profile.unwrap_or_default()
+        ),
+    }
+}
+
+/// The same instance: `--base-url` is saved as its origin, a profile's URL as typed.
+fn same_instance(a: &str, b: &str) -> bool {
+    let origin = |url: &str| reqwest::Url::parse(url).map(|u| u.origin().ascii_serialization()).unwrap_or(url.into());
+    origin(a) == origin(b)
+}
+
+/// What checking a key with `/me` showed.
+#[derive(Debug)]
+enum Check {
+    /// Accepted; the account's display name.
+    Verified(String),
+    /// No account ID to check it with (`/me` needs one).
+    Incomplete,
+    Failed(IdentityError),
+}
+
+impl Check {
+    /// The status when the API refused the key itself, as opposed to not answering.
+    fn rejected(&self) -> Option<u16> {
+        match self {
+            Check::Failed(IdentityError::Http { status: status @ (401 | 403), .. }) => Some(*status),
+            _ => None,
+        }
+    }
+}
+
+async fn check_key(ctx: &Ctx, api_key: &str, account_id: Option<&str>, base_url: &str) -> Check {
+    let Some(account_id) = account_id.filter(|id| !id.is_empty()) else { return Check::Incomplete };
+    match run_action("Checking your API key...", fetch_identity(api_key, account_id, base_url, ctx.debug)).await {
+        Ok(identity) => Check::Verified(identity.me.display_name().to_string()),
+        Err(err) => Check::Failed(err),
+    }
+}
+
+const NOTHING_CHANGED: &str =
+    "Nothing was changed: check your connection (`vendo doctor`) and run `vendo login` again.";
+
+/// What the summary shows: the profile the key is in, its instance and account.
+struct Summary {
+    profile: Option<String>,
+    base_url: String,
+    account_id: Option<String>,
+}
+
+/// Print the setup summary and, when the check did not fail, the next steps.
+/// A failed check is an error that ends with `unverified`.
+fn finish(summary: &Summary, check: Check, unverified: &str) -> Result<()> {
+    for line in summary_lines(summary, &check) {
+        println!("{line}");
+    }
+    if let Check::Failed(err) = check {
+        bail!("Could not verify the API key: {}. {unverified}", failure_reason(&err));
+    }
+    print_success("Vendo CLI setup complete.");
+    Ok(())
+}
+
+fn summary_lines(summary: &Summary, check: &Check) -> Vec<String> {
+    let mut lines = vec![
+        String::new(),
+        bold("Setup summary"),
+        format!("  Profile:     {}", summary.profile.clone().unwrap_or_else(|| dim("none selected"))),
+        format!("  Base URL:    {}", summary.base_url),
+        format!("  Account ID:  {}", summary.account_id.clone().unwrap_or_else(|| dim("missing"))),
+        match check {
+            Check::Verified(name) => format!("  Auth:        {} as {name}", green("verified")),
+            Check::Failed(_) => format!("  Auth:        {} (API check failed)", yellow("not verified")),
+            Check::Incomplete => format!("  Auth:        {} (account ID still required)", yellow("incomplete")),
+        },
+    ];
+    if matches!(check, Check::Failed(_)) {
+        return lines;
+    }
+    lines.extend([String::new(), bold("Next steps")]);
+    lines.extend(["  vendo doctor", "  vendo whoami", "  vendo status"].map(String::from));
+    if summary.account_id.is_none() {
+        lines.push(String::new());
+        lines.push(dim(
+            "Set an account explicitly with `vendo profile set --account <account-id>` if your login flow did not provide one.",
+        ));
+    }
+    lines
+}
+
+/// Why `/me` did not confirm the key: the status the API answered, or why there was no answer.
+fn failure_reason(err: &IdentityError) -> String {
+    match err {
+        IdentityError::Http { status, status_text } if !status_text.is_empty() => {
+            format!("HTTP {status} {status_text}")
+        }
+        IdentityError::Http { status, .. } => format!("HTTP {status}"),
+        IdentityError::Transport(err) => err.message.clone(),
+        IdentityError::Invalid(message) => message.clone(),
+    }
+}
+
+/// The browser flow: the key it signed in with, saved as the active profile.
+async fn run_browser_login(ctx: &Ctx, base_url: &str) -> Result<Callback> {
     update_check::check(&ctx.update_cache_path()).await;
     let callback = browser_flow(base_url).await?;
     ctx.store.save_profile(&callback.account, profile(&callback.key, callback.account_id.as_deref(), base_url))?;
-    Ok(LoginResult { account: callback.account, account_id: callback.account_id })
-}
-
-pub fn print_login_success(result: &LoginResult) {
-    for line in login_success_lines(result) {
-        println!("{line}");
-    }
-}
-
-fn login_success_lines(result: &LoginResult) -> Vec<String> {
-    let mut lines = vec![
-        String::new(),
-        format!("{} Authenticated as {}", green("Done:"), bold(&result.account)),
-        dim(&format!("Active profile: {}", result.account)),
-    ];
-    // `if (result.accountId)`: an empty ID is saved but not announced.
-    if let Some(id) = result.account_id.as_deref().filter(|id| !id.is_empty()) {
-        lines.push(dim(&format!("Account ID saved: {id}")));
-    }
-    lines.extend([String::new(), bold("Next steps"), "  vendo whoami".into(), "  vendo status".into()]);
-    lines.push("  vendo doctor".into());
-    lines
+    Ok(callback)
 }
 
 fn profile(api_key: &str, account_id: Option<&str>, base_url: &str) -> Map<String, Value> {
@@ -395,13 +563,71 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_account_id_is_saved_but_not_announced() {
+    fn an_empty_account_id_is_saved_but_the_summary_asks_for_one() {
         let p = profile("k", Some(""), DEFAULT_BASE_URL);
         assert_eq!(Value::Object(p), serde_json::json!({ "apiKey": "k", "accountId": "" }));
-        let lines = |id: Option<&str>| {
-            login_success_lines(&LoginResult { account: "acme".into(), account_id: id.map(Into::into) }).join("\n")
+        // The flow reads an empty ID as none, as `if (result.accountId)` did.
+        let summary = |id: Option<&str>| Summary {
+            profile: Some("acme".into()),
+            base_url: DEFAULT_BASE_URL.into(),
+            account_id: id.map(Into::into),
         };
-        assert!(!lines(Some("")).contains("Account ID saved"));
-        assert!(lines(Some("a-1")).contains("Account ID saved: a-1"));
+        let lines = summary_lines(&summary(None), &Check::Incomplete).join("\n");
+        assert!(
+            lines.contains("account ID still required") && lines.contains("vendo profile set --account"),
+            "{lines}"
+        );
+        let lines = summary_lines(&summary(Some("a-1")), &Check::Verified("Acme".into())).join("\n");
+        assert!(lines.contains("Account ID:  a-1") && lines.contains("as Acme"), "{lines}");
+        assert!(lines.contains("Next steps") && !lines.contains("vendo profile set"), "{lines}");
+    }
+
+    #[test]
+    fn a_failed_check_ends_the_summary_at_the_auth_line() {
+        let summary = Summary { profile: None, base_url: DEFAULT_BASE_URL.into(), account_id: Some("a".into()) };
+        let lines = summary_lines(&summary, &Check::Failed(IdentityError::Invalid("x".into())));
+        assert!(lines.last().unwrap().contains("API check failed"), "{lines:?}");
+        assert!(lines[2].contains("none selected"), "{lines:?}");
+    }
+
+    #[test]
+    fn only_a_refusal_of_the_key_itself_signs_in_again() {
+        let http = |status| Check::Failed(IdentityError::Http { status, status_text: String::new() });
+        assert_eq!((http(401).rejected(), http(403).rejected()), (Some(401), Some(403)));
+        for status in [400, 404, 408, 429, 500, 502, 503] {
+            assert_eq!(http(status).rejected(), None, "{status}");
+        }
+        let no_answer = crate::client::ApiError {
+            message: "fetch failed".into(),
+            status: 0,
+            code: None,
+            request_id: None,
+            server_request_id: None,
+            details: None,
+            status_text: None,
+        };
+        assert_eq!(failure_reason(&IdentityError::Transport(no_answer.clone())), "fetch failed");
+        for check in [
+            Check::Failed(IdentityError::Transport(no_answer)),
+            Check::Failed(IdentityError::Invalid("Unexpected /me response".into())),
+            Check::Verified("Acme".into()),
+            Check::Incomplete,
+        ] {
+            assert_eq!(check.rejected(), None, "{check:?}");
+        }
+        let reason = |status, text: &str| failure_reason(&IdentityError::Http { status, status_text: text.into() });
+        assert_eq!(
+            (reason(503, "Service Unavailable"), reason(599, "")),
+            ("HTTP 503 Service Unavailable".into(), "HTTP 599".into())
+        );
+    }
+
+    #[test]
+    fn instances_compare_by_origin() {
+        assert!(same_instance("https://stg.vendodata.com", "https://stg.vendodata.com/"));
+        assert!(same_instance("https://stg.vendodata.com/api", "https://stg.vendodata.com"));
+        assert!(!same_instance(DEFAULT_BASE_URL, crate::config::STAGING_BASE_URL));
+        assert!(!same_instance("http://127.0.0.1:1", "http://127.0.0.1:2"));
+        assert!(same_instance("not a url", "not a url"));
     }
 }

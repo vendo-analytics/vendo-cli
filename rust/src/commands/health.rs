@@ -226,7 +226,7 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
             "Config file",
             Warn,
             format!("{config_path} (not found yet)"),
-            Some("Run `vendo init` to create and populate CLI config."),
+            Some("Run `vendo login` to create and populate CLI config."),
         )
     });
 
@@ -236,13 +236,13 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
             "Selected profile",
             Warn,
             format!("{name} (not found in config)"),
-            Some("Run `vendo profile switch` to switch profiles, or `vendo init` to create one."),
+            Some("Run `vendo profile switch` to switch profiles, or `vendo login` to create one."),
         ),
         None => check(
             "Selected profile",
             Warn,
             "No active profile selected".into(),
-            Some("Run `vendo init` or `vendo profile switch <profile>`."),
+            Some("Run `vendo login` or `vendo profile switch <profile>`."),
         ),
     });
 

@@ -1,5 +1,5 @@
 //! `/api/v1/me` lookups with explicit, not-yet-saved credentials (port of
-//! `src/identity.ts`), used by login, init and doctor.
+//! `src/identity.ts`), used by login and doctor.
 #![allow(clippy::result_large_err)] // carries ApiError; see client.rs
 
 use serde::{Deserialize, Serialize};

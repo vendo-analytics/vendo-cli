@@ -56,7 +56,7 @@ fn no_help_rows(cmd: clap::Command) -> clap::Command {
 /// fails when one is missing, so a new command cannot drop out of the root help. Move a command
 /// by moving its name.
 const HELP_SECTIONS: [(&str, &[&str]); 4] = [
-    ("Getting started", &["login", "init", "logout", "whoami", "status", "doctor"]),
+    ("Getting started", &["login", "logout", "whoami", "status", "doctor"]),
     ("Data pipeline", &["apps", "sources", "destinations", "jobs"]),
     ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement"]),
     ("Account", &["profile", "mcp", "completions", "self-update"]),
@@ -234,8 +234,11 @@ pub fn preprocess(args: Vec<OsString>) -> Invocation {
 #[derive(Subcommand)]
 pub enum Command {
     /// Authenticate with your Vendo account
+    // `init` was the first-time setup command until CLI 1.1; `login` does what it did and stays its
+    // hidden alias, so `vendo init` prints exactly what `vendo login` prints (VE-3825).
     #[command(
-        after_help = "Examples:\n  $ vendo login\n  $ vendo login --env staging\n  $ vendo login --api-key vendo_sk_... --account <account-id>"
+        alias = "init",
+        after_help = "Examples:\n  $ vendo login\n  $ vendo login --env staging\n  $ vendo login --force\n  $ vendo login --api-key vendo_sk_... --account <account-id>"
     )]
     Login {
         /// API key for headless/CI login (requires --account)
@@ -250,16 +253,9 @@ pub enum Command {
         /// Explicit API base URL (overrides --env)
         #[arg(long, value_name = "url")]
         base_url: Option<String>,
-    },
-    /// Guide first-time Vendo CLI setup
-    #[command(after_help = "Examples:\n  $ vendo init\n  $ vendo init --env staging")]
-    Init {
-        /// Target instance: "staging" or "prod" (default: VENDO_API_URL/profile, else prod)
-        #[arg(long, value_name = "environment")]
-        env: Option<String>,
-        /// Explicit API base URL (overrides --env)
-        #[arg(long, value_name = "url")]
-        base_url: Option<String>,
+        /// Sign in through the browser again, even when the saved API key works
+        #[arg(long)]
+        force: bool,
     },
     /// Remove stored credentials
     #[command(after_help = "Examples:\n  $ vendo logout\n  $ vendo logout --all\n  $ vendo logout --all --yes")]

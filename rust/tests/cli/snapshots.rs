@@ -30,7 +30,10 @@ use wiremock::{
     matchers::{method, path, query_param},
 };
 
-use super::{CLOSED, COLUMN_ID, DICTIONARY, M1, Sandbox, event_item, methodologies, metric, model, page, serve, text};
+use super::{
+    CLOSED, COLUMN_ID, DICTIONARY, M1, Sandbox, event_item, login_at_browser, methodologies, metric, model,
+    mount_sign_in_page, page, serve, text,
+};
 
 const SNAPSHOTS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/snapshots");
 const UPDATE: &str = "INSTA_UPDATE=always cargo test --test cli";
@@ -307,6 +310,33 @@ fn moved_commands_print_their_targets_help() {
 }
 
 #[test]
+fn init_is_a_hidden_alias_of_login() {
+    // `login` does what `init` did since CLI 1.1 (VE-3825): `init` is a hidden alias, so its help and
+    // usage errors are login's, and the root help lists only `login`. The output tests in cli.rs and
+    // `account_and_profile_output` check that it runs exactly like `login`.
+    let sandbox = Sandbox::new(CLOSED);
+    let run = |args: &[&str]| {
+        let out = sandbox.run(args);
+        (out.status.code(), out.stdout, out.stderr)
+    };
+    for (old, new) in [
+        (&["init", "--help"][..], &["login", "--help"][..]),
+        (&["help", "init"], &["help", "login"]),
+        (&["init", "--bogus"], &["login", "--bogus"]),
+        (&["init", "--api-key"], &["login", "--api-key"]),
+        (&["--profile", "beta", "init", "-h"], &["--profile", "beta", "login", "-h"]),
+    ] {
+        let expected = run(new);
+        assert!(run(old) == expected, "vendo {} differs from vendo {}", old.join(" "), new.join(" "));
+    }
+    assert_eq!(run(&["init", "--help"]).0, Some(0));
+    let root = text(&sandbox.run(&["--help"]).stdout);
+    let names = subcommands(&root);
+    assert!(names.contains(&"login".to_string()) && !names.contains(&"init".to_string()), "{names:?}");
+    assert!(!root.contains("init"), "{root}");
+}
+
+#[test]
 fn completions_offer_no_moved_command_and_no_group_help() {
     // Hidden aliases (`config`, `use`) and the rewritten paths (`current`, `show`, `reset`) are
     // not commands in the tree's lists, so no completion script offers them. A command hidden
@@ -318,7 +348,7 @@ fn completions_offer_no_moved_command_and_no_group_help() {
     assert!(offered("-h --profile --debug --help list get credential-schema"), "vendo catalog");
     assert!(offered("-h --profile --debug --help list diagnose get pause resume delete create update"), "vendo apps");
     let root = bash.lines().find(|line| line.trim().starts_with("opts=\"-V -h")).unwrap();
-    for word in ["config", "integrations", "int"] {
+    for word in ["config", "integrations", "int", "init"] {
         assert!(!root.split(['"', ' ']).any(|w| w == word), "vendo {word}: {root}");
     }
 }
@@ -411,9 +441,13 @@ impl Session {
         let mut cmd = self.sandbox.command(args);
         adjust(&mut cmd);
         let out = cmd.output().unwrap();
-        let code = out.status.code().map_or_else(|| "killed by a signal".to_string(), |c| c.to_string());
-        let mut shown = format!("$ vendo {}\nexit: {code}\n--- stdout ---\n{}", shell_words(args), text(&out.stdout));
-        let stderr = text(&out.stderr);
+        self.record_output(name, args, (out.status.code(), text(&out.stdout), text(&out.stderr)));
+    }
+
+    /// Check what `vendo <args>` printed, run elsewhere, against `output/<group>__<name>.snap`.
+    fn record_output(&mut self, name: &str, args: &[&str], (code, stdout, stderr): (Option<i32>, String, String)) {
+        let code = code.map_or_else(|| "killed by a signal".to_string(), |c| c.to_string());
+        let mut shown = format!("$ vendo {}\nexit: {code}\n--- stdout ---\n{stdout}", shell_words(args));
         if !stderr.is_empty() {
             if !shown.ends_with('\n') {
                 shown.push('\n');
@@ -906,7 +940,7 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
 
 #[tokio::test]
 async fn account_and_profile_output() {
-    let (_server, mut s) = Session::start("account").await;
+    let (server, mut s) = Session::start("account").await;
     s.record("whoami", &["whoami"]);
     s.record("whoami_json", &["whoami", "--json"]);
     s.record("status", &["status"]);
@@ -932,7 +966,9 @@ async fn account_and_profile_output() {
     }
     s.record("mcp", &["mcp"]);
     s.record("mcp_json", &["mcp", "--json"]);
-    s.record("init", &["init"]);
+    // A working key is checked and kept (VE-3825); `init`, login's hidden alias, prints the same.
+    s.record("login_existing_key", &["login"]);
+    assert!(s.output(&["init"]) == s.output(&["login"]), "vendo init differs from vendo login");
 
     // Writes, in order: each changes the saved config the next one reads.
     let stub = s.redactions.iter().find(|(_, to)| to == "[stub]").unwrap().0.clone();
@@ -973,6 +1009,12 @@ async fn account_and_profile_output() {
     let nothing = s.output(&["logout", "--all", "--yes"]);
     assert_eq!(text(&nothing.1), "No configuration file found.\n");
     assert!(s.output(&["config", "reset", "--yes"]) == nothing, "vendo config reset --yes differs");
+    // With no key, login signs in through the browser: the test visits the sign-in page it prints,
+    // and the stub's page creates the key (VE-3825).
+    mount_sign_in_page(&server).await;
+    let login = ["login", "--base-url", stub.as_str()];
+    let signed_in = login_at_browser(s.sandbox.command(&login)).await;
+    s.record_output("login_browser", &login, signed_in);
     s.finish();
 }
 

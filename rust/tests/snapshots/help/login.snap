@@ -10,6 +10,7 @@ Options:
       --account <id>       Account ID for headless/CI login (requires --api-key)
       --env <environment>  Target instance: "staging" or "prod" (default: VENDO_API_URL/profile, else prod)
       --base-url <url>     Explicit API base URL (overrides --env)
+      --force              Sign in through the browser again, even when the saved API key works
   -h, --help               Print help
 
 Global options:
@@ -19,4 +20,5 @@ Global options:
 Examples:
   $ vendo login
   $ vendo login --env staging
+  $ vendo login --force
   $ vendo login --api-key vendo_sk_... --account <account-id>

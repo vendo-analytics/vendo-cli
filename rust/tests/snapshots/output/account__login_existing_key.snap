@@ -1,12 +1,10 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-$ vendo init
+$ vendo login
 exit: 0
 --- stdout ---
-Vendo CLI Setup
-
-Using existing profile alpha.
+Using existing profile alpha. Run `vendo login --force` to sign in again.
 
 Setup summary
   Profile:     alpha

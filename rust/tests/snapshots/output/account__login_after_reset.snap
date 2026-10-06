@@ -5,11 +5,14 @@ $ vendo login --api-key vendo_sk_fake_gamma_0000 --account acct-gamma --base-url
 exit: 0
 --- stdout ---
 
-Done: Authenticated as demo-account
-Active profile: demo-account
-Account ID saved: acct-gamma
+Setup summary
+  Profile:     demo-account
+  Base URL:    [stub]
+  Account ID:  acct-gamma
+  Auth:        verified as Demo Account (synthetic)
 
 Next steps
+  vendo doctor
   vendo whoami
   vendo status
-  vendo doctor
+Done: Vendo CLI setup complete.

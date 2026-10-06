@@ -1,19 +1,18 @@
-//! Account and profile commands: `init`, `logout`, `whoami` and `profile *`
-//! (ports of the matching files in `src/commands/`; `config *` moved under
-//! `profile`, `whoami` and `logout --all` in CLI 1.1, VE-3827).
+//! Account and profile commands: `logout`, `whoami` and `profile *` (ports
+//! of the matching files in `src/commands/`; `config *` moved under
+//! `profile`, `whoami` and `logout --all` in CLI 1.1, VE-3827). `init` became
+//! `login` (VE-3825, `commands/login.rs`).
 
 use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
 
 use crate::{
     client::payload,
-    commands::login::{print_login_success, run_browser_login},
     config::ConfigValueUpdates,
     context::Ctx,
-    identity::{Identity, fetch_identity},
     output::{
         bold, confirm, dim, green, js_join, js_nullish, js_string, js_template, print_error, print_json, print_success,
-        run_action, yellow,
+        run_action,
     },
     profile_display::{SwitchOptions, format_profile_list_line, print_profile_list, switch_profile_selection},
     update_check,
@@ -21,65 +20,6 @@ use crate::{
 
 const NO_PROFILES: &str = "No profiles configured. Run `vendo login` to create one.";
 const NO_PROFILES_YET: &str = "No profiles yet. Run `vendo login` to create one.";
-
-pub async fn init(ctx: &Ctx, env: Option<String>, base_url: Option<String>) -> Result<()> {
-    println!("{}", bold("Vendo CLI Setup"));
-    println!();
-
-    let initial = ctx.effective();
-    if initial.api_key.is_none() {
-        println!("{}", dim("No API key found. Starting browser login..."));
-        let base_url = ctx.store.resolve_login_base_url(env.as_deref(), base_url.as_deref())?;
-        let result = run_browser_login(ctx, &base_url).await?;
-        print_login_success(&result);
-    } else {
-        println!(
-            "{}",
-            dim(&format!(
-                "Using existing profile {}.",
-                initial.selected_profile.as_deref().unwrap_or("(legacy config)")
-            ))
-        );
-    }
-
-    let config = ctx.effective();
-    let identity: Option<Identity> = match (&config.api_key, &config.account_id) {
-        (Some(key), Some(account)) => fetch_identity(key, account, &config.base_url, ctx.debug).await.ok(),
-        _ => None,
-    };
-
-    println!();
-    println!("{}", bold("Setup summary"));
-    println!("  Profile:     {}", config.selected_profile.clone().unwrap_or_else(|| dim("legacy config")));
-    println!("  Base URL:    {}", config.base_url);
-    println!("  Account ID:  {}", config.account_id.clone().unwrap_or_else(|| dim("missing")));
-    if let Some(identity) = &identity {
-        println!("  Auth:        {} as {}", green("verified"), identity.me.display_name());
-    } else if config.api_key.is_some() && config.account_id.is_some() {
-        println!("  Auth:        {} (API check failed)", yellow("not verified"));
-    } else {
-        println!("  Auth:        {} (account ID still required)", yellow("incomplete"));
-    }
-
-    println!();
-    println!("{}", bold("Next steps"));
-    println!("  vendo doctor");
-    println!("  vendo whoami");
-    println!("  vendo status");
-
-    if config.account_id.is_none() {
-        println!();
-        println!(
-            "{}",
-            dim(
-                "Set an account explicitly with `vendo profile set --account <account-id>` if your login flow did not provide one."
-            )
-        );
-    }
-
-    print_success("Vendo CLI setup complete.");
-    Ok(())
-}
 
 pub fn logout(ctx: &Ctx, all: bool, yes: bool) -> Result<()> {
     if all {

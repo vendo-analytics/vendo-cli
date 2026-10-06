@@ -1,14 +1,19 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-$ vendo login --api-key vendo_sk_fake_gamma_0000 --account acct-gamma --base-url [stub]
+$ vendo login --base-url [stub]
 exit: 0
 --- stdout ---
+No API key found. Starting browser login...
+Login at:
+[stub]/cli-auth?port=[port]&state=[state]
+Press ENTER to open in the browser...
+Waiting for authorization...
 
 Setup summary
   Profile:     demo-account
   Base URL:    [stub]
-  Account ID:  acct-gamma
+  Account ID:  acct-alpha
   Auth:        verified as Demo Account (synthetic)
 
 Next steps
