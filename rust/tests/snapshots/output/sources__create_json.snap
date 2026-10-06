@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources create --app a0000001-0000-4000-8000-000000000001 --sync-type shopify --import-tasks orders --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "50000003-0000-4000-8000-000000000003",
+    "accountId": "acct-alpha",
+    "appId": "a0000001-0000-4000-8000-000000000001",
+    "syncType": "shopify",
+    "state": "active",
+    "integrationStatus": "pending",
+    "initialSync": {
+      "jobId": "b0000005-0000-4000-8000-000000000005",
+      "status": "triggered"
+    },
+    "createdAt": "2026-01-02T08:00:00.000Z"
+  }
+}

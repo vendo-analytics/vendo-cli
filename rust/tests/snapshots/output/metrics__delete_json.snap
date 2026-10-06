@@ -1,0 +1,12 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo metrics delete 6f1c2a9e-1111-4c3b-9a7e-000000000001 --yes --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "deleted": true,
+    "id": "6f1c2a9e-1111-4c3b-9a7e-000000000001"
+  }
+}

@@ -1,0 +1,11 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo logout --json
+exit: 0
+--- stdout ---
+{
+  "removed": [
+    "beta"
+  ]
+}

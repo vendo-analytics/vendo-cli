@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations create --dest-app a0000003-0000-4000-8000-000000000003 --source-app a0000001-0000-4000-8000-000000000001 --data-type orders --config-file [home]/export-config.json --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "c0000003-0000-4000-8000-000000000003",
+    "accountId": "acct-alpha",
+    "sourceAppId": "a0000001-0000-4000-8000-000000000001",
+    "destinationAppId": "a0000003-0000-4000-8000-000000000003",
+    "dataType": "orders",
+    "state": "active",
+    "status": "pending",
+    "createdAt": "2026-01-02T08:00:00.000Z",
+    "importDependencyStatus": "ready",
+    "triggeredImportJobs": []
+  }
+}

@@ -7,8 +7,10 @@
 //!   sections, each group's `Commands:`), so a new command is recorded
 //!   automatically and a removed one leaves a stale snapshot that fails the run.
 //! - `output/`: the table and `--json` output of every command that prints
-//!   data, and the confirmation of write commands, run against the local stub
-//!   with the synthetic account below; and the three completion scripts, whole.
+//!   data, and the confirmation and `--json` output of write commands, run
+//!   against the local stub with the synthetic account below; and the three
+//!   completion scripts, whole. A command that takes `--json` without a
+//!   snapshot of it fails the run, unless `JSON_NOT_RECORDED` says why.
 //!
 //! What varies between machines or runs is replaced before comparing: the stub
 //! URL, HOME, the binary's path, the CLI version, request IDs and the few
@@ -424,6 +426,79 @@ fn every_output_snapshot_has_a_group() {
     assert!(orphans.is_empty(), "snapshots in {} that no test records (delete them): {orphans:?}", dir.display());
 }
 
+/// The commands that take `--json` whose `--json` output no snapshot records, because the stub
+/// cannot stand in for what they do. `login` is not here: its `--json` is recorded with a working
+/// key (`account__login_existing_key_json`), and signing in through the browser ends with the same
+/// summary.
+const JSON_NOT_RECORDED: [(&str, &str); 2] = [
+    ("jobs watch", "polls `GET /jobs` until Ctrl-C, so its NDJSON never ends for a snapshot to record"),
+    ("self-update", "downloads the installer from GitHub Releases and replaces the binary it runs from"),
+];
+
+/// The command `words` (as typed after `vendo`) runs, as `vendo commands --json` writes its `path`:
+/// the leading words that name a command or one of its visible aliases.
+fn command_path(tree: &Value, words: &[&str]) -> String {
+    let mut node = tree;
+    let mut path = Vec::new();
+    for word in words {
+        let names =
+            |c: &&Value| c["name"] == *word || c["aliases"].as_array().is_some_and(|a| a.contains(&json!(word)));
+        let Some(child) = node["commands"].as_array().unwrap().iter().find(names) else { break };
+        path.push(child["name"].as_str().unwrap());
+        node = child;
+    }
+    path.join(" ")
+}
+
+#[test]
+fn every_command_that_takes_json_has_a_json_snapshot() {
+    // VE-3824: each command's `--json` output is recorded, the writes' (the API response as received)
+    // as well as the reads'. The command tree (`vendo commands --json`, VE-3831) names every command
+    // that takes `--json`; it does not say which commands write, so the rule holds for all of them. A
+    // command is recorded when an `output/` snapshot runs it with `--json`.
+    let sandbox = Sandbox::new(CLOSED);
+    let out = sandbox.run(&["commands", "--json"]);
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), String::new()));
+    let tree: Value = serde_json::from_str(&text(&out.stdout)).unwrap();
+    let mut takes_json = BTreeSet::new();
+    let mut pending = vec![&tree];
+    while let Some(node) = pending.pop() {
+        if node["options"].as_array().unwrap().iter().any(|option| option["name"] == "--json") {
+            takes_json.insert(node["path"].as_str().unwrap().to_string());
+        }
+        pending.extend(node["commands"].as_array().unwrap());
+    }
+    assert!(takes_json.len() >= 60 && takes_json.contains("apps create"), "{takes_json:?}");
+
+    let mut recorded = BTreeSet::new();
+    for entry in std::fs::read_dir(Path::new(SNAPSHOTS).join("output")).unwrap().flatten() {
+        if !entry.file_name().to_string_lossy().ends_with(".snap") {
+            continue;
+        }
+        let snapshot = std::fs::read_to_string(entry.path()).unwrap();
+        // Each starts with the command line it ran, as `Session::record_output` writes it.
+        let Some(line) = snapshot.lines().find_map(|line| line.strip_prefix("$ vendo ")) else { continue };
+        let words: Vec<&str> = line.split_whitespace().collect();
+        if words.contains(&"--json") {
+            recorded.insert(command_path(&tree, &words));
+        }
+    }
+
+    for (path, why) in JSON_NOT_RECORDED {
+        assert!(takes_json.contains(path), "vendo {path} ({why}) does not take --json: take it off JSON_NOT_RECORDED");
+        assert!(!recorded.contains(path), "vendo {path} --json is recorded: take it off JSON_NOT_RECORDED");
+    }
+    let missing: Vec<&String> = takes_json
+        .iter()
+        .filter(|path| !recorded.contains(*path) && !JSON_NOT_RECORDED.iter().any(|(skip, _)| skip == path))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "commands that take --json with no output/ snapshot of it: {missing:?}. Record `vendo <command> … --json` \
+         in its group's test (with --yes where it asks first), or add it to JSON_NOT_RECORDED with the reason."
+    );
+}
+
 /// A sandbox whose profiles point at a stub serving the synthetic account,
 /// recording into `output/<group>__<name>.snap`.
 struct Session {
@@ -544,8 +619,10 @@ fn shell_words(args: &[&str]) -> String {
 // Clearly fake IDs and names, shaped like vendo-web-v2's `/api/v1` serializers
 // (AppRecord/AppDetail, SourceRecord/SourceDetail, IntegrationRecord/Detail,
 // JobRecord, the catalog and `/me` routes) and its web-app metrics and
-// measurement routes. Dates are fixed, more than 30 days back (the CLI prints
-// them as dates); the few relative to now exercise "2h ago".
+// measurement routes; the write routes answer as their handlers on staging
+// build their responses (checked 2026-10-06). Dates are fixed, more than 30
+// days back (the CLI prints them as dates); the few relative to now exercise
+// "2h ago".
 
 const ACCOUNT: &str = "/api/v1/accounts/acct-alpha";
 const APP_SHOP: &str = "a0000001-0000-4000-8000-000000000001";
@@ -635,10 +712,11 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
         let id = app["id"].as_str().unwrap();
         serve(server, "GET", &format!("{ACCOUNT}/apps/{id}"), 200, data(with(app.clone(), detail.clone()))).await;
     }
+    // The write routes answer with what `route-handlers/apps/{collection,item,pause,resume}.ts` build:
+    // no roles, which the CLI then derives from the permissions.
     let created = json!({
         "id": APP_NEW, "accountId": "acct-alpha", "appType": "shopify", "displayName": "Demo Shop 2",
-        "permissions": ["performance_data"], "roles": ["source"], "state": "active", "createdAt": CREATED,
-        "updatedAt": CREATED,
+        "permissions": ["performance_data"], "state": "active", "createdAt": CREATED, "updatedAt": CREATED,
     });
     serve(server, "POST", &format!("{ACCOUNT}/apps"), 201, data(created)).await;
     let renamed = json!({
@@ -742,23 +820,34 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
         }),
     );
     serve(server, "GET", &format!("{ACCOUNT}/sources/{SRC_ADS}"), 200, data(ads_detail)).await;
-    let new_source = with(shop_source.clone(), json!({ "id": SRC_NEW, "importTasks": ["orders"], "lastSyncAt": null }));
+    // The write routes answer with what `route-handlers/sources/*.ts` build, not the source record:
+    // create says how its first import went, an update the row's columns (`sync_frequency` as stored),
+    // and pause, resume and delete the canonical graph's `RuntimeLifecycleResult`.
+    let runtime = json!({ "nodesFound": 1, "nodesUpdated": 1, "warnings": [] });
+    let new_source = json!({
+        "id": SRC_NEW, "accountId": "acct-alpha", "appId": APP_SHOP, "syncType": "shopify", "state": "active",
+        "integrationStatus": "pending", "initialSync": { "jobId": JOB_NEW, "status": "triggered" }, "createdAt": CREATED,
+    });
     serve(server, "POST", &format!("{ACCOUNT}/sources"), 201, data(new_source)).await;
-    serve(server, "PATCH", &format!("{ACCOUNT}/sources/{SRC_SHOP}"), 200, data(shop_source)).await;
+    let updated = json!({
+        "id": SRC_SHOP, "accountId": "acct-alpha", "appId": APP_SHOP, "syncType": "shopify", "state": "active",
+        "integrationStatus": "active", "syncFrequency": "every_6_hours", "createdAt": CREATED, "updatedAt": SYNCED,
+    });
+    serve(server, "PATCH", &format!("{ACCOUNT}/sources/{SRC_SHOP}"), 200, data(updated)).await;
     let dispatched = json!({ "jobId": JOB_NEW, "status": "dispatched", "message": "Sync job has been submitted" });
     serve(server, "POST", &format!("{ACCOUNT}/sources/{SRC_ADS}/sync"), 202, data(dispatched.clone())).await;
-    let paused = json!({ "id": SRC_ADS, "state": "inactive", "message": "Source paused successfully" });
+    let paused = json!({
+        "id": SRC_ADS, "state": "inactive", "integrationStatus": "paused", "runtime": runtime.clone(),
+        "message": "Source paused successfully",
+    });
     serve(server, "POST", &format!("{ACCOUNT}/sources/{SRC_ADS}/pause"), 200, data(paused)).await;
-    let resumed = json!({ "id": SRC_ADS, "state": "active", "message": "Source resumed successfully" });
+    let resumed = json!({
+        "id": SRC_ADS, "state": "active", "integrationStatus": "pending", "runtime": runtime.clone(),
+        "message": "Source resumed successfully",
+    });
     serve(server, "POST", &format!("{ACCOUNT}/sources/{SRC_ADS}/resume"), 200, data(resumed)).await;
-    serve(
-        server,
-        "DELETE",
-        &format!("{ACCOUNT}/sources/{SRC_ADS}"),
-        200,
-        data(json!({ "deleted": true, "id": SRC_ADS })),
-    )
-    .await;
+    let deleted = json!({ "deleted": true, "id": SRC_ADS, "runtime": runtime.clone() });
+    serve(server, "DELETE", &format!("{ACCOUNT}/sources/{SRC_ADS}"), 200, data(deleted)).await;
 
     // ── destinations (the API's integrations, routed to /connections) ──
     let orders = json!({
@@ -791,19 +880,39 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
     );
     serve(server, "GET", &format!("{connections}/{INT_ORDERS}"), 200, data(orders_detail)).await;
     serve(server, "GET", &format!("{connections}/{INT_ADS}"), 200, data(ads_export)).await;
-    let new_integration = with(orders.clone(), json!({ "id": INT_NEW, "lastSyncAt": null, "latestJobId": null }));
+    // The write routes answer with what `route-handlers/integrations/*.ts` build: create adds the import
+    // dependency check, a schedule update the export node it reconciled (`runtime` only comes with
+    // `isActive`, which the CLI never sends), and pause, resume and delete the `RuntimeLifecycleResult`.
+    let new_integration = json!({
+        "id": INT_NEW, "accountId": "acct-alpha", "sourceAppId": APP_SHOP, "destinationAppId": APP_WAREHOUSE,
+        "dataType": "orders", "state": "active", "status": "pending", "createdAt": CREATED,
+        "importDependencyStatus": "ready", "triggeredImportJobs": [],
+    });
     serve(server, "POST", &connections, 201, data(new_integration)).await;
-    serve(server, "PATCH", &format!("{connections}/{INT_ORDERS}"), 200, data(orders)).await;
+    let updated = json!({
+        "id": INT_ORDERS, "accountId": "acct-alpha", "sourceAppId": APP_SHOP, "destinationAppId": APP_WAREHOUSE,
+        "dataType": "orders", "state": "active", "status": "active",
+        "scheduleRuntime": { "exportNodeId": "e0000001-0000-4000-8000-000000000001", "warnings": [] },
+        "createdAt": CREATED, "updatedAt": SYNCED,
+    });
+    serve(server, "PATCH", &format!("{connections}/{INT_ORDERS}"), 200, data(updated)).await;
     serve(server, "POST", &format!("{connections}/{INT_ADS}/sync"), 202, data(dispatched)).await;
-    let paused = json!({ "id": INT_ADS, "state": "inactive", "message": "Integration paused successfully" });
+    let paused = json!({
+        "id": INT_ADS, "state": "inactive", "status": "paused", "runtime": runtime.clone(),
+        "message": "Integration paused successfully",
+    });
     serve(server, "POST", &format!("{connections}/{INT_ADS}/pause"), 200, data(paused)).await;
-    let resumed = json!({ "id": INT_ADS, "state": "active", "message": "Integration resumed successfully" });
+    let resumed = json!({
+        "id": INT_ADS, "state": "active", "status": "pending", "runtime": runtime.clone(),
+        "message": "Integration resumed successfully",
+    });
     serve(server, "POST", &format!("{connections}/{INT_ADS}/resume"), 200, data(resumed)).await;
-    serve(server, "DELETE", &format!("{connections}/{INT_ADS}"), 200, data(json!({ "deleted": true, "id": INT_ADS })))
-        .await;
+    let deleted = json!({ "deleted": true, "id": INT_ADS, "runtime": runtime });
+    serve(server, "DELETE", &format!("{connections}/{INT_ADS}"), 200, data(deleted)).await;
+    // `lib/server/source-refresh.ts`, its message the pipelines' `ensure-source-data` answer.
     let refresh = json!({
-        "status": "importing", "importJobIds": [JOB_NEW], "requestedStart": "2026-01-01T00:00:00.000Z",
-        "requestedEnd": "2026-01-08T00:00:00.000Z",
+        "status": "importing", "importJobIds": [JOB_NEW], "message": "Triggered 1 import job(s) for missing data",
+        "requestedStart": "2026-01-01T00:00:00.000Z", "requestedEnd": "2026-01-08T00:00:00.000Z",
     });
     serve(server, "POST", &format!("{connections}/{INT_ORDERS}/refresh-source"), 202, data(refresh)).await;
 
@@ -905,12 +1014,28 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
     let metrics = json!({ "metrics": [roas.clone(), draft], "total": 2, "limit": 20, "offset": 0 });
     serve(server, "GET", "/api/metrics", 200, metrics).await;
     serve(server, "GET", &format!("/api/metrics/{M1}"), 200, json!({ "metric": roas.clone() })).await;
+    // The write routes answer with `toNativeMetricRow` (`lib/vendo/metrics/queries.ts`): its columns, in
+    // its order, with the table's default icon. A registry publish that fails adds `registryWarning`.
+    let native = |row: &Value| {
+        let column = |key: &str| row.get(key).cloned().unwrap_or(Value::Null);
+        json!({
+            "id": column("id"), "access_scope": column("access_scope"), "account_id": column("account_id"),
+            "name": column("name"), "description": column("description"), "definition": column("definition"),
+            "designated_breakdowns": [], "format": column("format"), "higher_is_better": column("higher_is_better"),
+            "icon_color": "emerald", "icon_name": "gauge", "owner_user_id": null, "unit": column("unit"),
+            "status": column("status"), "verified_at": column("verified_at"), "verified_by": column("verified_by"),
+            "created_at": column("created_at"), "created_by": null, "updated_at": column("updated_at"),
+            "updated_by": null,
+        })
+    };
     let created = with(
         roas.clone(),
-        json!({ "id": "8b3e4c1a-3333-4c3b-9a7e-000000000003", "name": "Demo metric", "status": "draft" }),
+        json!({ "id": "8b3e4c1a-3333-4c3b-9a7e-000000000003", "name": "Demo metric", "status": "draft",
+                "created_at": CREATED, "updated_at": CREATED }),
     );
-    serve(server, "POST", "/api/metrics", 201, json!({ "metric": created, "registryWarning": "pending" })).await;
-    serve(server, "PATCH", &format!("/api/metrics/{M1}"), 200, json!({ "metric": roas })).await;
+    let pending = "Saved successfully. Registry publication is pending and will retry automatically; search may be temporarily unavailable.";
+    serve(server, "POST", "/api/metrics", 201, json!({ "metric": native(&created), "registryWarning": pending })).await;
+    serve(server, "PATCH", &format!("/api/metrics/{M1}"), 200, json!({ "metric": native(&roas) })).await;
     serve(server, "DELETE", &format!("/api/metrics/{M1}"), 200, json!({ "deleted": true, "id": M1 })).await;
 
     // ── models ──
@@ -1054,6 +1179,9 @@ async fn account_and_profile_output() {
     s.record("profile_switch", &["profile", "switch", "alpha"]);
     s.record("profile_switch_json", &["profile", "switch", "alpha", "--json"]);
     s.record("logout", &["logout"]);
+    // `beta` is left: log out of it the same way, with --json.
+    assert_eq!(s.output(&["profile", "switch", "beta"]).0, Some(0));
+    s.record("logout_json", &["logout", "--json"]);
     // Without a terminal, `logout --all` needs --yes (VE-3823), and so does `config reset`, its old name.
     s.record("logout_all", &["logout", "--all"]);
     assert!(s.output(&["config", "reset"]) == s.output(&["logout", "--all"]), "vendo config reset differs");
@@ -1096,12 +1224,18 @@ async fn apps_output() {
     s.record("diagnose_json", &["apps", "diagnose", "--json"]);
 
     let creds = s.file("shop-credentials.json", r#"{"shop_domain":"demo-shop.example.com","access_token":"fake"}"#);
-    s.record("create", &["apps", "create", "--type", "shopify", "--name", "Demo Shop 2", "--credentials-file", &creds]);
+    let create = ["apps", "create", "--type", "shopify", "--name", "Demo Shop 2", "--credentials-file", &creds];
+    s.record("create", &create);
+    s.record("create_json", &[&create[..], &["--json"]].concat());
     s.record("update", &["apps", "update", APP_SHOP, "--name", "Demo Shop (renamed)"]);
+    s.record("update_json", &["apps", "update", APP_SHOP, "--name", "Demo Shop (renamed)", "--json"]);
     s.record("pause", &["apps", "pause", APP_SHOP]);
+    s.record("pause_json", &["apps", "pause", APP_SHOP, "--json"]);
     s.record("pause_dry_run", &["apps", "pause", APP_SHOP, "--dry-run"]);
     s.record("resume", &["apps", "resume", APP_WAREHOUSE]);
+    s.record("resume_json", &["apps", "resume", APP_WAREHOUSE, "--json"]);
     s.record("delete", &["apps", "delete", APP_WAREHOUSE, "--yes"]);
+    s.record("delete_json", &["apps", "delete", APP_WAREHOUSE, "--yes", "--json"]);
     s.finish();
 }
 
@@ -1114,14 +1248,21 @@ async fn sources_output() {
     s.record("get_json", &["sources", "get", SRC_SHOP, "--json"]);
     s.record("get_errored", &["sources", "get", SRC_ADS]);
 
-    s.record("create", &["sources", "create", "--app", APP_SHOP, "--sync-type", "shopify", "--import-tasks", "orders"]);
+    let create = ["sources", "create", "--app", APP_SHOP, "--sync-type", "shopify", "--import-tasks", "orders"];
+    s.record("create", &create);
+    s.record("create_json", &[&create[..], &["--json"]].concat());
     s.record("update", &["sources", "update", SRC_SHOP, "--frequency", "6"]);
+    s.record("update_json", &["sources", "update", SRC_SHOP, "--frequency", "6", "--json"]);
     s.record("sync", &["sources", "sync", SRC_ADS]);
+    s.record("sync_json", &["sources", "sync", SRC_ADS, "--json"]);
     s.record("sync_in_progress", &["sources", "sync", SRC_SHOP]);
     s.record("sync_dry_run", &["sources", "sync", SRC_ADS, "--dry-run"]);
     s.record("pause", &["sources", "pause", SRC_ADS]);
+    s.record("pause_json", &["sources", "pause", SRC_ADS, "--json"]);
     s.record("resume", &["sources", "resume", SRC_ADS]);
+    s.record("resume_json", &["sources", "resume", SRC_ADS, "--json"]);
     s.record("delete", &["sources", "delete", SRC_ADS, "--yes"]);
+    s.record("delete_json", &["sources", "delete", SRC_ADS, "--yes", "--json"]);
     s.finish();
 }
 
@@ -1136,15 +1277,24 @@ async fn destinations_output() {
 
     let config = s.file("export-config.json", r#"{"tasks":[{"table":"orders"}]}"#);
     let create = ["destinations", "create", "--dest-app", APP_WAREHOUSE, "--source-app", APP_SHOP];
-    s.record("create", &[&create[..], &["--data-type", "orders", "--config-file", config.as_str()][..]].concat());
-    s.record("update", &["destinations", "update", INT_ORDERS, "--frequency", "12", "--unit", "hours"]);
+    let create_orders = [&create[..], &["--data-type", "orders", "--config-file", config.as_str()][..]].concat();
+    s.record("create", &create_orders);
+    s.record("create_json", &[&create_orders[..], &["--json"]].concat());
+    let update = ["destinations", "update", INT_ORDERS, "--frequency", "12", "--unit", "hours"];
+    s.record("update", &update);
+    s.record("update_json", &[&update[..], &["--json"]].concat());
     s.record("sync", &["destinations", "sync", INT_ADS]);
+    s.record("sync_json", &["destinations", "sync", INT_ADS, "--json"]);
     s.record("sync_in_progress", &["destinations", "sync", INT_ORDERS]);
-    let refresh = ["destinations", "refresh-source", INT_ORDERS];
-    s.record("refresh_source", &[&refresh[..], &["--from", "2026-01-01", "--to", "2026-01-08"][..]].concat());
+    let refresh = ["destinations", "refresh-source", INT_ORDERS, "--from", "2026-01-01", "--to", "2026-01-08"];
+    s.record("refresh_source", &refresh);
+    s.record("refresh_source_json", &[&refresh[..], &["--json"]].concat());
     s.record("pause", &["destinations", "pause", INT_ADS]);
+    s.record("pause_json", &["destinations", "pause", INT_ADS, "--json"]);
     s.record("resume", &["destinations", "resume", INT_ADS]);
+    s.record("resume_json", &["destinations", "resume", INT_ADS, "--json"]);
     s.record("delete", &["destinations", "delete", INT_ADS, "--yes"]);
+    s.record("delete_json", &["destinations", "delete", INT_ADS, "--yes", "--json"]);
 
     // `integrations` and `int` are hidden aliases (VE-3828): the same exit code, stdout and stderr, byte for byte.
     let create = [&create[1..], &["--data-type", "orders", "--config-file", config.as_str()][..]].concat();
@@ -1181,6 +1331,7 @@ async fn jobs_output() {
     s.record("get_json", &["jobs", "get", JOB_FAILED, "--json"]);
     s.record("get_missing", &["jobs", "get", JOB_MISSING]);
     s.record("cancel", &["jobs", "cancel", JOB_RUNNING, "--yes"]);
+    s.record("cancel_json", &["jobs", "cancel", JOB_RUNNING, "--yes", "--json"]);
     s.record("cancel_dry_run", &["jobs", "cancel", JOB_RUNNING, "--dry-run"]);
     // A job that has ended: tailing reads it once (VE-3831).
     s.record("tail_json", &["jobs", "tail", JOB_DONE, "--json"]);
@@ -1224,10 +1375,15 @@ async fn metrics_output() {
     s.record("get_json", &["metrics", "get", M1, "--json"]);
 
     let definition = s.file("demo.query.json", r#"{"version":2,"reportType":"segmentation"}"#);
-    s.record("create", &["metrics", "create", "--name", "Demo metric", "--definition", &definition]);
+    let create = ["metrics", "create", "--name", "Demo metric", "--definition", &definition];
+    s.record("create", &create);
+    s.record("create_json", &[&create[..], &["--json"]].concat());
     s.record("update", &["metrics", "update", M1, "--description", "Return on ad spend"]);
+    s.record("update_json", &["metrics", "update", M1, "--description", "Return on ad spend", "--json"]);
     s.record("activate", &["metrics", "activate", M1]);
+    s.record("activate_json", &["metrics", "activate", M1, "--json"]);
     s.record("delete", &["metrics", "delete", M1, "--yes"]);
+    s.record("delete_json", &["metrics", "delete", M1, "--yes", "--json"]);
     s.finish();
 }
 

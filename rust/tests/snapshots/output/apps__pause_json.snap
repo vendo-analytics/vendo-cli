@@ -1,0 +1,13 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps pause a0000001-0000-4000-8000-000000000001 --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "a0000001-0000-4000-8000-000000000001",
+    "state": "inactive",
+    "message": "App paused successfully"
+  }
+}

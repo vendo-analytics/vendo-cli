@@ -1,0 +1,19 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations resume c0000002-0000-4000-8000-000000000002 --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "c0000002-0000-4000-8000-000000000002",
+    "state": "active",
+    "status": "pending",
+    "runtime": {
+      "nodesFound": 1,
+      "nodesUpdated": 1,
+      "warnings": []
+    },
+    "message": "Integration resumed successfully"
+  }
+}
