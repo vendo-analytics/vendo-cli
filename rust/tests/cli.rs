@@ -686,6 +686,8 @@ async fn metrics_update_activate_and_delete_like_ts() {
     assert_eq!(requests[4], format!("DELETE {path_m1}"));
 }
 
+/// A model row as vendo-web-v2's `toModelRecord` (`lib/vendo/models/queries.ts`) builds it, in its key
+/// order; the detail route adds `sqlQuery` and `definition`.
 fn model(over: Value) -> Value {
     let mut row = json!({
         "id": "11111111-2222-4333-8444-555555555555", "state": "active", "accountId": "acct-alpha",
@@ -694,7 +696,8 @@ fn model(over: Value) -> Value {
         "schedule": { "frequency_unit": "hours", "frequency_value": 6 },
         "columns": [{ "name": "order_id", "type": "STRING", "is_nullable": false }],
         "primaryKeyColumns": null, "incrementalColumn": null, "isValid": true, "validationError": null,
-        "lastValidatedAt": null, "createdAt": null, "updatedAt": null, "managedBy": "customer",
+        "lastValidatedAt": null, "createdAt": null, "updatedAt": null, "managedBy": "customer", "sourceId": null,
+        "sourceStream": null, "templateKey": null, "templateVersion": null,
     });
     row.as_object_mut().unwrap().extend(over.as_object().unwrap().clone());
     row
@@ -704,7 +707,7 @@ fn model(over: Value) -> Value {
 async fn models_list_and_get_like_ts() {
     let server = MockServer::start().await;
     let list = json!({
-        "data": [model(json!({})), model(json!({ "id": "m2", "name": "broken", "isValid": false, "dataType": "events" }))],
+        "data": [model(json!({})), model(json!({ "id": "m2", "name": "broken", "isValid": false, "modelType": "bqml" }))],
         "meta": { "pagination": { "total": 7, "limit": 20, "offset": 0, "hasMore": false } },
     });
     serve(&server, "GET", "/api/v1/accounts/acct-alpha/models", 200, list.clone()).await;
@@ -728,8 +731,8 @@ async fn models_list_and_get_like_ts() {
         cells(ok_output(&sandbox.run(&["models", "list"])).as_bytes()),
         rows(&[
             &["ID", "Name", "Type", "Valid", "Last Validated"],
-            &["11111111...", "orders_clean", "yes", "—"],
-            &["m2", "broken", "events", "no", "—"],
+            &["11111111...", "orders_clean", "sql", "yes", "—"],
+            &["m2", "broken", "bqml", "no", "—"],
             &["7 models"],
         ])
     );
@@ -744,11 +747,11 @@ async fn models_list_and_get_like_ts() {
     ok_output(&sandbox.run(&["models", "list", "--valid", "--invalid", "--limit", "3"]));
     assert_eq!(
         ok_output(&sandbox.run(&["models", "get", "mod-1"])),
-        "\norders_clean (undefined)\n\n  ID:            11111111-2222-4333-8444-555555555555\n  Data Type:     undefined\n  Valid:         yes\n  Validated:     —\n  Created:       —\n  Description:   Clean orders\n  Primary Keys:  order_id, line_id\n  Incremental:   updated_at\n\n  Validation Error: Table not found\n\n  SQL Query:\n    SELECT order_id\n    FROM `p.d.orders`\n      WHERE 1 = 1\n"
+        "\norders_clean (sql)\n\n  ID:            11111111-2222-4333-8444-555555555555\n  Type:          sql\n  Valid:         yes\n  Validated:     —\n  Created:       —\n  Description:   Clean orders\n  Primary Keys:  order_id, line_id\n  Incremental:   updated_at\n\n  Validation Error: Table not found\n\n  SQL Query:\n    SELECT order_id\n    FROM `p.d.orders`\n      WHERE 1 = 1\n"
     );
     assert_eq!(
         ok_output(&sandbox.run(&["models", "get", "mod-2"])),
-        "\norders_clean (undefined)\n\n  ID:            11111111-2222-4333-8444-555555555555\n  Data Type:     undefined\n  Valid:         no\n  Validated:     —\n  Created:       —\n"
+        "\norders_clean (sql)\n\n  ID:            11111111-2222-4333-8444-555555555555\n  Type:          sql\n  Valid:         no\n  Validated:     —\n  Created:       —\n"
     );
     let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&["models", "get", "mod-1", "--json"]))).unwrap();
     assert_eq!(printed, json!({ "data": detail }));

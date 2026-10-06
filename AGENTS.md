@@ -88,6 +88,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   yes/no`, its labels widened to line up with it (Yalcin, 2026-10-06); an API that sends no `availability` (before
   VE-2436) keeps the old view, Self-Serve line and all. `--json` prints the response as sent, list and get alike;
   without `--all` the request is unchanged.
+- Models (VE-3840, CLI 1.1): `models list`'s Type column and `models get`'s title (`orders_clean (sql)`) and `Type:`
+  line, which replaces `Data Type:`, show the API's `modelType` (`sql`, `bqml`, `grouping`, …; Yalcin, 2026-10-06).
+  The TS CLI read a `dataType` the API does not send and showed `undefined`, which `pnpm parity` reports.
 - Completions (VE-3830, CLI 1.1): `vendo completions <shell>` prints the script the installer saves. Bare, it exits 0
   and says on stderr what it does, whether completions are set up for the shell `$SHELL` names, and how to set them
   up, and stdout stays empty: without `--json`, stdout carries nothing but a script, so an `eval` or redirect that

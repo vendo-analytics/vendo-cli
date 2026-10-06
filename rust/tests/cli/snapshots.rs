@@ -1059,8 +1059,8 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
     serve(server, "DELETE", &format!("/api/metrics/{M1}"), 200, json!({ "deleted": true, "id": M1 })).await;
 
     // ── models ──
-    // The API's ModelRecord has `modelType` and no `dataType`, which the CLI reads: its
-    // "undefined" type is today's behaviour.
+    // Rows as the list route sends them (`toModelRecord`); the detail adds `sqlQuery` and `definition`,
+    // which for a SQL model holds the query and its output schema.
     let models = json!({
         "data": [model(json!({ "lastValidatedAt": SYNCED, "createdAt": CREATED })),
                  model(json!({ "id": "22222222-3333-4444-8555-666666666666", "name": "churn_scores", "isValid": false,
@@ -1068,10 +1068,11 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
         "meta": { "pagination": { "total": 2, "limit": 20, "offset": 0, "hasMore": false } },
     });
     serve(server, "GET", &format!("{ACCOUNT}/models"), 200, models).await;
+    let sql = "SELECT order_id\nFROM `demo-project.demo_shop_raw.orders`";
     let detail = model(json!({
-        "description": "Clean orders (synthetic)", "sqlQuery": "SELECT order_id\nFROM `demo-project.demo_shop_raw.orders`",
-        "primaryKeyColumns": ["order_id"], "incrementalColumn": "updated_at", "lastValidatedAt": SYNCED,
-        "createdAt": CREATED,
+        "description": "Clean orders (synthetic)", "primaryKeyColumns": ["order_id"], "incrementalColumn": "updated_at",
+        "lastValidatedAt": SYNCED, "createdAt": CREATED, "sqlQuery": sql,
+        "definition": { "sql": sql, "output_schema": [{ "mode": "NULLABLE", "name": "order_id", "type": "STRING" }] },
     }));
     serve(server, "GET", &format!("{ACCOUNT}/models/11111111-2222-4333-8444-555555555555"), 200, data(detail)).await;
 

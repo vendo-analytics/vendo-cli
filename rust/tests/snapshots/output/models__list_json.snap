@@ -36,7 +36,11 @@ exit: 0
       "lastValidatedAt": "2026-01-05T09:07:03.000Z",
       "createdAt": "2026-01-02T08:00:00.000Z",
       "updatedAt": null,
-      "managedBy": "customer"
+      "managedBy": "customer",
+      "sourceId": null,
+      "sourceStream": null,
+      "templateKey": null,
+      "templateVersion": null
     },
     {
       "id": "22222222-3333-4444-8555-666666666666",
@@ -68,7 +72,11 @@ exit: 0
       "lastValidatedAt": null,
       "createdAt": null,
       "updatedAt": null,
-      "managedBy": "customer"
+      "managedBy": "customer",
+      "sourceId": null,
+      "sourceStream": null,
+      "templateKey": null,
+      "templateVersion": null
     }
   ],
   "meta": {

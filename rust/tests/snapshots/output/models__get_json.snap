@@ -38,6 +38,20 @@ exit: 0
     "createdAt": "2026-01-02T08:00:00.000Z",
     "updatedAt": null,
     "managedBy": "customer",
-    "sqlQuery": "SELECT order_id\nFROM `demo-project.demo_shop_raw.orders`"
+    "sourceId": null,
+    "sourceStream": null,
+    "templateKey": null,
+    "templateVersion": null,
+    "sqlQuery": "SELECT order_id\nFROM `demo-project.demo_shop_raw.orders`",
+    "definition": {
+      "sql": "SELECT order_id\nFROM `demo-project.demo_shop_raw.orders`",
+      "output_schema": [
+        {
+          "mode": "NULLABLE",
+          "name": "order_id",
+          "type": "STRING"
+        }
+      ]
+    }
   }
 }

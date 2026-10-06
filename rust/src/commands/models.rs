@@ -1,7 +1,9 @@
 //! `vendo models …` (port of `src/commands/models.ts`). The `/api/v1` model
 //! routes; `--json` prints the response verbatim, so the nested
 //! `outputConfig`, `schedule` and `columns` keys keep the API's snake_case
-//! (decided 2026-10-05; the TS client camelCased them).
+//! (decided 2026-10-05; the TS client camelCased them). The type shown is the
+//! API's `modelType` (`sql`, `python`, `bqml`, …), where the TS CLI read a
+//! `dataType` the API does not send (VE-3840, Yalcin 2026-10-06).
 
 use anyhow::Result;
 use serde_json::Value;
@@ -55,7 +57,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
                 grid.add_row(vec![
                     dim(&short_id(&cell(model.get("id")))),
                     cell(model.get("name")),
-                    cell(model.get("dataType")),
+                    cell(model.get("modelType")),
                     if model.get("isValid").is_some_and(js_truthy) { green("yes") } else { red("no") },
                     time_ago_of(model.get("lastValidatedAt")),
                 ]);
@@ -85,10 +87,10 @@ pub fn render_model(model: &Value) -> String {
     let truthy = |key: &str| model.get(key).is_some_and(js_truthy);
     let mut lines = vec![
         String::new(),
-        format!("{} {}", bold(&t("name")), dim(&format!("({})", t("dataType")))),
+        format!("{} {}", bold(&t("name")), dim(&format!("({})", t("modelType")))),
         String::new(),
         format!("  ID:            {}", t("id")),
-        format!("  Data Type:     {}", t("dataType")),
+        format!("  Type:          {}", t("modelType")),
         format!("  Valid:         {}", if truthy("isValid") { green("yes") } else { red("no") }),
         format!("  Validated:     {}", time_ago_of(model.get("lastValidatedAt"))),
         format!("  Created:       {}", time_ago_of(model.get("createdAt"))),
@@ -132,7 +134,7 @@ mod tests {
         }));
         assert_eq!(
             out,
-            "\norders (undefined)\n\n  ID:            m1\n  Data Type:     undefined\n  Valid:         no\n  Validated:     —\n  Created:       —\n"
+            "\norders (undefined)\n\n  ID:            m1\n  Type:          undefined\n  Valid:         no\n  Validated:     —\n  Created:       —\n"
         );
     }
 
