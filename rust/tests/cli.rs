@@ -8215,8 +8215,9 @@ async fn the_profile_list_exits_as_ctrl_d_does_when_its_terminal_hangs_up() {
 #[cfg(unix)]
 #[tokio::test]
 async fn where_the_list_cannot_open_profile_with_no_name_is_the_usage_error_and_profile_switch_says_cancelled() {
-    // Byte for byte what a pipe gets (`usage/profile_flag` records it), exit 2, nothing sent or switched:
-    // with prompts off, on `TERM=dumb`, with stdout or stderr elsewhere, or a stdin no key can be read from.
+    // Byte for byte what a pipe gets (`usage/profile_flag` records it), exit 2, nothing read, sent or
+    // switched: with prompts off, on `TERM=dumb`, with stdout or stderr elsewhere, or a stdin no key can be
+    // read from.
     let server = MockServer::start().await;
     let sandbox = Sandbox::new(&server.uri());
     let write_only_terminal = || {
@@ -8226,28 +8227,44 @@ async fn where_the_list_cannot_open_profile_with_no_name_is_the_usage_error_and_
         let write_only = std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOCTTY).open(name).unwrap();
         (pseudo_terminal, write_only)
     };
-    for args in snapshots::PROFILE_WITHOUT_A_NAME {
-        let case = args.join(" ");
-        let piped = sandbox.run(args);
-        assert_eq!((piped.status.code(), text(&piped.stdout)), (Some(2), String::new()), "{case}");
-        let expected = text(&piped.stderr);
-        for setting in [("CI", "1"), ("VENDO_NO_INPUT", "1"), ("TERM", "dumb")] {
-            let (screen, code) = OnTerminal::start_env(&sandbox, args, &[setting]).finish();
-            assert_eq!((code, plain(&screen)), (Some(2), expected.clone()), "{setting:?} vendo {case}");
+    // Nothing is read either (`ask.rs`): a legacy flat config, which reading migrates and saves
+    // (`ConfigStore::read`), stays byte for byte as it was (VE-3892 review).
+    let legacy = Sandbox::new(&server.uri());
+    let legacy_config = r#"{"apiKey":"vendo_sk_fake_alpha_0000","accountId":"acct-alpha"}"#;
+    std::fs::write(legacy.home.path().join(".config/vendo/config.json"), legacy_config).unwrap();
+    for sandbox in [&sandbox, &legacy] {
+        let config_path = sandbox.home.path().join(".config/vendo/config.json");
+        let saved = std::fs::read_to_string(&config_path).unwrap();
+        let untouched = |case: &str| assert_eq!(std::fs::read_to_string(&config_path).unwrap(), saved, "{case}");
+        for args in snapshots::PROFILE_WITHOUT_A_NAME {
+            let case = args.join(" ");
+            let piped = sandbox.run(args);
+            assert_eq!((piped.status.code(), text(&piped.stdout)), (Some(2), String::new()), "{case}");
+            untouched(&format!("<null vendo {case}"));
+            let expected = text(&piped.stderr);
+            for setting in [("CI", "1"), ("VENDO_NO_INPUT", "1"), ("TERM", "dumb")] {
+                let (screen, code) = OnTerminal::start_env(sandbox, args, &[setting]).finish();
+                assert_eq!((code, plain(&screen)), (Some(2), expected.clone()), "{setting:?} vendo {case}");
+                untouched(&format!("{setting:?} vendo {case}"));
+            }
+            let (_controller, terminal) = pseudo_terminal();
+            let out = sandbox.command(args).stdin(terminal).output().unwrap();
+            let shown = (out.status.code(), text(&out.stdout), text(&out.stderr));
+            assert_eq!(shown, (Some(2), String::new(), expected.clone()), "| vendo {case}");
+            untouched(&format!("| vendo {case}"));
+            let log = tempfile::NamedTempFile::new().unwrap();
+            let stderr = Some(log.reopen().unwrap().into());
+            let mut terminal = OnTerminal::start_with(sandbox, args, (40, 120), "", stderr);
+            assert_eq!(terminal.finish(), (String::new(), Some(2)), "2>file vendo {case}");
+            assert_eq!(std::fs::read_to_string(log.path()).unwrap(), expected, "2>file vendo {case}");
+            untouched(&format!("2>file vendo {case}"));
+            let (pseudo_terminal, write_only) = write_only_terminal();
+            let cmd = sandbox.command(args);
+            let mut terminal = OnTerminal::launch_on(pseudo_terminal, cmd, "", Some(write_only.into()), None, true);
+            let (screen, code) = terminal.finish();
+            assert_eq!((code, plain(&screen)), (Some(2), expected), "0>write-only vendo {case}");
+            untouched(&format!("0>write-only vendo {case}"));
         }
-        let (_controller, terminal) = pseudo_terminal();
-        let out = sandbox.command(args).stdin(terminal).output().unwrap();
-        let shown = (out.status.code(), text(&out.stdout), text(&out.stderr));
-        assert_eq!(shown, (Some(2), String::new(), expected.clone()), "| vendo {case}");
-        let log = tempfile::NamedTempFile::new().unwrap();
-        let mut terminal = OnTerminal::start_with(&sandbox, args, (40, 120), "", Some(log.reopen().unwrap().into()));
-        assert_eq!(terminal.finish(), (String::new(), Some(2)), "2>file vendo {case}");
-        assert_eq!(std::fs::read_to_string(log.path()).unwrap(), expected, "2>file vendo {case}");
-        let (pseudo_terminal, write_only) = write_only_terminal();
-        let cmd = sandbox.command(args);
-        let mut terminal = OnTerminal::launch_on(pseudo_terminal, cmd, "", Some(write_only.into()), None, true);
-        let (screen, code) = terminal.finish();
-        assert_eq!((code, plain(&screen)), (Some(2), expected), "0>write-only vendo {case}");
     }
     // `profile switch` with no name prints "Cancelled." and switches nothing, as without a terminal (a
     // pipe and prompts off: `the_profile_list_opens_only_where_the_group_menu_does`).

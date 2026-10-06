@@ -387,14 +387,16 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `--profile` with no name says `No profiles to choose from.` and is the usage error (exit 2); `profile switch` says
   what it said (`No profiles yet. …`). Esc, Ctrl-C, Ctrl-D and a hang-up exit 0 with nothing run or switched. Without a
   terminal, with prompts off, on `TERM=dumb`, with stdout or stderr elsewhere or a write-only stdin, `--profile` with no
-  name stays clap's usage error byte for byte (`usage/profile_flag`, recorded before the change) and `profile switch`
-  prints `Cancelled.`; built without the `menu` feature there is no list either. ❓ Open for Yalcin, built with
-  cautious defaults: the account ID whole, as `profile list` shows it (the workspace's list shows 8 characters and
-  `…`), no host for the default base URL (as `profile list` and the workspace leave it out), the marker on
-  VENDO_PROFILE's profile when it is set (as `profile list` marks it), the cursor starting on the first row rather
+  name stays clap's usage error byte for byte (`usage/profile_flag`, recorded before the change) with nothing read, so a
+  legacy flat config is not migrated and saved (`ask::profile` checks `can_show_menu` first; VE-3892 review), and
+  `profile switch` prints `Cancelled.`; built without the `menu` feature there is no list either. ❓ Open for Yalcin,
+  built with cautious defaults: the account ID whole, as `profile list` shows it (the workspace's list shows 8
+  characters and `…`), no host for the default base URL (as `profile list` and the workspace leave it out), the marker
+  on VENDO_PROFILE's profile when it is set (as `profile list` marks it), the cursor starting on the first row rather
   than the active one, the empty-list line and exit 2 (VE-3881's Q4), `profile switch` printing `Cancelled.` on
-  `TERM=dumb` and with stderr redirected, where the numbered picker asked, and `--profile`'s help unchanged (it does
-  not say that a bare `--profile` opens the list).
+  `TERM=dumb` and with stderr redirected, where the numbered picker asked, and with a write-only stdin, where the picker
+  showed its title and search line and then ended quietly (exit 0, nothing switched; VE-3892 review), and `--profile`'s
+  help unchanged (it does not say that a bare `--profile` opens the list).
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665; whoami and doctor are `workspace` since VE-3891); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

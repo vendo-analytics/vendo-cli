@@ -514,8 +514,13 @@ async fn choose_platform(client: &Client, title: &str, json: bool) -> Option<Str
 /// from [`choose_profile`]'s list titled `title` (`vendo --profile`, `vendo apps list --profile`). The
 /// marker is on the profile the command would use without the flag (`VENDO_PROFILE`'s, else the active
 /// one). `None` where the list cannot open, and with no profile saved, which it says first, as a list
-/// for a missing value with nothing in it says it: the usage error follows.
+/// for a missing value with nothing in it says it: the usage error follows. Where the list cannot open
+/// the config is not read either (VE-3892 review): reading migrates a legacy flat config and saves it
+/// ([`crate::config::ConfigStore::read`]), and the usage error must come as before, with nothing read.
 pub fn profile(title: &str) -> Option<String> {
+    if !output::can_show_menu() {
+        return None;
+    }
     choose_profile(title, &Ctx::new(None, false).store.profile_summaries())
 }
 
