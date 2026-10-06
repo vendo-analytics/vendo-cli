@@ -11,6 +11,7 @@ Getting started:
   whoami        Show the current authenticated account
   status        Account health overview
   doctor        Run local configuration and connectivity checks
+  commands      List every command, or with --json the command tree with arguments and flags
 
 Data pipeline:
   apps          Manage apps

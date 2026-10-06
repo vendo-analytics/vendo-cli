@@ -55,8 +55,8 @@ fn no_help_rows(cmd: clap::Command) -> clap::Command {
 /// The sections of `vendo --help`, in order. Every visible command sits in exactly one: a test
 /// fails when one is missing, so a new command cannot drop out of the root help. Move a command
 /// by moving its name.
-const HELP_SECTIONS: [(&str, &[&str]); 4] = [
-    ("Getting started", &["login", "logout", "whoami", "status", "doctor"]),
+pub const HELP_SECTIONS: [(&str, &[&str]); 4] = [
+    ("Getting started", &["login", "logout", "whoami", "status", "doctor", "commands"]),
     ("Data pipeline", &["apps", "sources", "destinations", "jobs"]),
     ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement"]),
     ("Account", &["profile", "mcp", "completions", "self-update"]),
@@ -126,12 +126,54 @@ fn command_paths(group: &clap::Command) -> Vec<String> {
     paths
 }
 
-/// Parse with [`command`]; usage errors and `--help` exit like clap does.
-pub fn parse(args: Vec<OsString>) -> Cli {
+/// What [`parse`] read: the command, and whether it was given `--json` (VE-3831).
+pub struct Parsed {
+    pub cli: Cli,
+    pub json: bool,
+}
+
+/// Parse with [`command`]; usage errors and `--help` exit like clap does, a usage error as
+/// JSON when the words include `--json` ([`exit_with`]).
+pub fn parse(args: Vec<OsString>) -> Parsed {
     let cmd = command();
     let args = rewrite_hidden_paths(&cmd, args);
-    let matches = cmd.get_matches_from(args);
-    Cli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
+    let json_word = json_word(&args);
+    let matches = cmd.try_get_matches_from(args).unwrap_or_else(|err| exit_with(err, json_word));
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|err| exit_with(err, json_word));
+    Parsed { cli, json: json_flag(&matches) }
+}
+
+/// Whether the command that runs was given its `--json` flag.
+fn json_flag(matches: &clap::ArgMatches) -> bool {
+    match matches.subcommand() {
+        Some((_, sub)) => json_flag(sub),
+        None => matches!(matches.try_get_one::<bool>("json"), Ok(Some(true))),
+    }
+}
+
+/// `--json` among the words before a `--`: what asked for JSON when the words do not parse.
+fn json_word(args: &[OsString]) -> bool {
+    args.iter().skip(1).take_while(|arg| *arg != "--").any(|arg| arg == "--json")
+}
+
+/// A usage error with `--json` prints as [`crate::output::message_error_json`] (clap's first
+/// paragraph, without `error: `) and keeps clap's exit code, 2 (VE-3831). Help, `-h` and a group
+/// run without its command print as before.
+fn exit_with(err: clap::Error, json: bool) -> ! {
+    use clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand;
+    if json && err.use_stderr() && err.kind() != DisplayHelpOnMissingArgumentOrSubcommand {
+        crate::output::print_error_json(&crate::output::message_error_json(&usage_message(&err)));
+        std::process::exit(err.exit_code());
+    }
+    err.exit()
+}
+
+/// `error: unexpected argument '--bogus' found` → `unexpected argument '--bogus' found`: the
+/// first paragraph of clap's message, before its tip and usage.
+fn usage_message(err: &clap::Error) -> String {
+    let rendered = err.render().to_string();
+    let first = rendered.split("\n\n").next().unwrap_or_default().trim_end();
+    first.strip_prefix("error: ").unwrap_or(first).to_string()
 }
 
 /// Commands that moved to a command elsewhere in the tree in CLI 1.1 (VE-3827), where clap's
@@ -256,6 +298,9 @@ pub enum Command {
         /// Sign in through the browser again, even when the saved API key works
         #[arg(long)]
         force: bool,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Remove stored credentials
     #[command(after_help = "Examples:\n  $ vendo logout\n  $ vendo logout --all\n  $ vendo logout --all --yes")]
@@ -266,6 +311,9 @@ pub enum Command {
         /// Skip the confirmation prompt for --all
         #[arg(short, long)]
         yes: bool,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Manage account profiles
     // `config` was a group of its own until CLI 1.1; its commands moved here (VE-3827, see `MOVED`).
@@ -354,10 +402,21 @@ pub enum Command {
         // Without a shell it explains itself and whether completions are set up (VE-3830).
         #[arg(value_name = "shell")]
         shell: Option<Shell>,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Run local configuration and connectivity checks
     #[command(after_help = "Examples:\n  $ vendo doctor\n  $ vendo doctor --json")]
     Doctor {
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// List every command, or with --json the command tree with arguments and flags
+    // Read from this tree at runtime, so it lists what runs (VE-3831, `commands/tree.rs`).
+    #[command(after_help = "Examples:\n  $ vendo commands\n  $ vendo commands --json")]
+    Commands {
         /// Output raw JSON
         #[arg(long)]
         json: bool,
@@ -368,6 +427,9 @@ pub enum Command {
         /// Install a specific version
         #[arg(long = "version", value_name = "version")]
         install_version: Option<String>,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -375,7 +437,11 @@ pub enum Command {
 pub enum ProfileCommand {
     /// List all configured profiles
     #[command(after_help = "Examples:\n  $ vendo profile list")]
-    List,
+    List {
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Switch to a different profile
     #[command(
         alias = "use",
@@ -388,6 +454,9 @@ pub enum ProfileCommand {
         /// Switch by account ID instead of profile name
         #[arg(long, value_name = "accountId")]
         account: Option<String>,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Set configuration values
     #[command(
@@ -403,6 +472,9 @@ pub enum ProfileCommand {
         /// Account ID to operate on
         #[arg(long, value_name = "id")]
         account: Option<String>,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -1443,6 +1515,9 @@ pub enum JobsCommand {
         /// Filter by destination ID
         #[arg(long, value_name = "integrationId")]
         integration: Option<String>,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Tail a single job or the latest job for a source/destination
     #[command(
@@ -1463,6 +1538,9 @@ pub enum JobsCommand {
         /// Polling interval in seconds
         #[arg(long, value_name = "seconds", default_value = "3")]
         interval: String,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -1615,7 +1693,7 @@ mod tests {
 
     fn switch_args(cli: Cli) -> (Option<String>, Option<String>) {
         match cli.command {
-            Command::Profile { command: ProfileCommand::Switch { profile, account } } => (profile, account),
+            Command::Profile { command: ProfileCommand::Switch { profile, account, .. } } => (profile, account),
             _ => panic!("not a switch"),
         }
     }
@@ -1695,7 +1773,7 @@ mod tests {
         // `self-update --version <v>` installs that version (an accepted difference).
         let args = os(&["vendo", "self-update", "--version", "0.3.0"]);
         assert_eq!(preprocess(args.clone()), Invocation::Run(args.clone()));
-        let Command::SelfUpdate { install_version } =
+        let Command::SelfUpdate { install_version, .. } =
             parse(&["vendo", "self-update", "--version", "0.3.0"]).unwrap().command
         else {
             panic!()
@@ -1933,13 +2011,13 @@ mod tests {
     #[test]
     fn the_config_commands_parse_as_their_profile_commands() {
         let cli = parse(&["vendo", "config", "set", "--account", "acct-x"]).unwrap();
-        let Command::Profile { command: ProfileCommand::Set { account, api_key, base_url } } = cli.command else {
+        let Command::Profile { command: ProfileCommand::Set { account, api_key, base_url, .. } } = cli.command else {
             panic!()
         };
         assert_eq!((account.as_deref(), api_key, base_url), (Some("acct-x"), None, None));
         assert!(matches!(
             parse(&["vendo", "config", "list"]).unwrap().command,
-            Command::Profile { command: ProfileCommand::List }
+            Command::Profile { command: ProfileCommand::List { json: false } }
         ));
         assert_eq!(switch_args(parse(&["vendo", "config", "use", "beta"]).unwrap()), (Some("beta".into()), None));
         let Command::Whoami { json } = parse(&["vendo", "profile", "current", "--json"]).unwrap().command else {
@@ -1947,7 +2025,7 @@ mod tests {
         };
         assert!(json);
         assert!(matches!(parse(&["vendo", "config", "show"]).unwrap().command, Command::Whoami { json: false }));
-        let Command::Logout { all, yes } = parse(&["vendo", "config", "reset", "--yes"]).unwrap().command else {
+        let Command::Logout { all, yes, .. } = parse(&["vendo", "config", "reset", "--yes"]).unwrap().command else {
             panic!()
         };
         assert!(all && yes);
@@ -2054,7 +2132,7 @@ mod tests {
             panic!()
         };
         assert_eq!(env.as_deref(), Some("Staging"));
-        let Command::Completions { shell } = parse(&["vendo", "completions"]).unwrap().command else { panic!() };
+        let Command::Completions { shell, .. } = parse(&["vendo", "completions"]).unwrap().command else { panic!() };
         assert_eq!(shell, None);
         assert!(parse(&["vendo", "completions", "tcsh"]).is_err(), "the shell is still checked");
     }

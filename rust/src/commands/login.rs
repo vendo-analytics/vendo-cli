@@ -12,6 +12,9 @@
 //! - With `VENDO_API_KEY` set it never opens a browser: where it would, it
 //!   stops with an error instead.
 //!
+//! With `--json` (VE-3831) stdout carries only the summary as JSON (`summary_json`), never the
+//! key; what login says on the way, the sign-in URL among it, goes to stderr.
+//!
 //! The browser flow goes through the web app's `/cli-auth` page, which creates
 //! an API key and redirects to
 //! `http://127.0.0.1:<port>/callback?key=&account=&account_id=&state=`.
@@ -20,7 +23,7 @@
 use std::{io::Write, time::Duration};
 
 use anyhow::{Result, anyhow, bail};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -31,7 +34,7 @@ use crate::{
     config::{DEFAULT_BASE_URL, EffectiveConfig, Source},
     context::Ctx,
     identity::{IdentityError, fetch_identity},
-    output::{bold, dim, green, print_success, run_action, yellow},
+    output::{bold, dim, green, print_json, print_success, run_action, yellow},
     update_check,
 };
 
@@ -47,6 +50,17 @@ pub struct LoginArgs {
     pub base_url: Option<String>,
     /// Sign in through the browser even when the key it has works.
     pub force: bool,
+    /// The summary as JSON on stdout, the rest on stderr.
+    pub json: bool,
+}
+
+/// A line login says on the way: on stdout, or on stderr with `--json`, which keeps stdout for the JSON.
+fn say(json: bool, line: &str) {
+    if json {
+        eprintln!("{line}");
+    } else {
+        println!("{line}");
+    }
 }
 
 pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
@@ -68,7 +82,7 @@ pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
         let name = identity.me.account_slug.or(identity.me.account_name).unwrap_or_else(|| account_id.clone());
         ctx.store.save_profile(&name, profile(&api_key, Some(&account_id), &base_url))?;
         let summary = Summary { profile: Some(name), base_url, account_id: Some(account_id) };
-        return finish(&summary, verified, NOTHING_CHANGED);
+        return finish(&summary, verified, NOTHING_CHANGED, args.json);
     }
 
     let config = ctx.effective();
@@ -82,13 +96,13 @@ pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
             match check.rejected() {
                 Some(status) => SignIn::Rejected(status),
                 None => {
-                    println!("{}", dim(&using_existing(&config)));
+                    say(args.json, &dim(&using_existing(&config)));
                     let summary = Summary {
                         profile: config.selected_profile.clone(),
                         base_url: config.base_url.clone(),
                         account_id: config.account_id.clone(),
                     };
-                    return finish(&summary, check, NOTHING_CHANGED);
+                    return finish(&summary, check, NOTHING_CHANGED, args.json);
                 }
             }
         }
@@ -96,13 +110,13 @@ pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
     if from_env {
         bail!(sign_in.refusal(&config, &base_url));
     }
-    println!("{}", dim(&sign_in.announcement(&config, &base_url)));
-    let signed_in = run_browser_login(ctx, &base_url).await?;
+    say(args.json, &dim(&sign_in.announcement(&config, &base_url)));
+    let signed_in = run_browser_login(ctx, &base_url, args.json).await?;
     let account_id = signed_in.account_id.filter(|id| !id.is_empty());
     let check = check_key(ctx, &signed_in.key, account_id.as_deref(), &base_url).await;
     let saved = format!("The new key is saved in profile {}: run `vendo whoami` to check it again.", signed_in.account);
     let summary = Summary { profile: Some(signed_in.account), base_url, account_id };
-    finish(&summary, check, &saved)
+    finish(&summary, check, &saved, args.json)
 }
 
 /// `--api-key` and `--account` read as the TS CLI did (`opts.apiKey ||
@@ -215,17 +229,41 @@ struct Summary {
     account_id: Option<String>,
 }
 
-/// Print the setup summary and, when the check did not fail, the next steps.
-/// A failed check is an error that ends with `unverified`.
-fn finish(summary: &Summary, check: Check, unverified: &str) -> Result<()> {
-    for line in summary_lines(summary, &check) {
-        println!("{line}");
+/// Print the setup summary and, when the check did not fail, the next steps; with `--json` the
+/// summary as JSON. A failed check is an error that ends with `unverified`.
+fn finish(summary: &Summary, check: Check, unverified: &str, json: bool) -> Result<()> {
+    if json {
+        print_json(&summary_json(summary, &check));
+    } else {
+        for line in summary_lines(summary, &check) {
+            println!("{line}");
+        }
     }
     if let Check::Failed(err) = check {
         bail!("Could not verify the API key: {}. {unverified}", failure_reason(&err));
     }
-    print_success("Vendo CLI setup complete.");
+    if !json {
+        print_success("Vendo CLI setup complete.");
+    }
     Ok(())
+}
+
+/// `login --json`: the summary's fields. `auth` is `verified`, `unverified` (the check failed: the
+/// error follows on stderr) or `incomplete` (no account ID to check with); `accountName` is the
+/// account the key was verified as.
+fn summary_json(summary: &Summary, check: &Check) -> Value {
+    let (auth, account_name) = match check {
+        Check::Verified(name) => ("verified", Some(name.as_str())),
+        Check::Failed(_) => ("unverified", None),
+        Check::Incomplete => ("incomplete", None),
+    };
+    json!({
+        "profile": summary.profile,
+        "baseUrl": summary.base_url,
+        "accountId": summary.account_id,
+        "auth": auth,
+        "accountName": account_name,
+    })
 }
 
 fn summary_lines(summary: &Summary, check: &Check) -> Vec<String> {
@@ -268,9 +306,9 @@ fn failure_reason(err: &IdentityError) -> String {
 }
 
 /// The browser flow: the key it signed in with, saved as the active profile.
-async fn run_browser_login(ctx: &Ctx, base_url: &str) -> Result<Callback> {
+async fn run_browser_login(ctx: &Ctx, base_url: &str, json: bool) -> Result<Callback> {
     update_check::check(&ctx.update_cache_path()).await;
-    let callback = browser_flow(base_url).await?;
+    let callback = browser_flow(base_url, json).await?;
     ctx.store.save_profile(&callback.account, profile(&callback.key, callback.account_id.as_deref(), base_url))?;
     Ok(callback)
 }
@@ -294,25 +332,30 @@ pub struct Callback {
     pub account_id: Option<String>,
 }
 
-async fn browser_flow(base_url: &str) -> Result<Callback> {
+async fn browser_flow(base_url: &str, json: bool) -> Result<Callback> {
     let state = Uuid::new_v4().simple().to_string(); // 32 lowercase hex characters
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     let auth_url = format!("{base_url}/cli-auth?port={port}&state={state}");
 
-    println!("Login at:");
-    println!("{auth_url}");
-    print!("Press ENTER to open in the browser...");
-    let _ = std::io::stdout().flush();
+    say(json, "Login at:");
+    say(json, &auth_url);
+    if json {
+        eprint!("Press ENTER to open in the browser...");
+        let _ = std::io::stderr().flush();
+    } else {
+        print!("Press ENTER to open in the browser...");
+        let _ = std::io::stdout().flush();
+    }
     let url = auth_url.clone();
     std::thread::spawn(move || {
         let mut line = String::new();
         if matches!(std::io::stdin().read_line(&mut line), Ok(n) if n > 0) && open::that(&url).is_err() {
-            println!("{}", dim("Could not open browser automatically. Please visit the URL above."));
+            say(json, &dim("Could not open browser automatically. Please visit the URL above."));
         }
     });
-    println!();
-    println!("{}", dim("Waiting for authorization..."));
+    say(json, "");
+    say(json, &dim("Waiting for authorization..."));
 
     wait_for_callback(&listener, &state, AUTH_TIMEOUT).await
 }
@@ -580,6 +623,20 @@ mod tests {
         let lines = summary_lines(&summary(Some("a-1")), &Check::Verified("Acme".into())).join("\n");
         assert!(lines.contains("Account ID:  a-1") && lines.contains("as Acme"), "{lines}");
         assert!(lines.contains("Next steps") && !lines.contains("vendo profile set"), "{lines}");
+    }
+
+    #[test]
+    fn the_json_summary_says_how_far_the_check_got() {
+        let summary = Summary { profile: None, base_url: DEFAULT_BASE_URL.into(), account_id: None };
+        let shape = |auth: &str, name: Value| {
+            json!({
+                "profile": null, "baseUrl": DEFAULT_BASE_URL, "accountId": null, "auth": auth, "accountName": name,
+            })
+        };
+        assert_eq!(summary_json(&summary, &Check::Verified("Acme".into())), shape("verified", json!("Acme")));
+        assert_eq!(summary_json(&summary, &Check::Incomplete), shape("incomplete", Value::Null));
+        let failed = Check::Failed(IdentityError::Invalid("x".into()));
+        assert_eq!(summary_json(&summary, &failed), shape("unverified", Value::Null));
     }
 
     #[test]

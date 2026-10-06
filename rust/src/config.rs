@@ -25,6 +25,8 @@ pub struct EnvVars {
     pub api_key: Option<String>,
     pub api_url: Option<String>,
     pub account_id: Option<String>,
+    /// `VENDO_PROFILE`: the profile to use, as `--profile` names one (VE-3831).
+    pub profile: Option<String>,
 }
 
 impl EnvVars {
@@ -33,6 +35,7 @@ impl EnvVars {
             api_key: std::env::var("VENDO_API_KEY").ok(),
             api_url: std::env::var("VENDO_API_URL").ok(),
             account_id: std::env::var("VENDO_ACCOUNT_ID").ok(),
+            profile: std::env::var("VENDO_PROFILE").ok(),
         }
     }
 }
@@ -105,8 +108,10 @@ pub struct ConfigStore {
 }
 
 impl ConfigStore {
-    /// `--profile ""` is no override: the TS CLI checked `if (opts.profile)`.
-    pub fn new(path: PathBuf, profile_override: Option<String>, env: EnvVars) -> Self {
+    /// `--profile ""` is no override: the TS CLI checked `if (opts.profile)`. An empty
+    /// `VENDO_PROFILE` is none either, like the other `VENDO_*` variables.
+    pub fn new(path: PathBuf, profile_override: Option<String>, mut env: EnvVars) -> Self {
+        env.profile = env.profile.filter(|name| !name.is_empty());
         ConfigStore { path, profile_override: profile_override.filter(|name| !name.is_empty()), env }
     }
 
@@ -161,9 +166,13 @@ impl ConfigStore {
         config
     }
 
+    /// The profile commands use: `--profile` wins, then `VENDO_PROFILE` (VE-3831), then
+    /// `activeProfile`. A name that no profile has is still the selection, so it fails the same
+    /// way from either place.
     pub fn selected_profile_name(&self, config: &Map<String, Value>) -> Option<String> {
         self.profile_override
             .clone()
+            .or_else(|| self.env.profile.clone())
             .or_else(|| config.get("activeProfile").and_then(Value::as_str).map(str::to_string))
     }
 
@@ -538,6 +547,7 @@ mod tests {
             api_key: Some("env_key".into()),
             api_url: Some("https://env.com".into()),
             account_id: Some("env-id".into()),
+            profile: None,
         };
         let e = ConfigStore::new(f.path.clone(), None, env).effective();
         assert_eq!(
@@ -586,6 +596,54 @@ mod tests {
         assert_eq!((e.api_key.as_deref(), e.account_id.as_deref()), (Some("override_key"), Some("override-id")));
         assert_eq!(store(&f).selected_profile_name(&store(&f).read()).as_deref(), Some("default"));
         assert_eq!(s.selected_profile_name(&s.read()).as_deref(), Some("override"));
+    }
+
+    fn with_env_profile(f: &Fixture, flag: Option<&str>, env: Option<&str>) -> ConfigStore {
+        let env = EnvVars { profile: env.map(Into::into), ..Default::default() };
+        ConfigStore::new(f.path.clone(), flag.map(Into::into), env)
+    }
+
+    #[test]
+    fn vendo_profile_selects_a_profile_and_the_flag_wins_over_it() {
+        // VE-3831: --profile > VENDO_PROFILE > activeProfile.
+        let f = fixture(Some(json!({ "profiles": {
+            "alpha": { "apiKey": "alpha_key", "accountId": "alpha-id" },
+            "beta": { "apiKey": "beta_key", "accountId": "beta-id" },
+            "gamma": { "apiKey": "gamma_key", "accountId": "gamma-id" },
+        }, "activeProfile": "alpha" })));
+        let selection = |flag, env| {
+            let e = with_env_profile(&f, flag, env).effective();
+            (e.selected_profile, e.account_id)
+        };
+        let some = |name: &str, id: &str| (Some(name.to_string()), Some(id.to_string()));
+        assert_eq!(selection(None, None), some("alpha", "alpha-id"));
+        assert_eq!(selection(None, Some("beta")), some("beta", "beta-id"));
+        assert_eq!(selection(Some("gamma"), Some("beta")), some("gamma", "gamma-id"));
+        assert_eq!(selection(Some("gamma"), None), some("gamma", "gamma-id"));
+        // Empty is unset, for either: `--profile ""` falls through to VENDO_PROFILE.
+        assert_eq!(selection(None, Some("")), some("alpha", "alpha-id"));
+        assert_eq!(selection(Some(""), Some("beta")), some("beta", "beta-id"));
+        // The profile it names is the one profile commands act on, as with --profile.
+        let s = with_env_profile(&f, None, Some("beta"));
+        assert_eq!(s.selected_profile_name(&s.read()).as_deref(), Some("beta"));
+        let active: Vec<String> = s.profile_summaries().into_iter().filter(|p| p.active).map(|p| p.name).collect();
+        assert_eq!(active, ["beta"]);
+    }
+
+    #[test]
+    fn an_unknown_vendo_profile_is_unresolved_like_an_unknown_flag() {
+        let f = fixture(Some(json!({ "profiles": { "alpha": { "apiKey": "a" } }, "activeProfile": "alpha" })));
+        let from_env = with_env_profile(&f, None, Some("missing")).effective();
+        let from_flag = with_env_profile(&f, Some("missing"), None).effective();
+        for e in [&from_env, &from_flag] {
+            assert_eq!(e.selected_profile.as_deref(), Some("missing"));
+            assert!(!e.selected_profile_exists);
+            assert_eq!((e.api_key.as_deref(), e.api_key_source), (None, Source::Missing));
+        }
+        assert_eq!(
+            require_api_key(&from_env).unwrap_err().to_string(),
+            require_api_key(&from_flag).unwrap_err().to_string()
+        );
     }
 
     #[test]

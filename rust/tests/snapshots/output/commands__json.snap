@@ -1,0 +1,3804 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo commands --json
+exit: 0
+--- stdout ---
+{
+  "name": "vendo",
+  "path": "",
+  "description": "Vendo CLI — manage your data pipeline from the terminal",
+  "aliases": [],
+  "arguments": [],
+  "options": [
+    {
+      "name": "--profile",
+      "short": null,
+      "valueName": "name",
+      "description": "Use a specific account profile",
+      "required": false,
+      "default": null,
+      "possibleValues": [],
+      "suggestedValues": [],
+      "global": true
+    },
+    {
+      "name": "--debug",
+      "short": null,
+      "valueName": null,
+      "description": "Enable verbose request diagnostics",
+      "required": false,
+      "default": null,
+      "possibleValues": [],
+      "suggestedValues": [],
+      "global": true
+    },
+    {
+      "name": "--version",
+      "short": "-V",
+      "valueName": null,
+      "description": "Print version",
+      "required": false,
+      "default": null,
+      "possibleValues": [],
+      "suggestedValues": [],
+      "global": false
+    }
+  ],
+  "commands": [
+    {
+      "name": "login",
+      "path": "login",
+      "description": "Authenticate with your Vendo account",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--api-key",
+          "short": null,
+          "valueName": "key",
+          "description": "API key for headless/CI login (requires --account)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--account",
+          "short": null,
+          "valueName": "id",
+          "description": "Account ID for headless/CI login (requires --api-key)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--env",
+          "short": null,
+          "valueName": "environment",
+          "description": "Target instance: \"staging\" or \"prod\" (default: VENDO_API_URL/profile, else prod)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [
+            "staging",
+            "prod"
+          ],
+          "global": false
+        },
+        {
+          "name": "--base-url",
+          "short": null,
+          "valueName": "url",
+          "description": "Explicit API base URL (overrides --env)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--force",
+          "short": null,
+          "valueName": null,
+          "description": "Sign in through the browser again, even when the saved API key works",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
+      "name": "logout",
+      "path": "logout",
+      "description": "Remove stored credentials",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--all",
+          "short": null,
+          "valueName": null,
+          "description": "Remove every saved profile, not just the active one",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--yes",
+          "short": "-y",
+          "valueName": null,
+          "description": "Skip the confirmation prompt for --all",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
+      "name": "whoami",
+      "path": "whoami",
+      "description": "Show the current authenticated account",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
+      "name": "status",
+      "path": "status",
+      "description": "Account health overview",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
+      "name": "doctor",
+      "path": "doctor",
+      "description": "Run local configuration and connectivity checks",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
+      "name": "commands",
+      "path": "commands",
+      "description": "List every command, or with --json the command tree with arguments and flags",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
+      "name": "apps",
+      "path": "apps",
+      "description": "Manage apps",
+      "aliases": [],
+      "arguments": [],
+      "options": [],
+      "commands": [
+        {
+          "name": "list",
+          "path": "apps list",
+          "description": "List all apps",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--state",
+              "short": null,
+              "valueName": "state",
+              "description": "Filter by state (active, inactive)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "active",
+                "inactive"
+              ],
+              "global": false
+            },
+            {
+              "name": "--type",
+              "short": null,
+              "valueName": "type",
+              "description": "Filter by app type",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--role",
+              "short": null,
+              "valueName": "role",
+              "description": "Filter by capability (source, destination) — derived from permissions",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "source",
+                "destination"
+              ],
+              "global": false
+            },
+            {
+              "name": "--limit",
+              "short": null,
+              "valueName": "n",
+              "description": "Number of results",
+              "required": false,
+              "default": "20",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--offset",
+              "short": null,
+              "valueName": "n",
+              "description": "Pagination offset",
+              "required": false,
+              "default": "0",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field per row (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "diagnose",
+          "path": "apps diagnose",
+          "description": "Show apps that need attention",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "get",
+          "path": "apps get",
+          "description": "Get app details",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "appId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "pause",
+          "path": "apps pause",
+          "description": "Pause an app",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "appId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "resume",
+          "path": "apps resume",
+          "description": "Resume a paused app",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "appId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "delete",
+          "path": "apps delete",
+          "description": "Delete an app (soft delete)",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "appId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--yes",
+              "short": "-y",
+              "valueName": null,
+              "description": "Skip confirmation prompt",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "create",
+          "path": "apps create",
+          "description": "Create a new app",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--type",
+              "short": null,
+              "valueName": "appType",
+              "description": "App type (e.g. google_ads, onesignal). See: vendo catalog list",
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--name",
+              "short": null,
+              "valueName": "displayName",
+              "description": "Human-readable name for this app",
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--role",
+              "short": null,
+              "valueName": "role",
+              "description": "Comma-separated capability: source, destination (derives default permissions)",
+              "required": false,
+              "default": "source",
+              "possibleValues": [],
+              "suggestedValues": [
+                "source",
+                "destination"
+              ],
+              "global": false
+            },
+            {
+              "name": "--permissions",
+              "short": null,
+              "valueName": "permissions",
+              "description": "Comma-separated granular permissions (e.g. performance_data,send_conversions). Overrides --role.",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "performance_data",
+                "read_leads",
+                "read_organic_content",
+                "send_conversions",
+                "read_warehouse",
+                "write_warehouse",
+                "sync_audiences",
+                "campaign_changes",
+                "campaign_adjust_bids",
+                "campaign_adjust_spend",
+                "campaign_toggle",
+                "google_tag_manager",
+                "google_analytics"
+              ],
+              "global": false
+            },
+            {
+              "name": "--credentials-file",
+              "short": null,
+              "valueName": "path",
+              "description": "Path to a JSON file with the credential payload",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--config-file",
+              "short": null,
+              "valueName": "path",
+              "description": "Path to a JSON file with app-specific config",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "update",
+          "path": "apps update",
+          "description": "Update an app",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "appId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--name",
+              "short": null,
+              "valueName": "displayName",
+              "description": "New display name",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--role",
+              "short": null,
+              "valueName": "role",
+              "description": "Comma-separated capability: source, destination (derives permissions)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "source",
+                "destination"
+              ],
+              "global": false
+            },
+            {
+              "name": "--permissions",
+              "short": null,
+              "valueName": "permissions",
+              "description": "Comma-separated granular permissions. Overrides --role.",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "performance_data",
+                "read_leads",
+                "read_organic_content",
+                "send_conversions",
+                "read_warehouse",
+                "write_warehouse",
+                "sync_audiences",
+                "campaign_changes",
+                "campaign_adjust_bids",
+                "campaign_adjust_spend",
+                "campaign_toggle",
+                "google_tag_manager",
+                "google_analytics"
+              ],
+              "global": false
+            },
+            {
+              "name": "--credentials-file",
+              "short": null,
+              "valueName": "path",
+              "description": "Replace credentials from a JSON file",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--config-file",
+              "short": null,
+              "valueName": "path",
+              "description": "Replace config from a JSON file",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        }
+      ]
+    },
+    {
+      "name": "sources",
+      "path": "sources",
+      "description": "Manage data sources",
+      "aliases": [],
+      "arguments": [],
+      "options": [],
+      "commands": [
+        {
+          "name": "list",
+          "path": "sources list",
+          "description": "List all data sources",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--state",
+              "short": null,
+              "valueName": "state",
+              "description": "Filter by state (active, inactive)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "active",
+                "inactive"
+              ],
+              "global": false
+            },
+            {
+              "name": "--type",
+              "short": null,
+              "valueName": "type",
+              "description": "Filter by sync type",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--app",
+              "short": null,
+              "valueName": "appId",
+              "description": "Filter by app ID",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--limit",
+              "short": null,
+              "valueName": "n",
+              "description": "Number of results",
+              "required": false,
+              "default": "20",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--offset",
+              "short": null,
+              "valueName": "n",
+              "description": "Pagination offset",
+              "required": false,
+              "default": "0",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field per row (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "get",
+          "path": "sources get",
+          "description": "Get source details",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "sourceId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "sync",
+          "path": "sources sync",
+          "description": "Trigger a manual sync",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "sourceId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--watch",
+              "short": null,
+              "valueName": null,
+              "description": "Watch the job until it completes",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id for job ID)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "pause",
+          "path": "sources pause",
+          "description": "Pause a data source",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "sourceId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "resume",
+          "path": "sources resume",
+          "description": "Resume a paused data source",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "sourceId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "delete",
+          "path": "sources delete",
+          "description": "Delete a data source (soft delete)",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "sourceId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--yes",
+              "short": "-y",
+              "valueName": null,
+              "description": "Skip confirmation prompt",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "create",
+          "path": "sources create",
+          "description": "Create a new data source",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--app",
+              "short": null,
+              "valueName": "appId",
+              "description": "App ID (must have source role)",
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--sync-type",
+              "short": null,
+              "valueName": "syncType",
+              "description": "Connector type (e.g. google_ads)",
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--import-tasks",
+              "short": null,
+              "valueName": "tasks",
+              "description": "Comma-separated import task IDs (streams to pull)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--frequency",
+              "short": null,
+              "valueName": "value",
+              "description": "Sync frequency value",
+              "required": false,
+              "default": "24",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--unit",
+              "short": null,
+              "valueName": "unit",
+              "description": "Sync frequency unit (hours, days)",
+              "required": false,
+              "default": "hours",
+              "possibleValues": [],
+              "suggestedValues": [
+                "hours",
+                "days"
+              ],
+              "global": false
+            },
+            {
+              "name": "--config-file",
+              "short": null,
+              "valueName": "path",
+              "description": "Path to a JSON file with source-specific config",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--run-now",
+              "short": null,
+              "valueName": null,
+              "description": "Trigger an initial sync immediately after creation",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "update",
+          "path": "sources update",
+          "description": "Update a data source",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "sourceId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--import-tasks",
+              "short": null,
+              "valueName": "tasks",
+              "description": "Comma-separated import task IDs",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--frequency",
+              "short": null,
+              "valueName": "value",
+              "description": "Sync frequency value",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--unit",
+              "short": null,
+              "valueName": "unit",
+              "description": "Sync frequency unit (hours, days)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "hours",
+                "days"
+              ],
+              "global": false
+            },
+            {
+              "name": "--config-file",
+              "short": null,
+              "valueName": "path",
+              "description": "Replace config from a JSON file",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        }
+      ]
+    },
+    {
+      "name": "destinations",
+      "path": "destinations",
+      "description": "Manage data export destinations",
+      "aliases": [],
+      "arguments": [],
+      "options": [],
+      "commands": [
+        {
+          "name": "list",
+          "path": "destinations list",
+          "description": "List all destinations",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--state",
+              "short": null,
+              "valueName": "state",
+              "description": "Filter by state (active, inactive)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "active",
+                "inactive"
+              ],
+              "global": false
+            },
+            {
+              "name": "--status",
+              "short": null,
+              "valueName": "status",
+              "description": "Filter by status",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "pending",
+                "running",
+                "completed",
+                "warning",
+                "errored",
+                "auth_expired",
+                "failed_permanently",
+                "paused",
+                "draft"
+              ],
+              "global": false
+            },
+            {
+              "name": "--type",
+              "short": null,
+              "valueName": "type",
+              "description": "Filter by data type",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--limit",
+              "short": null,
+              "valueName": "n",
+              "description": "Number of results",
+              "required": false,
+              "default": "20",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--offset",
+              "short": null,
+              "valueName": "n",
+              "description": "Pagination offset",
+              "required": false,
+              "default": "0",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field per row (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "get",
+          "path": "destinations get",
+          "description": "Get destination details",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "destinationId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "sync",
+          "path": "destinations sync",
+          "description": "Trigger a manual sync",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "destinationId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--watch",
+              "short": null,
+              "valueName": null,
+              "description": "Watch the job until it completes",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id for job ID)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "refresh-source",
+          "path": "destinations refresh-source",
+          "description": "Check source-data availability for a window and trigger top-up imports for missing ranges",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "destinationId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--from",
+              "short": null,
+              "valueName": "date",
+              "description": "Window start — ISO datetime or YYYY-MM-DD (default: 7 days before --to)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--to",
+              "short": null,
+              "valueName": "date",
+              "description": "Window end — ISO datetime or YYYY-MM-DD (default: now)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "pause",
+          "path": "destinations pause",
+          "description": "Pause a destination",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "destinationId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "resume",
+          "path": "destinations resume",
+          "description": "Resume a paused destination",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "destinationId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "delete",
+          "path": "destinations delete",
+          "description": "Delete a destination (soft delete)",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "destinationId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--yes",
+              "short": "-y",
+              "valueName": null,
+              "description": "Skip confirmation prompt",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "create",
+          "path": "destinations create",
+          "description": "Create a new destination (source → destination pipeline)",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--dest-app",
+              "short": null,
+              "valueName": "appId",
+              "description": "Destination app ID (must have destination role)",
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--source-app",
+              "short": null,
+              "valueName": "appId",
+              "description": "Source app ID (optional for some data types)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--data-type",
+              "short": null,
+              "valueName": "type",
+              "description": "Data type (e.g. events, user_properties, conversions)",
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--config-file",
+              "short": null,
+              "valueName": "path",
+              "description": "Path to JSON with { global?, tasks: [...] }",
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--schedule-file",
+              "short": null,
+              "valueName": "path",
+              "description": "Path to JSON with schedule overrides",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--frequency",
+              "short": null,
+              "valueName": "value",
+              "description": "Sync frequency value",
+              "required": false,
+              "default": "1",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--unit",
+              "short": null,
+              "valueName": "unit",
+              "description": "Sync frequency unit (hours, days, weeks, months)",
+              "required": false,
+              "default": "days",
+              "possibleValues": [],
+              "suggestedValues": [
+                "hours",
+                "days",
+                "weeks",
+                "months"
+              ],
+              "global": false
+            },
+            {
+              "name": "--run-now",
+              "short": null,
+              "valueName": null,
+              "description": "Trigger first sync immediately",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "update",
+          "path": "destinations update",
+          "description": "Update a destination",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "destinationId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--config-file",
+              "short": null,
+              "valueName": "path",
+              "description": "Replace config from a JSON file",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--schedule-file",
+              "short": null,
+              "valueName": "path",
+              "description": "Replace schedule from a JSON file",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--frequency",
+              "short": null,
+              "valueName": "value",
+              "description": "Sync frequency value",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--unit",
+              "short": null,
+              "valueName": "unit",
+              "description": "Sync frequency unit",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "hours",
+                "days",
+                "weeks",
+                "months"
+              ],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        }
+      ]
+    },
+    {
+      "name": "jobs",
+      "path": "jobs",
+      "description": "Monitor sync jobs",
+      "aliases": [],
+      "arguments": [],
+      "options": [],
+      "commands": [
+        {
+          "name": "list",
+          "path": "jobs list",
+          "description": "List sync jobs",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--status",
+              "short": null,
+              "valueName": "status",
+              "description": "Filter by status (pending, running, completed, failed, cancelled)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "queued",
+                "pending",
+                "running",
+                "completed",
+                "warning",
+                "failed",
+                "canceled"
+              ],
+              "global": false
+            },
+            {
+              "name": "--type",
+              "short": null,
+              "valueName": "type",
+              "description": "Filter by job type (import, export)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "import",
+                "export",
+                "data_quality",
+                "attribution"
+              ],
+              "global": false
+            },
+            {
+              "name": "--source",
+              "short": null,
+              "valueName": "sourceId",
+              "description": "Filter by source ID",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--integration",
+              "short": null,
+              "valueName": "integrationId",
+              "description": "Filter by destination ID",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--limit",
+              "short": null,
+              "valueName": "n",
+              "description": "Number of results",
+              "required": false,
+              "default": "20",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--offset",
+              "short": null,
+              "valueName": "n",
+              "description": "Pagination offset",
+              "required": false,
+              "default": "0",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field per row (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "get",
+          "path": "jobs get",
+          "description": "Get job details",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "jobId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "cancel",
+          "path": "jobs cancel",
+          "description": "Cancel a pending or running job",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "jobId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--yes",
+              "short": "-y",
+              "valueName": null,
+              "description": "Skip confirmation prompt",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--dry-run",
+              "short": null,
+              "valueName": null,
+              "description": "Preview the action without executing",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field (e.g. id)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "watch",
+          "path": "jobs watch",
+          "description": "Watch running and pending jobs (live polling)",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--interval",
+              "short": null,
+              "valueName": "seconds",
+              "description": "Polling interval in seconds",
+              "required": false,
+              "default": "5",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--source",
+              "short": null,
+              "valueName": "sourceId",
+              "description": "Filter by source ID",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--integration",
+              "short": null,
+              "valueName": "integrationId",
+              "description": "Filter by destination ID",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "tail",
+          "path": "jobs tail",
+          "description": "Tail a single job or the latest job for a source/destination",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "jobId",
+              "description": null,
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--source",
+              "short": null,
+              "valueName": "sourceId",
+              "description": "Tail the latest job for a source",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--integration",
+              "short": null,
+              "valueName": "integrationId",
+              "description": "Tail the latest job for a destination",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--next",
+              "short": null,
+              "valueName": null,
+              "description": "Wait for the next new job when tailing a source or destination",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--interval",
+              "short": null,
+              "valueName": "seconds",
+              "description": "Polling interval in seconds",
+              "required": false,
+              "default": "3",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        }
+      ]
+    },
+    {
+      "name": "catalog",
+      "path": "catalog",
+      "description": "Browse available platforms",
+      "aliases": [],
+      "arguments": [],
+      "options": [],
+      "commands": [
+        {
+          "name": "list",
+          "path": "catalog list",
+          "description": "List all available platforms",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--category",
+              "short": null,
+              "valueName": "category",
+              "description": "Filter by category",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "advertising",
+                "analytics",
+                "crm",
+                "mobile_attribution",
+                "payment",
+                "platforms",
+                "messaging",
+                "webinar",
+                "data",
+                "ai"
+              ],
+              "global": false
+            },
+            {
+              "name": "--role",
+              "short": null,
+              "valueName": "role",
+              "description": "Filter by role (source, destination)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "source",
+                "destination"
+              ],
+              "global": false
+            },
+            {
+              "name": "--all",
+              "short": null,
+              "valueName": null,
+              "description": "List every platform, including the ones on request",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field per row (e.g. appType)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "get",
+          "path": "catalog get",
+          "description": "Get details for a specific platform",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "appType",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        }
+      ]
+    },
+    {
+      "name": "dictionary",
+      "path": "dictionary",
+      "description": "Browse the data dictionary catalog",
+      "aliases": [],
+      "arguments": [],
+      "options": [],
+      "commands": [
+        {
+          "name": "list",
+          "path": "dictionary list",
+          "description": "List catalog definitions (events by default)",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--type",
+              "short": null,
+              "valueName": "type",
+              "description": "Filter by subject type (event, prop, group, column, metric, model, audience)",
+              "required": false,
+              "default": "event",
+              "possibleValues": [],
+              "suggestedValues": [
+                "event",
+                "prop",
+                "group",
+                "column",
+                "metric",
+                "model",
+                "audience"
+              ],
+              "global": false
+            },
+            {
+              "name": "--query",
+              "short": "-q",
+              "valueName": "text",
+              "description": "Text search across subject ID, name and description",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--limit",
+              "short": null,
+              "valueName": "n",
+              "description": "Number of results",
+              "required": false,
+              "default": "20",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--offset",
+              "short": null,
+              "valueName": "n",
+              "description": "Pagination offset",
+              "required": false,
+              "default": "0",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field per row (e.g. subjectId, displayName)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "search",
+          "path": "dictionary search",
+          "description": "Search one subject type by text in subject ID, name and description",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "query",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--type",
+              "short": null,
+              "valueName": "type",
+              "description": "Filter by subject type (event, prop, group, column, metric, model, audience)",
+              "required": false,
+              "default": "event",
+              "possibleValues": [],
+              "suggestedValues": [
+                "event",
+                "prop",
+                "group",
+                "column",
+                "metric",
+                "model",
+                "audience"
+              ],
+              "global": false
+            },
+            {
+              "name": "--limit",
+              "short": null,
+              "valueName": "n",
+              "description": "Number of results",
+              "required": false,
+              "default": "20",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--offset",
+              "short": null,
+              "valueName": "n",
+              "description": "Pagination offset",
+              "required": false,
+              "default": "0",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field per row (e.g. subjectId, displayName)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "get",
+          "path": "dictionary get",
+          "description": "Look up one catalog definition by the subject ID from list or search, or an alias such as event:<name>",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "subjectId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        }
+      ]
+    },
+    {
+      "name": "metrics",
+      "path": "metrics",
+      "description": "Manage custom metrics in the Metrics Library",
+      "aliases": [],
+      "arguments": [],
+      "options": [],
+      "commands": [
+        {
+          "name": "list",
+          "path": "metrics list",
+          "description": "List all custom metrics",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--status",
+              "short": null,
+              "valueName": "status",
+              "description": "Filter by status (draft, active, archived)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "draft",
+                "active",
+                "archived"
+              ],
+              "global": false
+            },
+            {
+              "name": "--limit",
+              "short": null,
+              "valueName": "n",
+              "description": "Number of results",
+              "required": false,
+              "default": "20",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--offset",
+              "short": null,
+              "valueName": "n",
+              "description": "Pagination offset",
+              "required": false,
+              "default": "0",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field per row (e.g. id, name)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "get",
+          "path": "metrics get",
+          "description": "Get metric details",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "metricId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "create",
+          "path": "metrics create",
+          "description": "Create a new metric",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--name",
+              "short": null,
+              "valueName": "name",
+              "description": "Metric name",
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--definition",
+              "short": null,
+              "valueName": "file",
+              "description": "QuerySpec v2 definition JSON file",
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--description",
+              "short": null,
+              "valueName": "desc",
+              "description": "Description",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--format",
+              "short": null,
+              "valueName": "format",
+              "description": "Display format: number, currency, percentage, multiplier",
+              "required": false,
+              "default": "number",
+              "possibleValues": [],
+              "suggestedValues": [
+                "number",
+                "currency",
+                "percentage",
+                "multiplier"
+              ],
+              "global": false
+            },
+            {
+              "name": "--unit",
+              "short": null,
+              "valueName": "unit",
+              "description": "Unit suffix (e.g., \"$\", \"%\")",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "update",
+          "path": "metrics update",
+          "description": "Update a metric",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "metricId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--name",
+              "short": null,
+              "valueName": "name",
+              "description": "New name",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--description",
+              "short": null,
+              "valueName": "desc",
+              "description": "New description",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--definition",
+              "short": null,
+              "valueName": "file",
+              "description": "New QuerySpec v2 definition JSON file",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--format",
+              "short": null,
+              "valueName": "format",
+              "description": "New format",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "number",
+                "currency",
+                "percentage",
+                "multiplier"
+              ],
+              "global": false
+            },
+            {
+              "name": "--unit",
+              "short": null,
+              "valueName": "unit",
+              "description": "New unit",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--status",
+              "short": null,
+              "valueName": "status",
+              "description": "New status",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [
+                "draft",
+                "active",
+                "archived"
+              ],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "activate",
+          "path": "metrics activate",
+          "description": "Activate a draft metric",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "metricId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "delete",
+          "path": "metrics delete",
+          "description": "Delete a metric",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "metricId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--yes",
+              "short": "-y",
+              "valueName": null,
+              "description": "Skip confirmation",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        }
+      ]
+    },
+    {
+      "name": "models",
+      "path": "models",
+      "description": "Manage data models",
+      "aliases": [],
+      "arguments": [],
+      "options": [],
+      "commands": [
+        {
+          "name": "list",
+          "path": "models list",
+          "description": "List all data models",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--type",
+              "short": null,
+              "valueName": "type",
+              "description": "Filter by data type",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--valid",
+              "short": null,
+              "valueName": null,
+              "description": "Only show valid models",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--invalid",
+              "short": null,
+              "valueName": null,
+              "description": "Only show invalid models",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--limit",
+              "short": null,
+              "valueName": "n",
+              "description": "Number of results",
+              "required": false,
+              "default": "20",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--offset",
+              "short": null,
+              "valueName": "n",
+              "description": "Pagination offset",
+              "required": false,
+              "default": "0",
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--output",
+              "short": null,
+              "valueName": "field",
+              "description": "Print a single field per row (e.g. id, name)",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "get",
+          "path": "models get",
+          "description": "Get model details",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "modelId",
+              "description": null,
+              "required": true,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        }
+      ]
+    },
+    {
+      "name": "measurement",
+      "path": "measurement",
+      "description": "Inspect Marketing Measurement methodologies, LTV, and signals",
+      "aliases": [],
+      "arguments": [],
+      "options": [],
+      "commands": [
+        {
+          "name": "methodologies",
+          "path": "measurement methodologies",
+          "description": "List measurement methodologies",
+          "aliases": [],
+          "arguments": [],
+          "options": [],
+          "commands": [
+            {
+              "name": "list",
+              "path": "measurement methodologies list",
+              "description": "List methodologies (system + account)",
+              "aliases": [],
+              "arguments": [],
+              "options": [
+                {
+                  "name": "--no-system",
+                  "short": null,
+                  "valueName": null,
+                  "description": "Exclude system-seeded methodologies",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--json",
+                  "short": null,
+                  "valueName": null,
+                  "description": "Output raw JSON",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--output",
+                  "short": null,
+                  "valueName": "field",
+                  "description": "Print one field per row (e.g. id, name)",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                }
+              ],
+              "commands": []
+            },
+            {
+              "name": "get",
+              "path": "measurement methodologies get",
+              "description": "Show one methodology by ID",
+              "aliases": [],
+              "arguments": [
+                {
+                  "name": "methodologyId",
+                  "description": null,
+                  "required": true,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": []
+                }
+              ],
+              "options": [
+                {
+                  "name": "--json",
+                  "short": null,
+                  "valueName": null,
+                  "description": "Output raw JSON",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                }
+              ],
+              "commands": []
+            }
+          ]
+        },
+        {
+          "name": "rules",
+          "path": "measurement rules",
+          "description": "Methodology segmentation rules",
+          "aliases": [],
+          "arguments": [],
+          "options": [],
+          "commands": [
+            {
+              "name": "preview",
+              "path": "measurement rules preview",
+              "description": "Preview which segmentation rule fires for recent rows",
+              "aliases": [],
+              "arguments": [],
+              "options": [
+                {
+                  "name": "--from",
+                  "short": null,
+                  "valueName": "date",
+                  "description": "Inclusive ISO date (YYYY-MM-DD)",
+                  "required": true,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--to",
+                  "short": null,
+                  "valueName": "date",
+                  "description": "Inclusive ISO date (YYYY-MM-DD)",
+                  "required": true,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--limit",
+                  "short": null,
+                  "valueName": "n",
+                  "description": "Max distinct contexts to return",
+                  "required": false,
+                  "default": "50",
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--json",
+                  "short": null,
+                  "valueName": null,
+                  "description": "Output raw JSON",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                }
+              ],
+              "commands": []
+            }
+          ]
+        },
+        {
+          "name": "ltv",
+          "path": "measurement ltv",
+          "description": "Cohort lifetime-value views",
+          "aliases": [],
+          "arguments": [],
+          "options": [],
+          "commands": [
+            {
+              "name": "list",
+              "path": "measurement ltv list",
+              "description": "List cohort LTV rows",
+              "aliases": [],
+              "arguments": [],
+              "options": [
+                {
+                  "name": "--granularity",
+                  "short": null,
+                  "valueName": "value",
+                  "description": "daily | weekly | monthly",
+                  "required": false,
+                  "default": "monthly",
+                  "possibleValues": [],
+                  "suggestedValues": [
+                    "daily",
+                    "weekly",
+                    "monthly"
+                  ],
+                  "global": false
+                },
+                {
+                  "name": "--segment",
+                  "short": null,
+                  "valueName": "key",
+                  "description": "Segment key (e.g. \"all\", \"channel:meta\")",
+                  "required": false,
+                  "default": "all",
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--from",
+                  "short": null,
+                  "valueName": "period",
+                  "description": "Inclusive ISO cohort period (YYYY-MM-DD)",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--to",
+                  "short": null,
+                  "valueName": "period",
+                  "description": "Inclusive ISO cohort period (YYYY-MM-DD)",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--limit",
+                  "short": null,
+                  "valueName": "n",
+                  "description": "Max rows",
+                  "required": false,
+                  "default": "50",
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--no-predicted",
+                  "short": null,
+                  "valueName": null,
+                  "description": "Skip the naive-decay prediction join",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--json",
+                  "short": null,
+                  "valueName": null,
+                  "description": "Output raw JSON",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--output",
+                  "short": null,
+                  "valueName": "field",
+                  "description": "Print one field per row",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                }
+              ],
+              "commands": []
+            },
+            {
+              "name": "cohort",
+              "path": "measurement ltv cohort",
+              "description": "Show one cohort by period — retention matrix + cumulative LTV curve + prediction",
+              "aliases": [],
+              "arguments": [
+                {
+                  "name": "period",
+                  "description": null,
+                  "required": true,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": []
+                }
+              ],
+              "options": [
+                {
+                  "name": "--granularity",
+                  "short": null,
+                  "valueName": "value",
+                  "description": "daily | weekly | monthly",
+                  "required": false,
+                  "default": "monthly",
+                  "possibleValues": [],
+                  "suggestedValues": [
+                    "daily",
+                    "weekly",
+                    "monthly"
+                  ],
+                  "global": false
+                },
+                {
+                  "name": "--segment",
+                  "short": null,
+                  "valueName": "key",
+                  "description": "Segment key",
+                  "required": false,
+                  "default": "all",
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--json",
+                  "short": null,
+                  "valueName": null,
+                  "description": "Output raw JSON",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                }
+              ],
+              "commands": []
+            },
+            {
+              "name": "customer",
+              "path": "measurement ltv customer",
+              "description": "Show one customer's cohort + realised LTV + revenue timeline",
+              "aliases": [],
+              "arguments": [
+                {
+                  "name": "customerId",
+                  "description": null,
+                  "required": true,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": []
+                }
+              ],
+              "options": [
+                {
+                  "name": "--json",
+                  "short": null,
+                  "valueName": null,
+                  "description": "Output raw JSON",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                }
+              ],
+              "commands": []
+            }
+          ]
+        },
+        {
+          "name": "signals",
+          "path": "measurement signals",
+          "description": "Measurement signal availability",
+          "aliases": [],
+          "arguments": [],
+          "options": [],
+          "commands": [
+            {
+              "name": "list",
+              "path": "measurement signals list",
+              "description": "Per-signal availability summary",
+              "aliases": [],
+              "arguments": [],
+              "options": [
+                {
+                  "name": "--json",
+                  "short": null,
+                  "valueName": null,
+                  "description": "Output raw JSON",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                }
+              ],
+              "commands": []
+            },
+            {
+              "name": "click-path",
+              "path": "measurement signals click-path",
+              "description": "Click-path signal status — readiness, last-computed, recent SignalEstimates",
+              "aliases": [],
+              "arguments": [],
+              "options": [
+                {
+                  "name": "--sample-limit",
+                  "short": null,
+                  "valueName": "n",
+                  "description": "Number of recent SignalEstimates to fetch (1..500)",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                },
+                {
+                  "name": "--json",
+                  "short": null,
+                  "valueName": null,
+                  "description": "Output raw JSON",
+                  "required": false,
+                  "default": null,
+                  "possibleValues": [],
+                  "suggestedValues": [],
+                  "global": false
+                }
+              ],
+              "commands": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "profile",
+      "path": "profile",
+      "description": "Manage account profiles",
+      "aliases": [],
+      "arguments": [],
+      "options": [],
+      "commands": [
+        {
+          "name": "list",
+          "path": "profile list",
+          "description": "List all configured profiles",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "switch",
+          "path": "profile switch",
+          "description": "Switch to a different profile",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "profile",
+              "description": null,
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--account",
+              "short": null,
+              "valueName": "accountId",
+              "description": "Switch by account ID instead of profile name",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "set",
+          "path": "profile set",
+          "description": "Set configuration values",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--api-key",
+              "short": null,
+              "valueName": "key",
+              "description": "API key for authentication",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--base-url",
+              "short": null,
+              "valueName": "url",
+              "description": "Base URL for the Vendo API",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--account",
+              "short": null,
+              "valueName": "id",
+              "description": "Account ID to operate on",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        }
+      ]
+    },
+    {
+      "name": "mcp",
+      "path": "mcp",
+      "description": "Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output only the mcpServers JSON block",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--show-key",
+          "short": null,
+          "valueName": null,
+          "description": "Embed your actual API key instead of a ${VENDO_API_KEY} placeholder",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
+      "name": "completions",
+      "path": "completions",
+      "description": "Generate shell completion script (bash, zsh, fish)",
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "shell",
+          "description": null,
+          "required": false,
+          "default": null,
+          "possibleValues": [
+            "bash",
+            "zsh",
+            "fish"
+          ],
+          "suggestedValues": []
+        }
+      ],
+      "options": [
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
+      "name": "self-update",
+      "path": "self-update",
+      "description": "Update the Vendo CLI using the hosted installer",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--version",
+          "short": null,
+          "valueName": "version",
+          "description": "Install a specific version",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    }
+  ]
+}

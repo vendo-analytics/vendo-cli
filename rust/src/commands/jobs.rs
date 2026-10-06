@@ -5,14 +5,15 @@ use std::{process::ExitCode, time::Duration};
 use anyhow::Result;
 
 use crate::{
-    client::payload,
+    client::{Client, payload},
     context::Ctx,
     jobs::{Job, format_job_duration, format_job_progress, job_detail_lines, job_error_lines},
     output::{
         OutputMode, arg_error, bold, color_status, confirm, dim, print_dry_run, print_field, print_json,
         print_list_count, print_success, resolve_output_mode, run_action, short_id, table, time_ago,
     },
-    watch::{self, MAX_WAIT, NextJob, ResourceKind, Terminal, WatchScope},
+    short_ids::{Listing, resolve, resolve_opt},
+    watch::{self, JsonScreen, MAX_WAIT, NextJob, ResourceKind, Screen, Terminal, WatchScope},
 };
 
 pub struct ListArgs {
@@ -28,6 +29,8 @@ pub struct ListArgs {
 
 pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
     let client = ctx.client()?;
+    let source = resolve_opt(&client, Listing::Sources, args.source).await;
+    let integration = resolve_opt(&client, Listing::Destinations, args.integration).await;
     let res = run_action(
         "Fetching jobs...",
         client.get(
@@ -35,8 +38,8 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
             &[
                 ("status", args.status),
                 ("job_type", args.job_type),
-                ("source_id", args.source),
-                ("integration_id", args.integration),
+                ("source_id", source),
+                ("integration_id", integration),
                 ("limit", Some(args.limit)),
                 ("offset", Some(args.offset)),
             ],
@@ -71,6 +74,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
 
 pub async fn get(ctx: &Ctx, job_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
+    let job_id = resolve(&client, Listing::Jobs, job_id).await;
     let res = run_action("Fetching job...", client.get(&format!("/jobs/{job_id}"), &[])).await?;
     if json {
         print_json(&res);
@@ -114,6 +118,8 @@ pub async fn cancel(
         return Ok(());
     }
     let client = ctx.client()?;
+    // After the consent, which names the ID as typed (VE-3823).
+    let job_id = &resolve(&client, Listing::Jobs, job_id).await;
     let res = run_action("Cancelling job...", client.post(&format!("/jobs/{job_id}/cancel"), None)).await?;
     match resolve_output_mode(json, output.as_deref()) {
         OutputMode::Json => print_json(&res),
@@ -134,7 +140,14 @@ fn interval_ms(seconds: f64) -> Duration {
     Duration::from_millis((seconds * 1000.0).floor() as u64)
 }
 
-pub async fn watch(ctx: &Ctx, interval: &str, source: Option<String>, integration: Option<String>) -> Result<()> {
+/// `jobs watch`; with `--json` each poll that changed as one line of JSON (VE-3831, [`JsonScreen::stream`]).
+pub async fn watch(
+    ctx: &Ctx,
+    interval: &str,
+    source: Option<String>,
+    integration: Option<String>,
+    json: bool,
+) -> Result<()> {
     let Some(seconds) = parse_interval_seconds(interval) else {
         arg_error(
             "Polling interval must be a positive number of seconds.",
@@ -142,11 +155,19 @@ pub async fn watch(ctx: &Ctx, interval: &str, source: Option<String>, integratio
         );
     };
     let client = ctx.client()?;
-    let scope = WatchScope { source_id: source, integration_id: integration };
+    let scope = WatchScope {
+        source_id: resolve_opt(&client, Listing::Sources, source).await,
+        integration_id: resolve_opt(&client, Listing::Destinations, integration).await,
+    };
     let stop = async {
         let _ = tokio::signal::ctrl_c().await;
     };
-    watch::watch_active_jobs(&client, &mut Terminal::default(), interval_ms(seconds), &scope, stop).await?;
+    let interval = interval_ms(seconds);
+    if json {
+        watch::watch_active_jobs(&client, &mut JsonScreen::stream(), interval, &scope, stop).await?;
+    } else {
+        watch::watch_active_jobs(&client, &mut Terminal::default(), interval, &scope, stop).await?;
+    }
     Ok(())
 }
 
@@ -156,6 +177,8 @@ pub struct TailArgs {
     pub integration: Option<String>,
     pub next: bool,
     pub interval: String,
+    /// The tailed job as `jobs get --json` prints it, once tailing ends (VE-3831, [`JsonScreen::last`]).
+    pub json: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -195,28 +218,44 @@ pub async fn tail(ctx: &Ctx, args: TailArgs) -> Result<ExitCode> {
         );
     };
     let interval = interval_ms(seconds);
-    let mut screen = Terminal::default();
+    if matches!(target, TailTarget::Job(_)) && args.next {
+        arg_error(
+            "`--next` can only be used with `--source` or `--integration`.",
+            &["vendo jobs tail --source <sourceId> --next", "vendo jobs tail --integration <integrationId> --next"],
+        );
+    }
+    let client = ctx.client()?;
+    if args.json {
+        let mut screen = JsonScreen::last();
+        follow(&client, &mut screen, target, args.next, interval).await?;
+        screen.finish();
+    } else {
+        follow(&client, &mut Terminal::default(), target, args.next, interval).await?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
 
+/// Tail the job, or wait for the latest (`next`: the next) job of the source or destination and
+/// tail that.
+async fn follow(
+    client: &Client,
+    screen: &mut impl Screen,
+    target: TailTarget,
+    next: bool,
+    interval: Duration,
+) -> Result<()> {
     let (resource_id, kind) = match target {
         TailTarget::Job(job_id) => {
-            if args.next {
-                arg_error(
-                    "`--next` can only be used with `--source` or `--integration`.",
-                    &[
-                        "vendo jobs tail --source <sourceId> --next",
-                        "vendo jobs tail --integration <integrationId> --next",
-                    ],
-                );
-            }
-            let client = ctx.client()?;
-            watch::tail_job(&client, &mut screen, &job_id, interval, MAX_WAIT).await?;
-            return Ok(ExitCode::SUCCESS);
+            let job_id = resolve(client, Listing::Jobs, &job_id).await;
+            watch::tail_job(client, screen, &job_id, interval, MAX_WAIT).await?;
+            return Ok(());
         }
         TailTarget::Resource(resource_id, kind) => (resource_id, kind),
     };
-    let client = ctx.client()?;
-    let next = if args.next {
-        let baseline = watch::latest_job_for_resource(&client, &resource_id, kind).await?;
+    let listing = if kind == ResourceKind::Source { Listing::Sources } else { Listing::Destinations };
+    let resource_id = resolve(client, listing, &resource_id).await;
+    let next = if next {
+        let baseline = watch::latest_job_for_resource(client, &resource_id, kind).await?;
         NextJob {
             after_created_at: baseline.as_ref().and_then(|j| Job(j).text("createdAt")),
             skip_job_id: baseline.as_ref().map(|j| Job(j).id()),
@@ -224,8 +263,8 @@ pub async fn tail(ctx: &Ctx, args: TailArgs) -> Result<ExitCode> {
     } else {
         NextJob { after_created_at: None, skip_job_id: None }
     };
-    watch::watch_job(&client, &mut screen, &resource_id, kind, interval, next, MAX_WAIT).await?;
-    Ok(ExitCode::SUCCESS)
+    watch::watch_job(client, screen, &resource_id, kind, interval, next, MAX_WAIT).await?;
+    Ok(())
 }
 
 #[cfg(test)]

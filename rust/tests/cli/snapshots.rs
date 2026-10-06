@@ -358,10 +358,11 @@ fn completions_offer_no_moved_command_and_no_group_help() {
 /// The groups of `output/`, one test each. A Session's recorder only owns its
 /// own group's files, so a renamed or removed group would leave its snapshots
 /// behind unnoticed; [`every_output_snapshot_has_a_group`] catches them.
-const OUTPUT_GROUPS: [&str; 11] = [
+const OUTPUT_GROUPS: [&str; 12] = [
     "account",
     "apps",
     "catalog",
+    "commands",
     "completions",
     "destinations",
     "dictionary",
@@ -976,6 +977,7 @@ async fn account_and_profile_output() {
     s.record_with("doctor", &["doctor"], machine);
     s.record_with("doctor_json", &["doctor", "--json"], machine);
     s.record("profile_list", &["profile", "list"]);
+    s.record("profile_list_json", &["profile", "list", "--json"]);
     // Moved commands (VE-3827) print exactly what the command they moved to prints.
     for (old, new) in [
         (&["profile", "current"][..], &["whoami"][..]),
@@ -993,6 +995,7 @@ async fn account_and_profile_output() {
     // A working key is checked and kept (VE-3825); `init`, login's hidden alias, prints the same.
     s.record("login_existing_key", &["login"]);
     assert!(s.output(&["init"]) == s.output(&["login"]), "vendo init differs from vendo login");
+    s.record("login_existing_key_json", &["login", "--json"]);
 
     // Writes, in order: each changes the saved config the next one reads.
     let stub = s.redactions.iter().find(|(_, to)| to == "[stub]").unwrap().0.clone();
@@ -1001,6 +1004,7 @@ async fn account_and_profile_output() {
         &["login", "--api-key", "vendo_sk_fake_gamma_0000", "--account", "acct-gamma", "--base-url", stub.as_str()],
     );
     s.record("profile_set", &["profile", "set", "--account", "acct-alpha"]);
+    s.record("profile_set_json", &["profile", "set", "--account", "acct-alpha", "--json"]);
     // Run twice, a write that leaves nothing to differ: the second run prints what the first did.
     let same_twice = |s: &Session, old: &[&str], new: &[&str]| {
         let expected = s.output(new);
@@ -1010,6 +1014,7 @@ async fn account_and_profile_output() {
     same_twice(&s, &["config", "set", "--account", "acct-alpha"], &["profile", "set", "--account", "acct-alpha"]);
     same_twice(&s, &["config", "use", "beta"], &["profile", "switch", "beta"]);
     s.record("profile_switch", &["profile", "switch", "alpha"]);
+    s.record("profile_switch_json", &["profile", "switch", "alpha", "--json"]);
     s.record("logout", &["logout"]);
     // Without a terminal, `logout --all` needs --yes (VE-3823), and so does `config reset`, its old name.
     s.record("logout_all", &["logout", "--all"]);
@@ -1139,6 +1144,9 @@ async fn jobs_output() {
     s.record("get_missing", &["jobs", "get", JOB_MISSING]);
     s.record("cancel", &["jobs", "cancel", JOB_RUNNING, "--yes"]);
     s.record("cancel_dry_run", &["jobs", "cancel", JOB_RUNNING, "--dry-run"]);
+    // A job that has ended: tailing reads it once (VE-3831).
+    s.record("tail_json", &["jobs", "tail", JOB_DONE, "--json"]);
+    s.record("tail_failed_json", &["jobs", "tail", JOB_FAILED, "--json"]);
     s.finish();
 }
 
@@ -1229,6 +1237,7 @@ async fn completions_output() {
     s.record_with("bare_bash", &["completions"], shell("/bin/bash"));
     s.record_with("bare_fish", &["completions"], shell("/opt/homebrew/bin/fish"));
     s.record_with("bare_unknown_shell", &["completions"], |cmd| _ = cmd.env_remove("SHELL"));
+    s.record_with("bare_zsh_json", &["completions", "--json"], shell("/bin/zsh"));
     fn bare(s: &Session, shell: Option<&str>) -> (Option<i32>, Vec<u8>, Vec<u8>) {
         let mut cmd = s.sandbox.command(&["completions"]);
         match shell {
@@ -1260,4 +1269,233 @@ async fn completions_output() {
         assert!(text(&stderr).starts_with("`vendo completions <shell>` prints"), "SHELL={value:?}");
     }
     s.finish();
+}
+
+// ── vendo commands (VE-3831) ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn commands_output() {
+    let (_server, mut s) = Session::start("commands").await;
+    s.record("list", &["commands"]);
+    s.record("json", &["commands", "--json"]);
+    s.finish();
+}
+
+/// What a help screen says about one command: its description, arguments, options (without
+/// `-h, --help`), the options its usage line requires, the commands it lists and its global options.
+#[derive(Debug, Default, PartialEq)]
+struct HelpScreen {
+    description: String,
+    /// `(name, required)`: `<appId>` or `[shell]`.
+    arguments: Vec<(String, bool, Vec<String>)>,
+    options: Vec<HelpOption>,
+    required: Vec<String>,
+    commands: Vec<String>,
+    global: Vec<HelpOption>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct HelpOption {
+    name: String,
+    short: Option<String>,
+    value_name: Option<String>,
+    description: String,
+    default: Option<String>,
+    possible: Vec<String>,
+}
+
+/// `text [default: x] [possible values: a, b]` → `(text, default, values)`.
+fn help_suffixes(text: &str) -> (String, Option<String>, Vec<String>) {
+    let mut text = text.trim().to_string();
+    let mut possible = Vec::new();
+    if let Some(at) = text.find("[possible values: ") {
+        possible = text[at + 18..].trim_end_matches(']').split(", ").map(str::to_string).collect();
+        text = text[..at].trim_end().to_string();
+    }
+    let mut default = None;
+    if let Some(at) = text.find(" [default: ").or_else(|| text.starts_with("[default: ").then_some(0)) {
+        let rest = text[at..].trim_start();
+        default = Some(rest["[default: ".len()..].trim_end_matches(']').to_string());
+        text = text[..at].trim_end().to_string();
+    }
+    (text, default, possible)
+}
+
+/// `  -y, --yes  Skip …` or `      --type <appType>  App type …`.
+fn help_option(line: &str) -> HelpOption {
+    let line = line.trim_start();
+    let (short, rest) = match line.strip_prefix('-').filter(|_| !line.starts_with("--")) {
+        Some(_) => (Some(line[..2].to_string()), line[2..].trim_start_matches(", ")),
+        None => (None, line),
+    };
+    let (spec, description) = rest.split_once("  ").unwrap_or((rest, ""));
+    let (name, value_name) = match spec.split_once(' ') {
+        Some((name, value)) => (name, Some(value.trim_matches(['<', '>']).to_string())),
+        None => (spec, None),
+    };
+    let (description, default, possible) = help_suffixes(description);
+    HelpOption { name: name.to_string(), short, value_name, description, default, possible }
+}
+
+fn read_help_screen(screen: &str) -> HelpScreen {
+    let mut help =
+        HelpScreen { description: screen.lines().next().unwrap_or_default().to_string(), ..Default::default() };
+    let mut section = "";
+    for line in screen.lines() {
+        if let Some(usage) = line.strip_prefix("Usage: ") {
+            // `vendo apps create [OPTIONS] --type <appType> --name <displayName>`: the options after [OPTIONS].
+            let after = usage.split_once("[OPTIONS]").map_or("", |(_, after)| after);
+            help.required =
+                after.split_whitespace().filter(|word| word.starts_with("--")).map(str::to_string).collect();
+            continue;
+        }
+        if line.ends_with(':') && !line.starts_with(' ') {
+            section = line;
+            continue;
+        }
+        if line.is_empty() || !line.starts_with("  ") {
+            continue;
+        }
+        match section {
+            "Arguments:" => {
+                let (spec, rest) = line.trim().split_once("  ").unwrap_or((line.trim(), ""));
+                let (_, _, possible) = help_suffixes(rest);
+                help.arguments.push((
+                    spec.trim_matches(['<', '>', '[', ']']).to_string(),
+                    spec.starts_with('<'),
+                    possible,
+                ));
+            }
+            "Options:" | "Global options:" => {
+                let option = help_option(line);
+                if option.name == "--help" {
+                    continue;
+                }
+                if section == "Options:" { help.options.push(option) } else { help.global.push(option) }
+            }
+            _ => {}
+        }
+    }
+    help.commands = subcommands(screen);
+    help
+}
+
+/// The same facts, from a node of `vendo commands --json`.
+fn json_screen(node: &Value, root_globals: &[HelpOption]) -> HelpScreen {
+    let strings = |values: &Value| -> Vec<String> {
+        values.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect()
+    };
+    let text = |value: &Value| value.as_str().map(str::to_string);
+    let option = |o: &Value| HelpOption {
+        name: o["name"].as_str().unwrap().to_string(),
+        short: text(&o["short"]),
+        value_name: text(&o["valueName"]),
+        description: text(&o["description"]).unwrap_or_default(),
+        default: text(&o["default"]),
+        possible: strings(&o["possibleValues"]),
+    };
+    let options: Vec<&Value> = node["options"].as_array().unwrap().iter().collect();
+    let is_root = node["path"] == "";
+    HelpScreen {
+        description: node["description"].as_str().unwrap().to_string(),
+        arguments: node["arguments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| {
+                (
+                    a["name"].as_str().unwrap().to_string(),
+                    a["required"].as_bool().unwrap(),
+                    strings(&a["possibleValues"]),
+                )
+            })
+            .collect(),
+        options: options.iter().map(|o| option(o)).collect(),
+        required: options
+            .iter()
+            .filter(|o| o["required"] == true)
+            .map(|o| o["name"].as_str().unwrap().to_string())
+            .collect(),
+        commands: node["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["name"].as_str().unwrap().to_string())
+            .collect(),
+        // Every screen but the root's lists --profile and --debug apart (VE-3827).
+        global: if is_root { Vec::new() } else { root_globals.to_vec() },
+    }
+}
+
+#[test]
+fn the_command_tree_matches_the_help_screens() {
+    // `vendo commands --json` reads the clap tree; this walks the help screens the CLI prints,
+    // as the help snapshots do, and checks each command against its own screen: description,
+    // arguments, options with value names, defaults and possible values, required options and
+    // the commands it lists. Suggested values never show in help (VE-3830).
+    let sandbox = Sandbox::new(CLOSED);
+    let out = sandbox.run(&["commands", "--json"]);
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), String::new()));
+    let tree: Value = serde_json::from_str(&text(&out.stdout)).unwrap();
+    let root_globals: Vec<HelpOption> = tree["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|o| o["global"] == true)
+        .map(|o| {
+            help_option(&format!(
+                "      {}{}  {}",
+                o["name"].as_str().unwrap(),
+                o["valueName"].as_str().map(|v| format!(" <{v}>")).unwrap_or_default(),
+                o["description"].as_str().unwrap()
+            ))
+        })
+        .collect();
+    let mut checked = 0;
+    let mut pending = vec![(Vec::<String>::new(), &tree)];
+    while let Some((path, node)) = pending.pop() {
+        assert_eq!(node["path"], path.join(" "));
+        let args: Vec<&str> = path.iter().map(String::as_str).chain(["--help"]).collect();
+        let screen = read_help_screen(&text(&sandbox.run(&args).stdout));
+        assert_eq!(json_screen(node, &root_globals), screen, "vendo {}", args.join(" "));
+        checked += 1;
+        for child in node["commands"].as_array().unwrap() {
+            let child_path = path.iter().cloned().chain([child["name"].as_str().unwrap().to_string()]).collect();
+            pending.push((child_path, child));
+        }
+    }
+    // Every help screen the snapshot walk records, less the hidden `catalog credential-schema`.
+    let help_screens = std::fs::read_dir(Path::new(SNAPSHOTS).join("help"))
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".snap"))
+        .count();
+    assert_eq!(checked, help_screens - HIDDEN_COMMANDS.len());
+}
+
+#[test]
+fn the_help_screen_reader_reads_clap_screens() {
+    let screen = "Create a new app\n\nUsage: vendo apps create [OPTIONS] --type <appType>\n\nArguments:\n  [shell]  [possible values: bash, zsh]\n\nOptions:\n      --type <appType>  App type\n      --role <role>     Role [default: source]\n  -y, --yes             Skip\n  -h, --help            Print help\n\nGlobal options:\n      --debug  Debug\n";
+    let help = read_help_screen(screen);
+    assert_eq!(help.description, "Create a new app");
+    assert_eq!(help.arguments, [("shell".to_string(), false, vec!["bash".to_string(), "zsh".to_string()])]);
+    assert_eq!(help.required, ["--type"]);
+    let option =
+        |name: &str, short: Option<&str>, value: Option<&str>, description: &str, default: Option<&str>| HelpOption {
+            name: name.to_string(),
+            short: short.map(str::to_string),
+            value_name: value.map(str::to_string),
+            description: description.to_string(),
+            default: default.map(str::to_string),
+            possible: Vec::new(),
+        };
+    assert_eq!(
+        help.options,
+        [
+            option("--type", None, Some("appType"), "App type", None),
+            option("--role", None, Some("role"), "Role", Some("source")),
+            option("--yes", Some("-y"), None, "Skip", None),
+        ]
+    );
+    assert_eq!(help.global[0].name, "--debug");
 }

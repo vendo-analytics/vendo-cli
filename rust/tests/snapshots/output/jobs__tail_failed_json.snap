@@ -1,0 +1,37 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo jobs tail b0000004-0000-4000-8000-000000000004 --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "b0000004-0000-4000-8000-000000000004",
+    "accountId": "acct-alpha",
+    "sourceId": "50000002-0000-4000-8000-000000000002",
+    "integrationId": null,
+    "jobType": "import",
+    "connectorType": "google_ads",
+    "destinationType": null,
+    "status": "failed",
+    "executionType": "incremental",
+    "isOnboarding": false,
+    "minTimestamp": null,
+    "maxTimestamp": null,
+    "startedAt": "2026-01-04T00:00:00.000Z",
+    "finishedAt": "2026-01-04T00:00:42.000Z",
+    "errorMessage": "Google Ads rejected the synthetic test account's token (refresh needed)",
+    "errorCode": "AUTH_EXPIRED",
+    "errorCategory": "auth",
+    "parentJobId": null,
+    "chunkIndex": null,
+    "totalChunks": null,
+    "progressPct": null,
+    "rowsProcessed": 0,
+    "rowsWritten": 0,
+    "metrics": {},
+    "createdAt": "2026-01-04T00:00:00.000Z"
+  }
+}
+--- stderr ---
+{"error":{"message":"Job b0000004... failed: Google Ads rejected the synthetic test account's token (refresh needed)","code":null,"status":null,"requestId":null}}

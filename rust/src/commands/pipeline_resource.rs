@@ -13,6 +13,7 @@ use crate::{
         OutputMode, confirm, dim, js_color_status, js_iso_string, print_dry_run, print_json, print_single_field,
         print_success, resolve_output_mode, run_action, short_id, yellow,
     },
+    short_ids::{Listing, resolve},
     watch::{self, ResourceKind, Terminal},
 };
 
@@ -22,12 +23,15 @@ pub struct Resource {
     pub singular: &'static str,
     /// API base path, e.g. `/sources`.
     pub api_path: &'static str,
+    /// Where its short IDs are looked up (VE-3831).
+    pub listing: Listing,
 }
 
-pub const APP: Resource = Resource { singular: "app", api_path: "/apps" };
-pub const SOURCE: Resource = Resource { singular: "source", api_path: "/sources" };
+pub const APP: Resource = Resource { singular: "app", api_path: "/apps", listing: Listing::Apps };
+pub const SOURCE: Resource = Resource { singular: "source", api_path: "/sources", listing: Listing::Sources };
 /// The API's integrations, which customers call destinations (vendo-web-v2 glossary, VE-3828).
-pub const INTEGRATION: Resource = Resource { singular: "destination", api_path: "/integrations" };
+pub const INTEGRATION: Resource =
+    Resource { singular: "destination", api_path: "/integrations", listing: Listing::Destinations };
 
 impl Resource {
     fn kind(self) -> ResourceKind {
@@ -100,6 +104,7 @@ pub async fn state_action(ctx: &Ctx, resource: Resource, id: &str, action: &str,
         return Ok(());
     }
     let client = ctx.client()?;
+    let id = &resolve(&client, resource.listing, id).await;
     let res = run_action(
         &format!("{gerund} {}...", resource.singular),
         client.post(&format!("{}/{id}/{action}", resource.api_path), None),
@@ -124,6 +129,8 @@ pub async fn delete(ctx: &Ctx, resource: Resource, id: &str, yes: bool, opts: Ac
         return Ok(());
     }
     let client = ctx.client()?;
+    // After the consent, which names the ID as typed (VE-3823).
+    let id = &resolve(&client, resource.listing, id).await;
     let res = run_action(
         &format!("Deleting {}...", resource.singular),
         client.delete(&format!("{}/{id}", resource.api_path), &[]),
@@ -149,6 +156,7 @@ pub async fn sync(
     dry_run_fields: fn(&Value) -> Vec<(&'static str, String)>,
 ) -> Result<()> {
     let client = ctx.client()?;
+    let id = &resolve(&client, resource.listing, id).await;
     let kind = resource.kind();
     let field = opts.output.clone().unwrap_or_else(|| "id".to_string());
 

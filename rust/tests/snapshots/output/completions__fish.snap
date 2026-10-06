@@ -51,6 +51,7 @@ complete -c vendo -n "__fish_vendo_needs_command" -f -a "measurement" -d 'Inspec
 complete -c vendo -n "__fish_vendo_needs_command" -f -a "mcp" -d 'Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo'
 complete -c vendo -n "__fish_vendo_needs_command" -f -a "completions" -d 'Generate shell completion script (bash, zsh, fish)'
 complete -c vendo -n "__fish_vendo_needs_command" -f -a "doctor" -d 'Run local configuration and connectivity checks'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "commands" -d 'List every command, or with --json the command tree with arguments and flags'
 complete -c vendo -n "__fish_vendo_needs_command" -f -a "self-update" -d 'Update the Vendo CLI using the hosted installer'
 complete -c vendo -n "__fish_vendo_needs_command" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c vendo -n "__fish_vendo_using_subcommand login" -l api-key -d 'API key for headless/CI login (requires --account)' -r
@@ -60,11 +61,13 @@ prod\t''"
 complete -c vendo -n "__fish_vendo_using_subcommand login" -l base-url -d 'Explicit API base URL (overrides --env)' -r
 complete -c vendo -n "__fish_vendo_using_subcommand login" -l profile -d 'Use a specific account profile' -r
 complete -c vendo -n "__fish_vendo_using_subcommand login" -l force -d 'Sign in through the browser again, even when the saved API key works'
+complete -c vendo -n "__fish_vendo_using_subcommand login" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand login" -l debug -d 'Enable verbose request diagnostics'
 complete -c vendo -n "__fish_vendo_using_subcommand login" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand logout" -l profile -d 'Use a specific account profile' -r
 complete -c vendo -n "__fish_vendo_using_subcommand logout" -l all -d 'Remove every saved profile, not just the active one'
 complete -c vendo -n "__fish_vendo_using_subcommand logout" -s y -l yes -d 'Skip the confirmation prompt for --all'
+complete -c vendo -n "__fish_vendo_using_subcommand logout" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand logout" -l debug -d 'Enable verbose request diagnostics'
 complete -c vendo -n "__fish_vendo_using_subcommand logout" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and not __fish_seen_subcommand_from list switch set" -l profile -d 'Use a specific account profile' -r
@@ -74,16 +77,19 @@ complete -c vendo -n "__fish_vendo_using_subcommand profile; and not __fish_seen
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and not __fish_seen_subcommand_from list switch set" -f -a "switch" -d 'Switch to a different profile'
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and not __fish_seen_subcommand_from list switch set" -f -a "set" -d 'Set configuration values'
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from list" -l profile -d 'Use a specific account profile' -r
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from list" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from list" -l debug -d 'Enable verbose request diagnostics'
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from switch" -l account -d 'Switch by account ID instead of profile name' -r
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from switch" -l profile -d 'Use a specific account profile' -r
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from switch" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from switch" -l debug -d 'Enable verbose request diagnostics'
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from switch" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l api-key -d 'API key for authentication' -r
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l base-url -d 'Base URL for the Vendo API' -r
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l account -d 'Account ID to operate on' -r
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l profile -d 'Use a specific account profile' -r
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l debug -d 'Enable verbose request diagnostics'
 complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand status" -l profile -d 'Use a specific account profile' -r
@@ -404,6 +410,7 @@ complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcom
 complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -l source -d 'Filter by source ID' -r
 complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -l integration -d 'Filter by destination ID' -r
 complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -l profile -d 'Use a specific account profile' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -l debug -d 'Enable verbose request diagnostics'
 complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l source -d 'Tail the latest job for a source' -r
@@ -411,6 +418,7 @@ complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcom
 complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l interval -d 'Polling interval in seconds' -r
 complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l profile -d 'Use a specific account profile' -r
 complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l next -d 'Wait for the next new job when tailing a source or destination'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l debug -d 'Enable verbose request diagnostics'
 complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand catalog; and not __fish_seen_subcommand_from list get credential-schema" -l profile -d 'Use a specific account profile' -r
@@ -595,35 +603,42 @@ complete -c vendo -n "__fish_vendo_using_subcommand mcp" -l show-key -d 'Embed y
 complete -c vendo -n "__fish_vendo_using_subcommand mcp" -l debug -d 'Enable verbose request diagnostics'
 complete -c vendo -n "__fish_vendo_using_subcommand mcp" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand completions" -l profile -d 'Use a specific account profile' -r
+complete -c vendo -n "__fish_vendo_using_subcommand completions" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand completions" -l debug -d 'Enable verbose request diagnostics'
 complete -c vendo -n "__fish_vendo_using_subcommand completions" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand doctor" -l profile -d 'Use a specific account profile' -r
 complete -c vendo -n "__fish_vendo_using_subcommand doctor" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand doctor" -l debug -d 'Enable verbose request diagnostics'
 complete -c vendo -n "__fish_vendo_using_subcommand doctor" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand commands" -l profile -d 'Use a specific account profile' -r
+complete -c vendo -n "__fish_vendo_using_subcommand commands" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand commands" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand commands" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand self-update" -l version -d 'Install a specific version' -r
 complete -c vendo -n "__fish_vendo_using_subcommand self-update" -l profile -d 'Use a specific account profile' -r
+complete -c vendo -n "__fish_vendo_using_subcommand self-update" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand self-update" -l debug -d 'Enable verbose request diagnostics'
 complete -c vendo -n "__fish_vendo_using_subcommand self-update" -s h -l help -d 'Print help'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "login" -d 'Authenticate with your Vendo account'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "logout" -d 'Remove stored credentials'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "profile" -d 'Manage account profiles'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "status" -d 'Account health overview'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "whoami" -d 'Show the current authenticated account'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "apps" -d 'Manage apps'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "sources" -d 'Manage data sources'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "destinations" -d 'Manage data export destinations'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "jobs" -d 'Monitor sync jobs'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "catalog" -d 'Browse available platforms'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "dictionary" -d 'Browse the data dictionary catalog'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "metrics" -d 'Manage custom metrics in the Metrics Library'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "models" -d 'Manage data models'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "measurement" -d 'Inspect Marketing Measurement methodologies, LTV, and signals'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "mcp" -d 'Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "completions" -d 'Generate shell completion script (bash, zsh, fish)'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "doctor" -d 'Run local configuration and connectivity checks'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "self-update" -d 'Update the Vendo CLI using the hosted installer'
-complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "login" -d 'Authenticate with your Vendo account'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "logout" -d 'Remove stored credentials'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "profile" -d 'Manage account profiles'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "status" -d 'Account health overview'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "whoami" -d 'Show the current authenticated account'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "apps" -d 'Manage apps'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "sources" -d 'Manage data sources'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "destinations" -d 'Manage data export destinations'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "jobs" -d 'Monitor sync jobs'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "catalog" -d 'Browse available platforms'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "dictionary" -d 'Browse the data dictionary catalog'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "metrics" -d 'Manage custom metrics in the Metrics Library'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "models" -d 'Manage data models'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "measurement" -d 'Inspect Marketing Measurement methodologies, LTV, and signals'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "mcp" -d 'Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "completions" -d 'Generate shell completion script (bash, zsh, fish)'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "doctor" -d 'Run local configuration and connectivity checks'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "commands" -d 'List every command, or with --json the command tree with arguments and flags'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "self-update" -d 'Update the Vendo CLI using the hosted installer'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from profile" -f -a "list" -d 'List all configured profiles'
 complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from profile" -f -a "switch" -d 'Switch to a different profile'
 complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from profile" -f -a "set" -d 'Set configuration values'

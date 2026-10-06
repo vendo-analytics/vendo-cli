@@ -11,6 +11,7 @@ Options:
       --env <environment>  Target instance: "staging" or "prod" (default: VENDO_API_URL/profile, else prod)
       --base-url <url>     Explicit API base URL (overrides --env)
       --force              Sign in through the browser again, even when the saved API key works
+      --json               Output raw JSON
   -h, --help               Print help
 
 Global options:

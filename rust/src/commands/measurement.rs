@@ -15,7 +15,7 @@ use crate::{
         js_number_string, js_string, js_template, js_truthy, print_count, print_count_of, print_field, print_json, red,
         resolve_output_mode, run_action, short_id, table, to_locale_number, yellow,
     },
-    web_app,
+    short_ids, web_app,
 };
 
 fn dash() -> String {
@@ -170,12 +170,15 @@ pub async fn methodologies_list(ctx: &Ctx, no_system: bool, json: bool, output: 
 
 pub async fn methodologies_get(ctx: &Ctx, methodology_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
-    // No GET-by-id route: find the row in the list, system rows included.
+    // No GET-by-id route: find the row in the list, system rows included. The list is read anyway,
+    // so the short ID the list's table shows is matched in it, with no request of its own (VE-3831).
     let res = run_action("Fetching methodology...", web_app::methodologies(&client, Vec::new())).await?;
-    let Some(row) = array_at(&res, "/data/methodologies")
-        .iter()
-        .find(|m| m.get("id").and_then(Value::as_str) == Some(methodology_id))
-    else {
+    let rows = array_at(&res, "/data/methodologies");
+    let methodology_id = match short_ids::matching(rows, methodology_id).as_slice() {
+        [only] if short_ids::is_short_id(methodology_id) => only.clone(),
+        _ => methodology_id.to_string(),
+    };
+    let Some(row) = rows.iter().find(|m| m.get("id").and_then(Value::as_str) == Some(methodology_id.as_str())) else {
         bail!("Methodology {methodology_id} not found");
     };
     if json {

@@ -8,6 +8,7 @@
 use std::{
     future::Future,
     io::{BufRead, IsTerminal, Write},
+    sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
@@ -680,11 +681,16 @@ fn dim_err(s: &str) -> String {
     paint(s, Stream::Stderr, |t| t.dimmed().to_string())
 }
 
+/// The request ID an error shows: the server's `X-Request-Id`, else the CLI's own. An empty
+/// `X-Request-Id` doesn't count.
+fn shown_request_id(api: &ApiError) -> Option<&str> {
+    [&api.server_request_id, &api.request_id].into_iter().flatten().map(String::as_str).find(|id| !id.is_empty())
+}
+
 /// `Error: <message>` plus the request ID when the API gave one.
 pub fn format_error(err: &anyhow::Error) -> String {
     match err.downcast_ref::<ApiError>() {
-        // An empty X-Request-Id doesn't count: the CLI's own ID is shown instead.
-        Some(api) => match [&api.server_request_id, &api.request_id].into_iter().flatten().find(|id| !id.is_empty()) {
+        Some(api) => match shown_request_id(api) {
             Some(id) => format!("{}\n{}", api.message, dim_err(&format!("Request ID: {id}"))),
             None => api.message.clone(),
         },
@@ -696,8 +702,89 @@ pub fn print_error(message: &str) {
     eprintln!("{} {message}", red_err("Error:"));
 }
 
-/// Usage-style error with examples (the TS `showArgError`), exit 1.
+/// Set when the command was given `--json` (VE-3831): its errors print as [`error_json`].
+static JSON_ERRORS: AtomicBool = AtomicBool::new(false);
+
+pub fn set_json_errors(on: bool) {
+    JSON_ERRORS.store(on, Ordering::Relaxed);
+}
+
+/// The one shape every error takes with `--json` (VE-3831), documented in AGENTS.md:
+/// `{"error":{"message","code","status","requestId"}}`. `message` is what the text error says
+/// after `Error: `; `code` is the API's `error.code`; `status` the HTTP status the API answered;
+/// `requestId` the ID the text error shows. Each is `null` where it does not apply: an error
+/// raised by the CLI itself has a message only, and no response means no status.
+pub fn error_json(err: &anyhow::Error) -> Value {
+    match err.downcast_ref::<ApiError>() {
+        Some(api) => api_error_json(api),
+        None => error_value(&format!("{err:#}"), None, None, None),
+    }
+}
+
+/// [`error_json`] for an API error the command reports without failing (a poll that `jobs watch`
+/// retries).
+pub fn api_error_json(api: &ApiError) -> Value {
+    error_value(
+        &api.message,
+        api.code.as_deref(),
+        api.status_text.is_some().then_some(api.status),
+        shown_request_id(api),
+    )
+}
+
+/// [`error_json`] for an error that has only a message: one the CLI raised, or a usage error.
+pub fn message_error_json(message: &str) -> Value {
+    error_value(message, None, None, None)
+}
+
+fn error_value(message: &str, code: Option<&str>, status: Option<u16>, request_id: Option<&str>) -> Value {
+    serde_json::json!({
+        "error": { "message": strip_ansi(message), "code": code, "status": status, "requestId": request_id },
+    })
+}
+
+/// `message` without terminal styling: a hint styled for a terminal stays plain in JSON.
+fn strip_ansi(message: &str) -> String {
+    let mut plain = String::with_capacity(message.len());
+    let mut chars = message.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            // Parameters and intermediates, then the final byte (`m` for colours).
+            for c in chars.by_ref() {
+                if ('\u{40}'..='\u{7e}').contains(&c) {
+                    break;
+                }
+            }
+        } else {
+            plain.push(c);
+        }
+    }
+    plain
+}
+
+/// One line on stderr, so a script reads the last line of stderr as the error.
+pub fn print_error_json(error: &Value) {
+    eprintln!("{}", serde_json::to_string(error).expect("JSON values always serialize"));
+}
+
+/// How a command's error reaches stderr: `Error: …` (and the request ID), or with `--json`
+/// [`error_json`]. The exit code is the caller's, as before.
+pub fn report_error(err: &anyhow::Error) {
+    if JSON_ERRORS.load(Ordering::Relaxed) {
+        print_error_json(&error_json(err));
+    } else {
+        print_error(&format_error(err));
+    }
+}
+
+/// Usage-style error with examples (the TS `showArgError`), exit 1. With `--json` it is
+/// [`message_error_json`], without the examples.
 pub fn arg_error(message: &str, examples: &[&str]) -> ! {
+    if JSON_ERRORS.load(Ordering::Relaxed) {
+        print_error_json(&message_error_json(message));
+        std::process::exit(1);
+    }
     let mut text = format!("{} {message}\n\nUsage:", red_err("Error:"));
     for example in examples {
         text.push_str(&format!("\n  $ {example}"));
@@ -1031,6 +1118,59 @@ mod tests {
         });
         assert_eq!(format_error(&err), "Bad request\nRequest ID: req_456");
         assert_eq!(format_error(&anyhow::anyhow!("plain")), "plain");
+    }
+
+    fn api_error(status: u16, code: Option<&str>, server_id: Option<&str>, answered: bool) -> anyhow::Error {
+        anyhow::Error::new(ApiError {
+            message: "Job not found".into(),
+            status,
+            code: code.map(Into::into),
+            request_id: answered.then(|| "cli-123".into()),
+            server_request_id: server_id.map(Into::into),
+            details: Some(json!({ "ignored": true })),
+            status_text: answered.then(|| "Not Found".into()),
+        })
+    }
+
+    #[test]
+    fn json_errors_have_one_shape_with_null_where_nothing_applies() {
+        // VE-3831: the fields the text error shows, plus the API's code and HTTP status.
+        let shape = |message: &str, code: Value, status: Value, request_id: Value| json!({ "error": { "message": message, "code": code, "status": status, "requestId": request_id } });
+        assert_eq!(
+            error_json(&api_error(404, Some("NOT_FOUND"), Some("req_456"), true)),
+            shape("Job not found", json!("NOT_FOUND"), json!(404), json!("req_456"))
+        );
+        // The request ID the text shows: the CLI's own when the server sent none (or an empty one).
+        for server_id in [None, Some("")] {
+            assert_eq!(
+                error_json(&api_error(500, None, server_id, true)),
+                shape("Job not found", Value::Null, json!(500), json!("cli-123"))
+            );
+        }
+        // No response (a timeout is 408 inside the client, a network failure 0): no status, no request ID.
+        for status in [408, 0] {
+            assert_eq!(
+                error_json(&api_error(status, None, None, false)),
+                shape("Job not found", Value::Null, Value::Null, Value::Null)
+            );
+        }
+        let local = anyhow::anyhow!("No API key configured.");
+        assert_eq!(error_json(&local), shape("No API key configured.", Value::Null, Value::Null, Value::Null));
+        assert_eq!(message_error_json("x"), shape("x", Value::Null, Value::Null, Value::Null));
+        // Keys in this order, on one line.
+        let line = serde_json::to_string(&error_json(&api_error(404, Some("NOT_FOUND"), None, true))).unwrap();
+        assert_eq!(
+            line,
+            r#"{"error":{"message":"Job not found","code":"NOT_FOUND","status":404,"requestId":"cli-123"}}"#
+        );
+    }
+
+    #[test]
+    fn json_error_messages_carry_no_terminal_styling() {
+        let styled = "No profile found.\n\u{1b}[2m  Run `vendo profile list`.\u{1b}[0m";
+        assert_eq!(message_error_json(styled)["error"]["message"], "No profile found.\n  Run `vendo profile list`.");
+        assert_eq!(strip_ansi("plain [brackets] stay"), "plain [brackets] stay");
+        assert_eq!(strip_ansi("\u{1b}[31mError:\u{1b}[39m é"), "Error: é");
     }
 
     #[test]

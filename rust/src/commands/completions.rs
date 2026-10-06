@@ -2,8 +2,13 @@
 //! installer (`install.sh`, `install_completions`) saves and loads. With none it says what the
 //! command does, whether completions are set up for the shell `$SHELL` names, and how to set them
 //! up. Doctor's "Shell completions" check reads the same [`setup`].
+//!
+//! With `--json` (VE-3831) it prints `{ "shell", "script" }`, or bare, on stdout, what the
+//! explanation says of the set-up: `{ "shell", "installed" }`.
 
 use std::path::Path;
+
+use serde_json::{Value, json};
 
 use crate::{
     cli::{self, Shell},
@@ -11,13 +16,33 @@ use crate::{
     update_check::INSTALL_COMMAND,
 };
 
-pub fn run(ctx: &crate::context::Ctx, shell: Option<Shell>) {
-    match shell {
-        Some(shell) => output::write_stdout_bytes(&script(shell)),
+pub fn run(ctx: &crate::context::Ctx, shell: Option<Shell>, json: bool) {
+    match (shell, json) {
+        (Some(shell), false) => output::write_stdout_bytes(&script(shell)),
+        (Some(shell), true) => output::print_json(&json!({
+            "shell": name(shell),
+            "script": String::from_utf8_lossy(&script(shell)),
+        })),
         // On stderr, so stdout only ever carries a script: the explanation's indented lines are
         // commands (the installer's among them), and `eval "$(vendo completions $shell)"` or a
         // redirect with the shell left out must get nothing, as before it could run bare.
-        None => eprint!("{}", explain(login_shell().as_deref(), &ctx.home)),
+        (None, false) => eprint!("{}", explain(login_shell().as_deref(), &ctx.home)),
+        (None, true) => output::print_json(&setup_json(setup(login_shell().as_deref(), &ctx.home))),
+    }
+}
+
+/// `bash`, `zsh` or `fish`, as the command takes it.
+fn name(shell: Shell) -> String {
+    clap_complete::Shell::from(shell).to_string()
+}
+
+/// Bare `completions --json`: the shell `$SHELL` names and whether completions are set up for it,
+/// both null when it names none of bash, zsh and fish (the explanation's "could not be detected").
+fn setup_json(setup: Setup) -> Value {
+    match setup {
+        Setup::Installed(shell) => json!({ "shell": name(shell), "installed": true }),
+        Setup::Missing(shell) => json!({ "shell": name(shell), "installed": false }),
+        Setup::Unknown => json!({ "shell": null, "installed": null }),
     }
 }
 
@@ -81,7 +106,7 @@ pub fn setup(shell: Option<&str>, home: &Path) -> Setup {
     let saved = std::fs::metadata(home.join(script)).is_ok_and(|file| file.len() > 0);
     let loaded = |rc: &str| {
         let text = std::fs::read_to_string(home.join(rc)).unwrap_or_default();
-        let by_hand = format!("vendo completions {}", clap_complete::Shell::from(shell));
+        let by_hand = format!("vendo completions {}", name(shell));
         (saved && text.contains("# >>> vendo completions >>>"))
             || text.lines().any(|line| !line.trim_start().starts_with('#') && line.contains(&by_hand))
     };
@@ -223,6 +248,17 @@ mod tests {
         for shell in [None, Some(""), Some("tcsh"), Some("Zsh")] {
             assert_eq!(setup(shell, installed("zsh").path()), Setup::Unknown, "{shell:?}");
         }
+    }
+
+    #[test]
+    fn bare_json_says_the_shell_and_whether_it_is_set_up() {
+        assert_eq!(
+            setup_json(setup(Some("zsh"), installed("zsh").path())),
+            json!({ "shell": "zsh", "installed": true })
+        );
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(setup_json(setup(Some("fish"), empty.path())), json!({ "shell": "fish", "installed": false }));
+        assert_eq!(setup_json(setup(Some("tcsh"), empty.path())), json!({ "shell": null, "installed": null }));
     }
 
     #[test]

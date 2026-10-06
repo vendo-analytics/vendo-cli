@@ -14,3 +14,4 @@ pub mod metrics;
 pub mod models;
 pub mod pipeline_resource;
 pub mod sources;
+pub mod tree;

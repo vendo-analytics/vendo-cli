@@ -76,6 +76,46 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   argument required, so they complete `completions` as before; `rust/tests/snapshots/output/completions__*` record
   them whole. `completions --help` shows `[shell]` where the TS CLI shows `<shell>`, which `pnpm parity:help`
   reports.
+- Agents (VE-3831, decided by Yalcin 2026-10-05, CLI 1.1):
+  - Errors with `--json`: one line of JSON on stderr, the last line, in one fixed shape (document it in cli.mdx at
+    release): `{"error":{"message":"…","code":"NOT_FOUND"|null,"status":404|null,"requestId":"…"|null}}`. `message`
+    is what the text error says after `Error: `; `code` the API's `error.code` (v1 routes; null for the web-app
+    routes' string errors); `status` the HTTP status the API answered (null when no response came back: timeout,
+    network); `requestId` the ID the text's `Request ID:` line shows (the server's `X-Request-Id`, else the CLI's
+    `cli-<uuid>`). An error the CLI raises itself (no key, a refused `--yes`, a bad flag value) has the message only.
+    Exit codes are unchanged: 1, and 2 for a clap usage error, which is JSON too when the words include `--json`
+    (clap's first paragraph, without `error: `); help and a group run without its command print as before. The
+    API's `details` are not in it. `output::error_json` owns the shape; `--debug`, warnings and the update notice
+    may come before it on stderr. `destinations refresh-source --json` keeps the response on stdout when it fails
+    and adds the error.
+  - `vendo commands` lists every command the help shows with its description (in the root help's order);
+    `--json` prints the tree, read at runtime from the clap tree (`commands/tree.rs`): per command `name`, `path`,
+    `description`, visible `aliases`, `arguments` and `options` (name, short, valueName, description, required,
+    default, `possibleValues` that parsing enforces, `suggestedValues` that TAB offers, `global`), `commands`.
+    Hidden paths stay out. `the_command_tree_matches_the_help_screens` checks it against every help screen.
+  - `--json` on the commands that lacked it, built from what their text shows and never printing the API key (the
+    shapes are the build's choice, for Yalcin's review with CLI 1.1): `profile list`
+    (`{"profiles":[{name, active, accountId, baseUrl}]}`), `profile switch` (`{"profile":…}`, null when nothing was
+    switched; never opens the picker), `profile set` (`{"profile","configPath"}`), `logout` (`{"removed":[names]}`),
+    `login`/`init` (`{"profile","baseUrl","accountId","auth":"verified"|"unverified"|"incomplete","accountName"}`;
+    what it says on the way, the sign-in URL among it, goes to stderr), `jobs tail` (nothing while polling, then the
+    last `GET /jobs/<id>` response as `jobs get --json` prints it; a failed job, or a wait that times out, also
+    prints the JSON error, still exit 0),
+    `jobs watch` (NDJSON: each poll's `GET /jobs` response on one line when it changed, a failed poll as the JSON
+    error on stderr), `completions <shell>` (`{"shell","script"}`; bare, `{"shell","installed"}`, null for a shell
+    it does not know) and `self-update` (the installer's output on stderr, then
+    `{"previousVersion","version","installPath","binaryPath"}`; a failed installer is the JSON error with its code).
+    `rust/src/watch.rs`'s `JsonScreen` owns the two job shapes.
+  - Short IDs: wherever a command takes the full ID of an app, source, destination, job, metric, model or
+    methodology (arguments and flags such as `--app`, `--source`), it takes the 8 characters tables show. Exactly 8
+    hex digits are looked up in that resource's list just before the request they go into (`short_ids.rs`: pages of
+    100, at most 5, an ID read on two pages counted once; for metrics, the `status=archived` list too when the
+    default list, which leaves archived metrics out, has no match); one match is used, none or several (or a list that
+    fails) send the argument as typed, so the API answers as before. Never on a full ID, a dry run that sends nothing,
+    or before a delete/cancel's consent.
+  - `VENDO_PROFILE` selects the profile like `--profile`: `--profile` > `VENDO_PROFILE` > `activeProfile`; empty is
+    unset, and an unknown name fails exactly like an unknown `--profile`. whoami and doctor name the profile as they
+    do for `--profile`, without saying where the name came from.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

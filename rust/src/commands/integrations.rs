@@ -12,9 +12,11 @@ use crate::{
     jobs::{Job, format_job_progress},
     output::{
         OutputMode, bold, camel_case_keys_deep, color_status, dim, js_color_status, js_if, js_positive, js_stringify,
-        js_template, js_truthy, print_field, print_json, print_label, print_list_count, print_status_label,
-        print_success, red, resolve_output_mode, run_action, short_id, table, time_ago,
+        js_template, js_truthy, message_error_json, print_error_json, print_field, print_json, print_label,
+        print_list_count, print_status_label, print_success, red, resolve_output_mode, run_action, short_id, table,
+        time_ago,
     },
+    short_ids::{Listing, resolve},
     source_refresh::{Tone, resolve_refresh_window, summarize},
     watch::{self, ResourceKind},
 };
@@ -85,6 +87,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
 
 pub async fn get(ctx: &Ctx, integration_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
+    let integration_id = &resolve(&client, Listing::Destinations, integration_id).await;
     let path = format!("/integrations/{integration_id}");
     if json {
         let res = run_action("Fetching destination...", client.get(&path, &[])).await?;
@@ -175,6 +178,7 @@ pub async fn refresh_source(
 ) -> Result<std::process::ExitCode> {
     let window = resolve_refresh_window(from.as_deref(), to.as_deref(), jiff::Timestamp::now().as_millisecond())?;
     let client = ctx.client()?;
+    let integration_id = resolve(&client, Listing::Destinations, integration_id).await;
     let body = json!({ "requestedStart": window.requested_start, "requestedEnd": window.requested_end });
     let res = run_action(
         "Checking source data availability...",
@@ -184,13 +188,13 @@ pub async fn refresh_source(
     let summary = summarize(payload(&res));
     if json {
         // stdout stays pure JSON, but `unavailable` still fails so
-        // `refresh-source --json && sync` stops (VE-1603).
+        // `refresh-source --json && sync` stops (VE-1603), with the error on stderr as JSON (VE-3831).
         print_json(&res);
-        return Ok(if summary.tone == Tone::Error {
-            std::process::ExitCode::from(1)
-        } else {
-            std::process::ExitCode::SUCCESS
-        });
+        if summary.tone != Tone::Error {
+            return Ok(std::process::ExitCode::SUCCESS);
+        }
+        print_error_json(&message_error_json(&summary.headline));
+        return Ok(std::process::ExitCode::from(1));
     }
     if summary.tone == Tone::Error {
         return Err(anyhow!(summary.headline));
@@ -233,7 +237,7 @@ pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
     // `sourceAppId: undefined` is dropped by JSON.stringify.
     let mut body = Map::new();
     body.insert("destinationAppId".into(), json!(args.dest_app));
-    if let Some(source_app) = args.source_app {
+    if let Some(source_app) = &args.source_app {
         body.insert("sourceAppId".into(), json!(source_app));
     }
     body.insert("dataType".into(), json!(args.data_type));
@@ -241,6 +245,11 @@ pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
     body.insert("schedule".into(), schedule);
 
     let client = ctx.client()?;
+    // Short app IDs, looked up in place (VE-3831).
+    body.insert("destinationAppId".into(), json!(resolve(&client, Listing::Apps, &args.dest_app).await));
+    if let Some(source_app) = &args.source_app {
+        body.insert("sourceAppId".into(), json!(resolve(&client, Listing::Apps, source_app).await));
+    }
     let res = run_action("Creating destination...", client.post("/integrations", Some(Value::Object(body)))).await?;
     let mode = resolve_output_mode(args.json, args.output.as_deref());
     if mode == OutputMode::Json {
@@ -292,6 +301,7 @@ pub async fn update(ctx: &Ctx, integration_id: &str, args: UpdateArgs) -> Result
         bail!("Nothing to update — pass at least one flag.");
     }
     let client = ctx.client()?;
+    let integration_id = &resolve(&client, Listing::Destinations, integration_id).await;
     let res = run_action(
         "Updating destination...",
         client.patch(&format!("/integrations/{integration_id}"), Value::Object(body)),

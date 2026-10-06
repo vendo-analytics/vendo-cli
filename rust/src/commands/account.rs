@@ -14,21 +14,37 @@ use crate::{
         bold, confirm, dim, green, js_join, js_nullish, js_string, js_template, print_error, print_json, print_success,
         run_action,
     },
-    profile_display::{SwitchOptions, format_profile_list_line, print_profile_list, switch_profile_selection},
+    profile_display::{
+        SwitchOptions, format_profile_list_line, print_profile_list, profile_json, switch_profile_selection,
+    },
     update_check,
 };
 
 const NO_PROFILES: &str = "No profiles configured. Run `vendo login` to create one.";
 const NO_PROFILES_YET: &str = "No profiles yet. Run `vendo login` to create one.";
 
-pub fn logout(ctx: &Ctx, all: bool, yes: bool) -> Result<()> {
+/// `logout --json`: `{ "removed": [<profile name>…] }`, the profiles the command removed from the
+/// config, none when it removed nothing (VE-3831).
+fn print_removed(names: &[String]) {
+    print_json(&json!({ "removed": names }));
+}
+
+pub fn logout(ctx: &Ctx, all: bool, yes: bool, json: bool) -> Result<()> {
     if all {
         // The TS CLI removed everything without asking (VE-3823, Yalcin 2026-10-06).
         if !confirm(yes, "Remove every saved profile?", "This removes every saved profile and its API key.")? {
-            println!("{}", dim("Cancelled."));
+            if json {
+                print_removed(&[]);
+            } else {
+                println!("{}", dim("Cancelled."));
+            }
             return Ok(());
         }
-        if ctx.store.delete() {
+        let names: Vec<String> = ctx.store.profile_summaries().into_iter().map(|profile| profile.name).collect();
+        let deleted = ctx.store.delete();
+        if json {
+            print_removed(if deleted { &names } else { &[] });
+        } else if deleted {
             print_success("Logged out. All profiles removed.");
         } else {
             println!("{}", dim("No configuration file found."));
@@ -36,10 +52,19 @@ pub fn logout(ctx: &Ctx, all: bool, yes: bool) -> Result<()> {
         return Ok(());
     }
     if ctx.effective().api_key.is_none() {
-        print_error("Not currently logged in.");
+        if json {
+            print_removed(&[]);
+        } else {
+            print_error("Not currently logged in.");
+        }
         return Ok(());
     }
-    match ctx.store.clear_active_profile()? {
+    let removed = ctx.store.clear_active_profile()?;
+    if json {
+        print_removed(removed.as_slice());
+        return Ok(());
+    }
+    match removed {
         Some(name) => print_success(&format!("Logged out of profile \"{name}\".")),
         None => print_success("Logged out."),
     }
@@ -116,21 +141,35 @@ pub fn profile_set(
     api_key: Option<String>,
     base_url: Option<String>,
     account: Option<String>,
+    json: bool,
 ) -> Result<()> {
     let given = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.is_empty());
     if !given(&api_key) && !given(&base_url) && !given(&account) {
         bail!("Provide at least one option: --api-key <key>, --base-url <url>, or --account <id>");
     }
-    ctx.store.save_resolved_values(ConfigValueUpdates { api_key, base_url, account_id: account })?;
-    println!("{} {}", green("Configuration saved"), dim(&ctx.store.path().display().to_string()));
+    let name = ctx.store.save_resolved_values(ConfigValueUpdates { api_key, base_url, account_id: account })?;
+    let path = ctx.store.path().display().to_string();
+    if json {
+        // The profile it wrote, as `profile list --json` shows it, and the file (VE-3831).
+        let profile = ctx.store.profile_summaries().into_iter().find(|profile| profile.name == name);
+        print_json(&json!({ "profile": profile.as_ref().map(profile_json), "configPath": path }));
+        return Ok(());
+    }
+    println!("{} {}", green("Configuration saved"), dim(&path));
     Ok(())
 }
 
-pub fn profile_list(ctx: &Ctx) {
-    print_profile_list(&ctx.store.profile_summaries(), true, "", NO_PROFILES);
+pub fn profile_list(ctx: &Ctx, json: bool) {
+    let profiles = ctx.store.profile_summaries();
+    if json {
+        // What the list shows, one object per line of it (VE-3831).
+        print_json(&json!({ "profiles": profiles.iter().map(profile_json).collect::<Vec<_>>() }));
+        return;
+    }
+    print_profile_list(&profiles, true, "", NO_PROFILES);
 }
 
-pub fn profile_switch(ctx: &Ctx, profile: Option<String>, account: Option<String>) -> Result<()> {
+pub fn profile_switch(ctx: &Ctx, profile: Option<String>, account: Option<String>, json: bool) -> Result<()> {
     switch_profile_selection(
         ctx,
         &ctx.store.profile_summaries(),
@@ -141,6 +180,7 @@ pub fn profile_switch(ctx: &Ctx, profile: Option<String>, account: Option<String
             list_command: "vendo profile list",
             profile_command: "vendo profile switch",
             verify_hint: "`vendo whoami`",
+            json,
         },
     )
 }

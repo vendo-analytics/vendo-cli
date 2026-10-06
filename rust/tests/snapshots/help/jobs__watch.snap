@@ -9,6 +9,7 @@ Options:
       --interval <seconds>           Polling interval in seconds [default: 5]
       --source <sourceId>            Filter by source ID
       --integration <integrationId>  Filter by destination ID
+      --json                         Output raw JSON
   -h, --help                         Print help
 
 Global options:

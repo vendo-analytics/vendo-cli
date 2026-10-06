@@ -13,6 +13,7 @@ use crate::{
         js_positive, js_template, js_truthy, print_field, print_json, print_label, print_list_count,
         print_status_label, print_success, red, resolve_output_mode, run_action, short_id, table, time_ago,
     },
+    short_ids::{Listing, resolve, resolve_opt},
     watch::{self, ResourceKind},
 };
 
@@ -40,7 +41,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
     let query = [
         ("state", args.state),
         ("sync_type", args.sync_type),
-        ("app_id", args.app),
+        ("app_id", resolve_opt(&client, Listing::Apps, args.app).await),
         ("limit", Some(args.limit)),
         ("offset", Some(args.offset)),
     ];
@@ -89,6 +90,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
 
 pub async fn get(ctx: &Ctx, source_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
+    let source_id = &resolve(&client, Listing::Sources, source_id).await;
     let path = format!("/sources/{source_id}");
     if json {
         let res = run_action("Fetching source...", client.get(&path, &[])).await?;
@@ -192,6 +194,7 @@ pub struct CreateArgs {
 
 pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
     let mut body = Map::new();
+    // A short app ID is looked up below, once the files are read (VE-3831).
     body.insert("appId".into(), json!(args.app));
     body.insert("syncType".into(), json!(args.sync_type));
     body.insert("syncFrequencyValue".into(), js_number_value(&args.frequency));
@@ -204,6 +207,7 @@ pub async fn create(ctx: &Ctx, args: CreateArgs) -> Result<()> {
         body.insert("config".into(), read_json_file(&path)?);
     }
     let client = ctx.client()?;
+    body.insert("appId".into(), json!(resolve(&client, Listing::Apps, &args.app).await));
     let res = run_action("Creating source...", client.post("/sources", Some(Value::Object(body)))).await?;
     let mode = resolve_output_mode(args.json, args.output.as_deref());
     if mode == OutputMode::Json {
@@ -256,6 +260,7 @@ pub async fn update(ctx: &Ctx, source_id: &str, args: UpdateArgs) -> Result<()> 
         bail!("Nothing to update — pass at least one flag.");
     }
     let client = ctx.client()?;
+    let source_id = &resolve(&client, Listing::Sources, source_id).await;
     let res =
         run_action("Updating source...", client.patch(&format!("/sources/{source_id}"), Value::Object(body))).await?;
     match resolve_output_mode(args.json, args.output.as_deref()) {

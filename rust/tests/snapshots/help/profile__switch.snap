@@ -10,6 +10,7 @@ Arguments:
 
 Options:
       --account <accountId>  Switch by account ID instead of profile name
+      --json                 Output raw JSON
   -h, --help                 Print help
 
 Global options:

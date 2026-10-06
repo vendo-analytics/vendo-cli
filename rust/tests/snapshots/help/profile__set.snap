@@ -9,6 +9,7 @@ Options:
       --api-key <key>   API key for authentication
       --base-url <url>  Base URL for the Vendo API
       --account <id>    Account ID to operate on
+      --json            Output raw JSON
   -h, --help            Print help
 
 Global options:

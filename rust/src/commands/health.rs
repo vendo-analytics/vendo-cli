@@ -19,8 +19,8 @@ use crate::{
     identity::{Identity, IdentityError, fetch_identity},
     jobs::Job,
     output::{
-        bold, dim, gray, green, js_length, js_slice, js_string, js_template, js_truthy, print_json, print_success, red,
-        run_action, table, time_ago, yellow,
+        bold, dim, gray, green, js_length, js_slice, js_string, js_template, js_truthy, message_error_json,
+        print_error_json, print_json, print_success, red, run_action, table, time_ago, yellow,
     },
     update_check::{self, INSTALL_COMMAND},
 };
@@ -409,19 +409,39 @@ pub async fn doctor(ctx: &Ctx, json: bool) -> Result<ExitCode> {
 
 const INSTALL_URL: &str = "https://app2.vendodata.com/install.sh";
 
-pub fn self_update(ctx: &Ctx, version: Option<String>) -> Result<ExitCode> {
+/// Run the installer. With `--json` (VE-3831) its output goes to stderr, and stdout gets
+/// `{ previousVersion, version, installPath, binaryPath }`: this CLI's version, what the installed
+/// binary's `--version` prints (null when it cannot be run), where the installer wrote it, and the
+/// binary that ran, which the text's note compares. A failed installer is the JSON error.
+pub fn self_update(ctx: &Ctx, version: Option<String>, json: bool) -> Result<ExitCode> {
     let mut cmd = Command::new("bash");
     cmd.args(["-lc", &format!("curl -fsSL {INSTALL_URL} | bash")]);
     if let Some(version) = version.filter(|v| !v.is_empty()) {
         cmd.env("VENDO_VERSION", version);
     }
+    if json {
+        cmd.stdout(std::io::stderr());
+    }
     let status = cmd.status().map_err(|err| anyhow!(err))?;
     if !status.success() {
-        return Ok(ExitCode::from(status.code().unwrap_or(1).clamp(1, 255) as u8));
+        let code = status.code().unwrap_or(1).clamp(1, 255) as u8;
+        if json {
+            print_error_json(&message_error_json(&format!("The installer exited with code {code}.")));
+        }
+        return Ok(ExitCode::from(code));
     }
-    print_success("Vendo CLI updated.");
     // `join(homedir(), '.local', 'bin', 'vendo')` against `process.execPath`, as strings.
     let standard = ctx.standard_binary_path();
+    if json {
+        print_json(&json!({
+            "previousVersion": env!("CARGO_PKG_VERSION"),
+            "version": installed_version(&standard),
+            "installPath": standard.display().to_string(),
+            "binaryPath": running_binary().display().to_string(),
+        }));
+        return Ok(ExitCode::SUCCESS);
+    }
+    print_success("Vendo CLI updated.");
     if running_binary().as_os_str() != standard.as_os_str() {
         println!();
         println!(
@@ -433,6 +453,13 @@ pub fn self_update(ctx: &Ctx, version: Option<String>) -> Result<ExitCode> {
         );
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// What `<binary> --version` prints, when it runs and succeeds.
+fn installed_version(binary: &Path) -> Option<String> {
+    let out = Command::new(binary).arg("--version").stdin(std::process::Stdio::null()).output().ok()?;
+    let version = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !version.is_empty()).then_some(version)
 }
 
 #[cfg(test)]

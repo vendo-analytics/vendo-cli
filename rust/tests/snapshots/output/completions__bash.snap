@@ -28,6 +28,9 @@ _vendo() {
             vendo,catalog)
                 cmd="vendo__subcmd__catalog"
                 ;;
+            vendo,commands)
+                cmd="vendo__subcmd__commands"
+                ;;
             vendo,completions)
                 cmd="vendo__subcmd__completions"
                 ;;
@@ -153,6 +156,9 @@ _vendo() {
                 ;;
             vendo__subcmd__help,catalog)
                 cmd="vendo__subcmd__help__subcmd__catalog"
+                ;;
+            vendo__subcmd__help,commands)
+                cmd="vendo__subcmd__help__subcmd__commands"
                 ;;
             vendo__subcmd__help,completions)
                 cmd="vendo__subcmd__help__subcmd__completions"
@@ -497,7 +503,7 @@ _vendo() {
 
     case "${cmd}" in
         vendo)
-            opts="-V -h --profile --debug --version --help login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help"
+            opts="-V -h --profile --debug --version --help login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -848,8 +854,26 @@ _vendo() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        vendo__subcmd__commands)
+            opts="-h --json --profile --debug --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         vendo__subcmd__completions)
-            opts="-h --profile --debug --help bash zsh fish"
+            opts="-h --json --profile --debug --help bash zsh fish"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1277,7 +1301,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__help)
-            opts="login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor self-update help"
+            opts="login logout profile status whoami apps sources destinations jobs catalog dictionary metrics models measurement mcp completions doctor commands self-update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1461,6 +1485,20 @@ _vendo() {
         vendo__subcmd__help__subcmd__catalog__subcmd__list)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        vendo__subcmd__help__subcmd__commands)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -2487,7 +2525,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__jobs__subcmd__tail)
-            opts="-h --source --integration --next --interval --profile --debug --help"
+            opts="-h --source --integration --next --interval --json --profile --debug --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2517,7 +2555,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__jobs__subcmd__watch)
-            opts="-h --interval --source --integration --profile --debug --help"
+            opts="-h --interval --source --integration --json --profile --debug --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2547,7 +2585,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__login)
-            opts="-h --api-key --account --env --base-url --force --profile --debug --help"
+            opts="-h --api-key --account --env --base-url --force --json --profile --debug --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2581,7 +2619,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__logout)
-            opts="-y -h --all --yes --profile --debug --help"
+            opts="-y -h --all --yes --json --profile --debug --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3177,7 +3215,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__profile__subcmd__list)
-            opts="-h --profile --debug --help"
+            opts="-h --json --profile --debug --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3195,7 +3233,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__profile__subcmd__set)
-            opts="-h --api-key --base-url --account --profile --debug --help"
+            opts="-h --api-key --base-url --account --json --profile --debug --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3225,7 +3263,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__profile__subcmd__switch)
-            opts="-h --account --profile --debug --help"
+            opts="-h --account --json --profile --debug --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3247,7 +3285,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__self__subcmd__update)
-            opts="-h --version --profile --debug --help"
+            opts="-h --version --json --profile --debug --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

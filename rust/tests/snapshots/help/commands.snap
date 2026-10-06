@@ -1,9 +1,9 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-List all configured profiles
+List every command, or with --json the command tree with arguments and flags
 
-Usage: vendo profile list [OPTIONS]
+Usage: vendo commands [OPTIONS]
 
 Options:
       --json  Output raw JSON
@@ -14,4 +14,5 @@ Global options:
       --debug           Enable verbose request diagnostics
 
 Examples:
-  $ vendo profile list
+  $ vendo commands
+  $ vendo commands --json

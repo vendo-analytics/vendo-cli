@@ -31,6 +31,7 @@ mod js_date;
 mod js_text;
 mod output;
 mod profile_display;
+mod short_ids;
 mod source_refresh;
 mod update_check;
 mod watch;
@@ -48,7 +49,7 @@ use crate::{
         account, apps, catalog, completions, dictionary as dictionary_cmd, health, integrations, jobs as jobs_cmd,
         login, measurement, metrics, models,
         pipeline_resource::{self as resource, ActionOpts},
-        sources,
+        sources, tree,
     },
     config::{ConfigStore, EnvVars, default_config_path},
     context::Ctx,
@@ -63,7 +64,8 @@ async fn main() -> ExitCode {
         }
         Invocation::Run(args) => args,
     };
-    let cli = cli::parse(args);
+    let cli::Parsed { cli, json } = cli::parse(args);
+    output::set_json_errors(json);
     let debug = cli.debug
         || std::env::var("VENDO_DEBUG")
             .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
@@ -78,7 +80,7 @@ async fn main() -> ExitCode {
     match run(&ctx, cli.command).await {
         Ok(code) => code,
         Err(err) => {
-            output::print_error(&output::format_error(&err));
+            output::report_error(&err);
             ExitCode::from(1)
         }
     }
@@ -87,18 +89,20 @@ async fn main() -> ExitCode {
 async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
     let ok = ExitCode::SUCCESS;
     match command {
-        Command::Login { api_key, account, env, base_url, force } => {
-            login::run(ctx, login::LoginArgs { api_key, account, env, base_url, force }).await.map(|_| ok)
+        Command::Login { api_key, account, env, base_url, force, json } => {
+            login::run(ctx, login::LoginArgs { api_key, account, env, base_url, force, json }).await.map(|_| ok)
         }
-        Command::Logout { all, yes } => account::logout(ctx, all, yes).map(|_| ok),
+        Command::Logout { all, yes, json } => account::logout(ctx, all, yes, json).map(|_| ok),
         Command::Profile { command } => match command {
-            ProfileCommand::List => {
-                account::profile_list(ctx);
+            ProfileCommand::List { json } => {
+                account::profile_list(ctx, json);
                 Ok(ok)
             }
-            ProfileCommand::Switch { profile, account } => account::profile_switch(ctx, profile, account).map(|_| ok),
-            ProfileCommand::Set { api_key, base_url, account } => {
-                account::profile_set(ctx, api_key, base_url, account).map(|_| ok)
+            ProfileCommand::Switch { profile, account, json } => {
+                account::profile_switch(ctx, profile, account, json).map(|_| ok)
+            }
+            ProfileCommand::Set { api_key, base_url, account, json } => {
+                account::profile_set(ctx, api_key, base_url, account, json).map(|_| ok)
             }
         },
         Command::Status { json } => health::status(ctx, json).await.map(|_| ok),
@@ -255,11 +259,11 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             JobsCommand::Cancel { job_id, json, yes, dry_run, output } => {
                 jobs_cmd::cancel(ctx, &job_id, json, yes, dry_run, output).await.map(|_| ok)
             }
-            JobsCommand::Watch { interval, source, integration } => {
-                jobs_cmd::watch(ctx, &interval, source, integration).await.map(|_| ok)
+            JobsCommand::Watch { interval, source, integration, json } => {
+                jobs_cmd::watch(ctx, &interval, source, integration, json).await.map(|_| ok)
             }
-            JobsCommand::Tail { job_id, source, integration, next, interval } => {
-                jobs_cmd::tail(ctx, jobs_cmd::TailArgs { job_id, source, integration, next, interval }).await
+            JobsCommand::Tail { job_id, source, integration, next, interval, json } => {
+                jobs_cmd::tail(ctx, jobs_cmd::TailArgs { job_id, source, integration, next, interval, json }).await
             }
         },
         Command::Catalog { command } => match command {
@@ -343,11 +347,15 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             account::mcp(ctx, json, show_key);
             Ok(ok)
         }
-        Command::Completions { shell } => {
-            completions::run(ctx, shell);
+        Command::Completions { shell, json } => {
+            completions::run(ctx, shell, json);
             Ok(ok)
         }
         Command::Doctor { json } => health::doctor(ctx, json).await,
-        Command::SelfUpdate { install_version } => health::self_update(ctx, install_version),
+        Command::Commands { json } => {
+            tree::run(json);
+            Ok(ok)
+        }
+        Command::SelfUpdate { install_version, json } => health::self_update(ctx, install_version, json),
     }
 }

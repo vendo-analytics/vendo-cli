@@ -8,6 +8,7 @@ Usage: vendo logout [OPTIONS]
 Options:
       --all   Remove every saved profile, not just the active one
   -y, --yes   Skip the confirmation prompt for --all
+      --json  Output raw JSON
   -h, --help  Print help
 
 Global options:

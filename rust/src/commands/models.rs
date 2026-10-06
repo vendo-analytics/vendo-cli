@@ -14,6 +14,7 @@ use crate::{
         OutputMode, bold, dim, green, js_string, js_template, js_truthy, print_field, print_json, print_list_count,
         red, resolve_output_mode, run_action, short_id, table,
     },
+    short_ids::{Listing, resolve},
 };
 
 pub struct ListArgs {
@@ -68,6 +69,7 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
 
 pub async fn get(ctx: &Ctx, model_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
+    let model_id = resolve(&client, Listing::Models, model_id).await;
     let res = run_action("Fetching model...", client.get(&format!("/models/{model_id}"), &[])).await?;
     if json {
         print_json(&res);

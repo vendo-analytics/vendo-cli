@@ -1,0 +1,69 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo commands
+exit: 0
+--- stdout ---
+login                           Authenticate with your Vendo account
+logout                          Remove stored credentials
+whoami                          Show the current authenticated account
+status                          Account health overview
+doctor                          Run local configuration and connectivity checks
+commands                        List every command, or with --json the command tree with arguments and flags
+apps list                       List all apps
+apps diagnose                   Show apps that need attention
+apps get                        Get app details
+apps pause                      Pause an app
+apps resume                     Resume a paused app
+apps delete                     Delete an app (soft delete)
+apps create                     Create a new app
+apps update                     Update an app
+sources list                    List all data sources
+sources get                     Get source details
+sources sync                    Trigger a manual sync
+sources pause                   Pause a data source
+sources resume                  Resume a paused data source
+sources delete                  Delete a data source (soft delete)
+sources create                  Create a new data source
+sources update                  Update a data source
+destinations list               List all destinations
+destinations get                Get destination details
+destinations sync               Trigger a manual sync
+destinations refresh-source     Check source-data availability for a window and trigger top-up imports for missing ranges
+destinations pause              Pause a destination
+destinations resume             Resume a paused destination
+destinations delete             Delete a destination (soft delete)
+destinations create             Create a new destination (source → destination pipeline)
+destinations update             Update a destination
+jobs list                       List sync jobs
+jobs get                        Get job details
+jobs cancel                     Cancel a pending or running job
+jobs watch                      Watch running and pending jobs (live polling)
+jobs tail                       Tail a single job or the latest job for a source/destination
+catalog list                    List all available platforms
+catalog get                     Get details for a specific platform
+dictionary list                 List catalog definitions (events by default)
+dictionary search               Search one subject type by text in subject ID, name and description
+dictionary get                  Look up one catalog definition by the subject ID from list or search, or an alias such as event:<name>
+metrics list                    List all custom metrics
+metrics get                     Get metric details
+metrics create                  Create a new metric
+metrics update                  Update a metric
+metrics activate                Activate a draft metric
+metrics delete                  Delete a metric
+models list                     List all data models
+models get                      Get model details
+measurement methodologies list  List methodologies (system + account)
+measurement methodologies get   Show one methodology by ID
+measurement rules preview       Preview which segmentation rule fires for recent rows
+measurement ltv list            List cohort LTV rows
+measurement ltv cohort          Show one cohort by period — retention matrix + cumulative LTV curve + prediction
+measurement ltv customer        Show one customer's cohort + realised LTV + revenue timeline
+measurement signals list        Per-signal availability summary
+measurement signals click-path  Click-path signal status — readiness, last-computed, recent SignalEstimates
+profile list                    List all configured profiles
+profile switch                  Switch to a different profile
+profile set                     Set configuration values
+mcp                             Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo
+completions                     Generate shell completion script (bash, zsh, fish)
+self-update                     Update the Vendo CLI using the hosted installer

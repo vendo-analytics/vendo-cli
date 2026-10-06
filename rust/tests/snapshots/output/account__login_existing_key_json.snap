@@ -1,0 +1,15 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo login --json
+exit: 0
+--- stdout ---
+{
+  "profile": "alpha",
+  "baseUrl": "[stub]",
+  "accountId": "acct-alpha",
+  "auth": "verified",
+  "accountName": "Demo Account (synthetic)"
+}
+--- stderr ---
+Using existing profile alpha. Run `vendo login --force` to sign in again.

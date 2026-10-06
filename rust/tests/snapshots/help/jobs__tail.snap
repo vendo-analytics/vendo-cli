@@ -13,6 +13,7 @@ Options:
       --integration <integrationId>  Tail the latest job for a destination
       --next                         Wait for the next new job when tailing a source or destination
       --interval <seconds>           Polling interval in seconds [default: 3]
+      --json                         Output raw JSON
   -h, --help                         Print help
 
 Global options:

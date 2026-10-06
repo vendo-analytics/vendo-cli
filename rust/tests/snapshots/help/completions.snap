@@ -9,6 +9,7 @@ Arguments:
   [shell]  [possible values: bash, zsh, fish]
 
 Options:
+      --json  Output raw JSON
   -h, --help  Print help
 
 Global options:

@@ -44,6 +44,7 @@ _arguments "${_arguments_options[@]}" : \
 '--base-url=[Explicit API base URL (overrides --env)]:url:_default' \
 '--profile=[Use a specific account profile]:name:_default' \
 '--force[Sign in through the browser again, even when the saved API key works]' \
+'--json[Output raw JSON]' \
 '--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -55,6 +56,7 @@ _arguments "${_arguments_options[@]}" : \
 '--all[Remove every saved profile, not just the active one]' \
 '-y[Skip the confirmation prompt for --all]' \
 '--yes[Skip the confirmation prompt for --all]' \
+'--json[Output raw JSON]' \
 '--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -79,6 +81,7 @@ _arguments "${_arguments_options[@]}" : \
             (list)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
 '--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -88,6 +91,7 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--account=[Switch by account ID instead of profile name]:accountId:_default' \
 '--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
 '--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -100,6 +104,7 @@ _arguments "${_arguments_options[@]}" : \
 '--base-url=[Base URL for the Vendo API]:url:_default' \
 '--account=[Account ID to operate on]:id:_default' \
 '--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
 '--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -582,6 +587,7 @@ _arguments "${_arguments_options[@]}" : \
 '--source=[Filter by source ID]:sourceId:_default' \
 '--integration=[Filter by destination ID]:integrationId:_default' \
 '--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
 '--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -594,6 +600,7 @@ _arguments "${_arguments_options[@]}" : \
 '--interval=[Polling interval in seconds]:seconds:_default' \
 '--profile=[Use a specific account profile]:name:_default' \
 '--next[Wait for the next new job when tailing a source or destination]' \
+'--json[Output raw JSON]' \
 '--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -1059,6 +1066,7 @@ _arguments "${_arguments_options[@]}" : \
 (completions)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
 '--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -1074,10 +1082,20 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(commands)
+_arguments "${_arguments_options[@]}" : \
+'--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
+'--debug[Enable verbose request diagnostics]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (self-update)
 _arguments "${_arguments_options[@]}" : \
 '--version=[Install a specific version]:version:_default' \
 '--profile=[Use a specific account profile]:name:_default' \
+'--json[Output raw JSON]' \
 '--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -1567,6 +1585,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(commands)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (self-update)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1604,6 +1626,7 @@ _vendo_commands() {
 'mcp:Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo' \
 'completions:Generate shell completion script (bash, zsh, fish)' \
 'doctor:Run local configuration and connectivity checks' \
+'commands:List every command, or with --json the command tree with arguments and flags' \
 'self-update:Update the Vendo CLI using the hosted installer' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
@@ -1686,6 +1709,11 @@ _vendo__subcmd__catalog__subcmd__get_commands() {
 _vendo__subcmd__catalog__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'vendo catalog list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__commands_commands] )) ||
+_vendo__subcmd__commands_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo commands commands' commands "$@"
 }
 (( $+functions[_vendo__subcmd__completions_commands] )) ||
 _vendo__subcmd__completions_commands() {
@@ -1801,6 +1829,7 @@ _vendo__subcmd__help_commands() {
 'mcp:Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo' \
 'completions:Generate shell completion script (bash, zsh, fish)' \
 'doctor:Run local configuration and connectivity checks' \
+'commands:List every command, or with --json the command tree with arguments and flags' \
 'self-update:Update the Vendo CLI using the hosted installer' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
@@ -1883,6 +1912,11 @@ _vendo__subcmd__help__subcmd__catalog__subcmd__get_commands() {
 _vendo__subcmd__help__subcmd__catalog__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'vendo help catalog list commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__commands_commands] )) ||
+_vendo__subcmd__help__subcmd__commands_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help commands commands' commands "$@"
 }
 (( $+functions[_vendo__subcmd__help__subcmd__completions_commands] )) ||
 _vendo__subcmd__help__subcmd__completions_commands() {

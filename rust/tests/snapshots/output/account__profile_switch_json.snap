@@ -1,0 +1,14 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo profile switch alpha --json
+exit: 0
+--- stdout ---
+{
+  "profile": {
+    "name": "alpha",
+    "active": true,
+    "accountId": "acct-alpha",
+    "baseUrl": "[stub]"
+  }
+}

@@ -1,0 +1,37 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo jobs tail b0000003-0000-4000-8000-000000000003 --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "b0000003-0000-4000-8000-000000000003",
+    "accountId": "acct-alpha",
+    "sourceId": null,
+    "integrationId": "c0000001-0000-4000-8000-000000000001",
+    "jobType": "export",
+    "connectorType": "bigquery",
+    "destinationType": "bigquery",
+    "status": "completed",
+    "executionType": "full",
+    "isOnboarding": false,
+    "minTimestamp": null,
+    "maxTimestamp": null,
+    "startedAt": "2026-01-05T09:07:03.000Z",
+    "finishedAt": "2026-01-05T10:07:33.000Z",
+    "errorMessage": null,
+    "errorCode": null,
+    "errorCategory": null,
+    "parentJobId": null,
+    "chunkIndex": null,
+    "totalChunks": null,
+    "progressPct": 100,
+    "rowsProcessed": 1234567,
+    "rowsWritten": 1234567,
+    "metrics": {
+      "bytes_written": 98765432
+    },
+    "createdAt": "2026-01-05T09:07:03.000Z"
+  }
+}

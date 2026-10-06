@@ -3,7 +3,9 @@
 //! resource `--watch` flags.
 //!
 //! The loops talk to a [`JobApi`] and draw through a [`Screen`], so tests run
-//! them against scripted job sequences on tokio's paused clock.
+//! them against scripted job sequences on tokio's paused clock. With `--json`
+//! (VE-3831) a [`JsonScreen`] prints JSON instead: `jobs watch` one line per
+//! changed poll, `jobs tail` the tailed job when it ends.
 #![allow(clippy::result_large_err)] // returns ApiError; see client.rs
 
 use std::{future::Future, time::Duration};
@@ -17,7 +19,10 @@ use crate::{
         ACTIVE_JOB_STATUSES, Job, completed_job_summary, format_job_duration, format_job_progress, is_terminal,
         job_detail_lines, job_error_lines,
     },
-    output::{color_status, dim, short_id, stdout_is_tty, table, time_ago, yellow},
+    output::{
+        api_error_json, color_status, dim, message_error_json, print_error_json, print_json, short_id, stdout_is_tty,
+        table, time_ago, yellow,
+    },
 };
 
 pub const MAX_WAIT: Duration = Duration::from_secs(30 * 60);
@@ -53,22 +58,27 @@ impl ResourceKind {
     }
 }
 
-/// The two job reads the watcher needs.
+/// The two job reads the watcher needs, each answering the response as sent (`--json` prints it).
 pub trait JobApi {
+    /// `GET /jobs/<id>`: the job is its [`payload`].
     fn job(&self, id: &str) -> impl Future<Output = Result<Value, ApiError>>;
-    fn jobs(&self, query: Vec<(&'static str, Option<String>)>) -> impl Future<Output = Result<Vec<Value>, ApiError>>;
+    /// `GET /jobs`: the jobs are its [`rows`].
+    fn jobs(&self, query: Vec<(&'static str, Option<String>)>) -> impl Future<Output = Result<Value, ApiError>>;
 }
 
 impl JobApi for Client {
     async fn job(&self, id: &str) -> Result<Value, ApiError> {
-        let body = self.get(&format!("/jobs/{id}"), &[]).await?;
-        Ok(payload(&body).clone())
+        self.get(&format!("/jobs/{id}"), &[]).await
     }
 
-    async fn jobs(&self, query: Vec<(&'static str, Option<String>)>) -> Result<Vec<Value>, ApiError> {
-        let body = self.get("/jobs", &query).await?;
-        Ok(payload(&body).as_array().cloned().unwrap_or_default())
+    async fn jobs(&self, query: Vec<(&'static str, Option<String>)>) -> Result<Value, ApiError> {
+        self.get("/jobs", &query).await
     }
+}
+
+/// The jobs in a `GET /jobs` response.
+fn rows(body: &Value) -> Vec<Value> {
+    payload(body).as_array().cloned().unwrap_or_default()
 }
 
 /// Where snapshots and result lines go.
@@ -78,6 +88,13 @@ pub trait Screen {
     fn snapshot(&mut self, snapshot: &str);
     fn out(&mut self, line: &str);
     fn err(&mut self, line: &str);
+    /// What each poll read: the job list (`jobs watch`) or the tailed job (`jobs tail`), or why
+    /// the poll failed. Only [`JsonScreen`] prints it; the snapshot shows it otherwise.
+    fn polled(&mut self, _result: Result<&Value, &ApiError>) {}
+    /// Waiting for a source's or destination's job ended without one.
+    fn no_job(&mut self, line: &str) {
+        self.out(&dim(line));
+    }
 }
 
 pub struct Terminal {
@@ -112,6 +129,78 @@ impl Screen for Terminal {
     }
 }
 
+/// `--json` (VE-3831): stdout carries only JSON, and what the text calls an error is the JSON
+/// error on stderr. Snapshots and notes are left out.
+#[derive(Default)]
+pub struct JsonScreen {
+    /// `jobs watch`: print each poll as it comes, rather than keep the last.
+    stream: bool,
+    /// `jobs tail`: the last response read.
+    last: Option<Value>,
+    /// `jobs watch`: the last response and the last error printed.
+    last_line: String,
+    last_error: String,
+}
+
+impl JsonScreen {
+    /// `jobs watch --json`: each poll's `GET /jobs` response on one line (NDJSON), when it differs
+    /// from the last printed, as the text prints only changes when stdout is not a terminal. A
+    /// failed poll is retried, and its error goes on stderr, once until a poll succeeds.
+    pub fn stream() -> Self {
+        JsonScreen { stream: true, ..JsonScreen::default() }
+    }
+
+    /// `jobs tail --json`: the tailed job's last `GET /jobs/<id>` response, as `jobs get --json`
+    /// prints it, once tailing ends ([`JsonScreen::finish`]).
+    pub fn last() -> Self {
+        JsonScreen::default()
+    }
+
+    /// Print the tailed job, when tailing read one.
+    pub fn finish(self) {
+        if let Some(body) = &self.last {
+            print_json(body);
+        }
+    }
+}
+
+impl Screen for JsonScreen {
+    fn snapshot(&mut self, _snapshot: &str) {}
+
+    fn out(&mut self, _line: &str) {}
+
+    fn err(&mut self, line: &str) {
+        print_error_json(&message_error_json(line));
+    }
+
+    fn polled(&mut self, result: Result<&Value, &ApiError>) {
+        match (self.stream, result) {
+            (true, Ok(body)) => {
+                self.last_error.clear();
+                let line = serde_json::to_string(body).expect("JSON values always serialize");
+                if line != self.last_line {
+                    println!("{line}");
+                    self.last_line = line;
+                }
+            }
+            (true, Err(err)) => {
+                let line = serde_json::to_string(&api_error_json(err)).expect("JSON values always serialize");
+                if line != self.last_error {
+                    eprintln!("{line}");
+                    self.last_error = line;
+                }
+            }
+            (false, Ok(body)) => self.last = Some(body.clone()),
+            // Tailing retries a failed poll, as the text's "Last poll failed" says.
+            (false, Err(_)) => {}
+        }
+    }
+
+    fn no_job(&mut self, line: &str) {
+        print_error_json(&message_error_json(line));
+    }
+}
+
 /// Only 401/403 stop polling; anything else is shown as "Last poll failed".
 fn is_fatal(err: &ApiError) -> bool {
     err.status == 401 || err.status == 403
@@ -123,14 +212,21 @@ pub async fn active_jobs(
     source_id: Option<&str>,
     integration_id: Option<&str>,
 ) -> Result<Vec<Value>, ApiError> {
-    api.jobs(vec![
+    Ok(rows(&api.jobs(active_jobs_query(limit, source_id, integration_id)).await?))
+}
+
+fn active_jobs_query(
+    limit: u32,
+    source_id: Option<&str>,
+    integration_id: Option<&str>,
+) -> Vec<(&'static str, Option<String>)> {
+    vec![
         ("status", Some(ACTIVE_JOB_STATUSES.into())),
         ("limit", Some(limit.to_string())),
         ("sort", Some("created_at:desc".into())),
         ("source_id", source_id.map(str::to_string)),
         ("integration_id", integration_id.map(str::to_string)),
-    ])
-    .await
+    ]
 }
 
 pub async fn latest_job_for_resource(
@@ -138,14 +234,14 @@ pub async fn latest_job_for_resource(
     resource_id: &str,
     kind: ResourceKind,
 ) -> Result<Option<Value>, ApiError> {
-    let jobs = api
+    let body = api
         .jobs(vec![
             (kind.query_key(), Some(resource_id.to_string())),
             ("limit", Some("1".into())),
             ("sort", Some("created_at:desc".into())),
         ])
         .await?;
-    Ok(jobs.into_iter().next())
+    Ok(rows(&body).into_iter().next())
 }
 
 /// The newest active (running, pending or queued) job of one source or integration.
@@ -154,7 +250,7 @@ pub async fn active_job_for_resource(
     kind: ResourceKind,
     resource_id: &str,
 ) -> Result<Option<Value>, ApiError> {
-    let jobs = api
+    let body = api
         .jobs(vec![
             ("status", Some(ACTIVE_JOB_STATUSES.into())),
             ("limit", Some("1".into())),
@@ -162,7 +258,7 @@ pub async fn active_job_for_resource(
             (kind.query_key(), Some(resource_id.to_string())),
         ])
         .await?;
-    Ok(jobs.into_iter().next())
+    Ok(rows(&body).into_iter().next())
 }
 
 /// After `sync --watch`: tail the job the API returned, or wait for the next
@@ -201,15 +297,21 @@ pub async fn watch_active_jobs(
     let interval_seconds = (interval.as_millis() / 1000).max(1) as u64;
     tokio::pin!(stop);
     loop {
-        let poll = active_jobs(api, 20, scope.source_id.as_deref(), scope.integration_id.as_deref());
+        let poll = api.jobs(active_jobs_query(20, scope.source_id.as_deref(), scope.integration_id.as_deref()));
         let result = tokio::select! {
             result = poll => result,
             () = &mut stop => break,
         };
         let snapshot = match result {
-            Ok(jobs) => render_active_jobs_snapshot(Some(&jobs), interval_seconds, scope, None),
+            Ok(body) => {
+                screen.polled(Ok(&body));
+                render_active_jobs_snapshot(Some(&rows(&body)), interval_seconds, scope, None)
+            }
             Err(err) if is_fatal(&err) => return Err(err),
-            Err(err) => render_active_jobs_snapshot(None, interval_seconds, scope, Some(&err.message)),
+            Err(err) => {
+                screen.polled(Err(&err));
+                render_active_jobs_snapshot(None, interval_seconds, scope, Some(&err.message))
+            }
         };
         screen.snapshot(&snapshot);
         tokio::select! {
@@ -234,16 +336,21 @@ pub async fn tail_job(
     let mut last_known: Option<Value> = None;
     while started.elapsed() < max_wait {
         match api.job(job_id).await {
-            Ok(job) => {
-                screen.snapshot(&render_tail_snapshot(Some(&job), interval, None));
-                if is_terminal(&Job(&job).status()) {
-                    print_tail_result(screen, Job(&job));
+            Ok(body) => {
+                screen.polled(Ok(&body));
+                let job = payload(&body);
+                screen.snapshot(&render_tail_snapshot(Some(job), interval, None));
+                if is_terminal(&Job(job).status()) {
+                    print_tail_result(screen, Job(job));
                     return Ok(());
                 }
-                last_known = Some(job);
+                last_known = Some(job.clone());
             }
             Err(err) if is_fatal(&err) => return Err(err),
-            Err(err) => screen.snapshot(&render_tail_snapshot(last_known.as_ref(), interval, Some(&err.message))),
+            Err(err) => {
+                screen.polled(Err(&err));
+                screen.snapshot(&render_tail_snapshot(last_known.as_ref(), interval, Some(&err.message)));
+            }
         }
         tokio::time::sleep(interval).await;
     }
@@ -293,11 +400,11 @@ pub async fn watch_job(
         tokio::time::sleep(interval).await;
     }
     spinner.finish_and_clear();
-    screen.out(&dim(&format!(
+    screen.no_job(&format!(
         "Timed out waiting for {} {label} job. Use `vendo jobs list --{} {resource_id}` to check status.",
         if waiting_for_next { "the next" } else { "a" },
         kind.jobs_flag()
-    )));
+    ));
     Ok(())
 }
 
@@ -425,23 +532,25 @@ mod tests {
         if queue.len() > 1 { queue.pop_front().unwrap() } else { queue.front().cloned().expect("scripted response") }
     }
 
+    /// Answers as the API does: `{ data: … }`.
     impl JobApi for FakeApi {
         async fn job(&self, _id: &str) -> Result<Value, ApiError> {
-            pop(&self.job)
+            pop(&self.job).map(|job| json!({ "data": job }))
         }
-        async fn jobs(&self, query: Vec<(&'static str, Option<String>)>) -> Result<Vec<Value>, ApiError> {
+        async fn jobs(&self, query: Vec<(&'static str, Option<String>)>) -> Result<Value, ApiError> {
             self.queries.borrow_mut().push(query);
-            pop(&self.jobs)
+            pop(&self.jobs).map(|jobs| json!({ "data": jobs }))
         }
     }
 
-    /// Records what a piped terminal would print.
+    /// Records what a piped terminal would print, and what each poll read.
     #[derive(Default)]
     struct Recorder {
         snapshots: Vec<String>,
         last: String,
         out: Vec<String>,
         err: Vec<String>,
+        polled: Vec<Result<Value, String>>,
     }
 
     impl Screen for Recorder {
@@ -456,6 +565,9 @@ mod tests {
         }
         fn err(&mut self, line: &str) {
             self.err.push(line.to_string());
+        }
+        fn polled(&mut self, result: Result<&Value, &ApiError>) {
+            self.polled.push(result.cloned().map_err(|err| err.message.clone()));
         }
     }
 
@@ -488,6 +600,23 @@ mod tests {
         assert!(screen.snapshots[0].contains("  Status:        running"));
         assert!(screen.snapshots[1].contains("  Status:        completed"));
         assert_eq!(screen.out, ["", "Done: Job j1 completed. 1,200 rows processed, 1,200 written."]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn each_poll_reaches_the_screen_as_the_api_sent_it() {
+        // What `--json` prints (VE-3831): the tailed job's responses, or the job lists and failed polls.
+        let api = FakeApi::new(vec![], vec![Ok(job("j1", "running")), Ok(job("j1", "completed"))]);
+        let mut screen = Recorder::default();
+        tail_job(&api, &mut screen, "j1", TICK, MAX_WAIT).await.unwrap();
+        let data = |value: Value| Ok(json!({ "data": value }));
+        assert_eq!(screen.polled, [data(job("j1", "running")), data(job("j1", "completed"))]);
+
+        let api = FakeApi::new(vec![Ok(vec![job("j1", "running")]), Err(api_error(500, "HTTP 500"))], vec![]);
+        let mut screen = Recorder::default();
+        let scope = WatchScope { source_id: None, integration_id: None };
+        let stop = tokio::time::sleep(TICK + Duration::from_secs(1));
+        watch_active_jobs(&api, &mut screen, TICK, &scope, stop).await.unwrap();
+        assert_eq!(screen.polled, [data(json!([job("j1", "running")])), Err("HTTP 500".to_string())]);
     }
 
     #[tokio::test(start_paused = true)]

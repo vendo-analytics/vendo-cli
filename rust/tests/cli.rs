@@ -55,7 +55,15 @@ impl Sandbox {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_vendo"));
         // Dates and numbers follow the locale (VE-3728): pin it, and the time zone.
         cmd.args(args).env("HOME", self.home.path()).env("LANG", "C").env("TZ", "UTC").stdin(Stdio::null());
-        for var in ["VENDO_API_KEY", "VENDO_API_URL", "VENDO_ACCOUNT_ID", "VENDO_DEBUG", "LC_ALL", "LC_MESSAGES"] {
+        for var in [
+            "VENDO_API_KEY",
+            "VENDO_API_URL",
+            "VENDO_ACCOUNT_ID",
+            "VENDO_PROFILE",
+            "VENDO_DEBUG",
+            "LC_ALL",
+            "LC_MESSAGES",
+        ] {
             cmd.env_remove(var);
         }
         // Output is piped, so no colour, whatever forces it in the caller's shell (VE-3824).
@@ -179,15 +187,10 @@ fn empty_profile_names_and_accounts_are_unset() {
 
 /// `self-update` runs `bash -lc "curl … | bash"`: a fake `bash` first on PATH
 /// records the installer's VENDO_VERSION instead, so nothing is downloaded.
+#[cfg(unix)]
 fn self_update_version(args: &[&str]) -> String {
     let sandbox = Sandbox::new(CLOSED);
-    let bin = tempfile::tempdir().unwrap();
-    let fake = bin.path().join("bash");
-    std::fs::write(&fake, "#!/bin/sh\necho \"${VENDO_VERSION-unset}\" > \"$HOME/installer-version\"\n").unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
-    let out = sandbox.command(args).env("PATH", path).output().unwrap();
+    let out = fake_installer(&sandbox, "echo \"${VENDO_VERSION-unset}\" > \"$HOME/installer-version\"\n", args);
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     std::fs::read_to_string(sandbox.home.path().join("installer-version")).unwrap().trim().to_string()
 }
@@ -1489,9 +1492,10 @@ async fn without_a_terminal_deletes_and_cancels_need_yes() {
     for (args, what, request) in confirming_commands() {
         let server = stub_accepting_everything().await;
         let sandbox = Sandbox::new(&server.uri());
-        // Refused before any request, also with --json (which used to imply --yes).
+        // Refused before any request, also with --json (which used to imply --yes), where the
+        // refusal is the JSON error (VE-3831).
         assert_needs_yes(&sandbox.run(&args), &what);
-        assert_needs_yes(&sandbox.run(&[&args[..], &["--json"]].concat()), &what);
+        assert_needs_yes_json(&sandbox.run(&[&args[..], &["--json"]].concat()), &what);
         assert_eq!(sent(&server).await, Vec::<String>::new(), "{args:?} sent a request without --yes");
 
         for yes in [&["--yes"][..], &["-y"], &["--yes", "--json"]] {
@@ -1500,6 +1504,17 @@ async fn without_a_terminal_deletes_and_cancels_need_yes() {
         }
         assert_eq!(sent(&server).await, vec![request; 3], "{args:?}");
     }
+}
+
+/// [`assert_needs_yes`] with `--json`: the refusal as the one-line JSON error (VE-3831).
+fn assert_needs_yes_json(out: &Output, what: &str) {
+    let error = json!({ "error": {
+        "message": format!("{what} Re-run with --yes to confirm."), "code": null, "status": null, "requestId": null,
+    } });
+    assert_eq!(
+        (out.status.code(), text(&out.stdout), text(&out.stderr)),
+        (Some(1), String::new(), format!("{}\n", serde_json::to_string(&error).unwrap()))
+    );
 }
 
 #[tokio::test]
@@ -1741,12 +1756,24 @@ async fn sign_in_requests(server: &MockServer) -> Vec<String> {
 /// Run `cmd` as a person at the browser would: when `vendo` prints the sign-in URL, visit it (the
 /// stub's sign-in page creates a key and sends it to the CLI's callback). Returns the exit code,
 /// stdout with the callback's random port and state shown as `[port]` and `[state]`, and stderr.
-pub async fn login_at_browser(mut cmd: Command) -> (Option<i32>, String, String) {
+pub async fn login_at_browser(cmd: Command) -> (Option<i32>, String, String) {
+    browser_login(cmd, false).await
+}
+
+/// [`login_at_browser`] for `login --json`, which prints the sign-in URL on stderr: stderr is the
+/// one shown with `[port]` and `[state]`.
+async fn login_at_browser_json(cmd: Command) -> (Option<i32>, String, String) {
+    browser_login(cmd, true).await
+}
+
+async fn browser_login(mut cmd: Command, url_on_stderr: bool) -> (Option<i32>, String, String) {
     use std::io::BufRead;
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let watched: Box<dyn std::io::Read> =
+        if url_on_stderr { Box::new(child.stderr.take().unwrap()) } else { Box::new(child.stdout.take().unwrap()) };
+    let mut watched = std::io::BufReader::new(watched);
     let (mut shown, mut line) = (String::new(), String::new());
-    while stdout.read_line(&mut line).unwrap() > 0 {
+    while watched.read_line(&mut line).unwrap() > 0 {
         if line.contains("/cli-auth?") {
             let url = reqwest::Url::parse(line.trim_end()).unwrap();
             assert_eq!(url.host_str(), Some("127.0.0.1"), "tests sign in at their local stub only: {url}");
@@ -1761,7 +1788,11 @@ pub async fn login_at_browser(mut cmd: Command) -> (Option<i32>, String, String)
         line.clear();
     }
     let out = child.wait_with_output().unwrap();
-    (out.status.code(), shown, text(&out.stderr))
+    if url_on_stderr {
+        (out.status.code(), text(&out.stdout), shown)
+    } else {
+        (out.status.code(), shown, text(&out.stderr))
+    }
 }
 
 /// The summary and next steps a successful login ends with.
@@ -2183,4 +2214,858 @@ async fn catalog_list_from_an_api_without_availability_keeps_the_count_line() {
         cells(ok_output(&Sandbox::new(&server.uri()).run(&["catalog", "list"])).as_bytes()),
         rows(&[&CATALOG_HEADER, &["stripe", "Stripe", "payments", "source"], &["1 platform"]])
     );
+}
+
+// ── VE-3831: easier for AI agents to drive ───────────────────────────────────
+// Decided by Yalcin, 2026-10-05: errors as JSON with --json, `vendo commands`
+// (tests in cli/snapshots.rs), --json on the commands that lacked it, the short
+// IDs tables show, and VENDO_PROFILE.
+
+/// The last line of stderr, which `--json` makes the error as JSON.
+fn json_error(out: &Output) -> Value {
+    let stderr = text(&out.stderr);
+    let last = stderr.lines().last().unwrap_or_else(|| panic!("nothing on stderr"));
+    serde_json::from_str(last).unwrap_or_else(|err| panic!("{err}: {stderr}"))
+}
+
+fn error_shape(message: &str, code: Value, status: Value, request_id: Value) -> Value {
+    json!({ "error": { "message": message, "code": code, "status": status, "requestId": request_id } })
+}
+
+#[tokio::test]
+async fn with_json_an_api_error_prints_message_code_status_and_request_id_on_one_stderr_line() {
+    let server = MockServer::start().await;
+    let missing = json!({ "error": { "code": "NOT_FOUND", "message": "Job not found", "details": { "id": ID } } });
+    Mock::given(path(format!("/api/v1/accounts/acct-alpha/jobs/{ID}")))
+        .respond_with(ResponseTemplate::new(404).set_body_json(missing).insert_header("x-request-id", "req_server_1"))
+        .mount(&server)
+        .await;
+    // A web-app route answers its error as a string: no code (VE-3764).
+    serve(&server, "GET", "/api/metrics/m-down", 500, json!({ "error": "BigQuery is unavailable" })).await;
+    let sandbox = Sandbox::new(&server.uri());
+
+    let out = sandbox.run(&["jobs", "get", ID, "--json"]);
+    assert_eq!((out.status.code(), text(&out.stdout)), (Some(1), String::new()));
+    assert_eq!(
+        text(&out.stderr),
+        "{\"error\":{\"message\":\"Job not found\",\"code\":\"NOT_FOUND\",\"status\":404,\"requestId\":\"req_server_1\"}}\n"
+    );
+    // Without --json the error reads as before.
+    let out = sandbox.run(&["jobs", "get", ID]);
+    assert_eq!(
+        (out.status.code(), text(&out.stderr)),
+        (Some(1), "Error: Job not found\nRequest ID: req_server_1\n".into())
+    );
+
+    let out = sandbox.run(&["metrics", "get", "m-down", "--json"]);
+    let error = json_error(&out);
+    let request_id = error["error"]["requestId"].as_str().unwrap().to_string();
+    assert!(request_id.starts_with("cli-") && request_id.len() == 40, "the CLI's own ID: {request_id}");
+    assert_eq!((out.status.code(), text(&out.stdout)), (Some(1), String::new()));
+    assert_eq!(error, error_shape("BigQuery is unavailable", Value::Null, json!(500), json!(request_id)));
+}
+
+#[test]
+fn with_json_an_error_the_cli_raises_has_only_a_message() {
+    // No key, no answer, a bad flag value: nothing came from the API.
+    let keyless = Sandbox::without_api_keys(CLOSED);
+    let no_key =
+        "No API key configured. Run `vendo login` or `vendo profile set --api-key <key>` or set VENDO_API_KEY.";
+    for args in [&["metrics", "list", "--json"][..], &["apps", "get", ID, "--json"]] {
+        let out = keyless.run(args);
+        assert_eq!((out.status.code(), text(&out.stdout)), (Some(1), String::new()), "{args:?}");
+        assert_eq!(json_error(&out), error_shape(no_key, Value::Null, Value::Null, Value::Null), "{args:?}");
+    }
+    let unreachable = Sandbox::new(CLOSED);
+    let out = unreachable.run(&["apps", "list", "--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(json_error(&out), error_shape("fetch failed", Value::Null, Value::Null, Value::Null));
+    // A usage-style error the command reports itself (exit 1), without its examples.
+    let preview = ["measurement", "rules", "preview", "--from", "2026-01-01", "--to", "2026-01-31", "--limit", "0"];
+    let out = keyless.run(&[&preview[..], &["--json"]].concat());
+    assert_eq!((out.status.code(), text(&out.stdout)), (Some(1), String::new()));
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "{}\n",
+            serde_json::to_string(&error_shape("--limit must be 1..200", Value::Null, Value::Null, Value::Null))
+                .unwrap()
+        )
+    );
+    assert!(text(&keyless.run(&preview).stderr).starts_with("Error: --limit must be 1..200\n\nUsage:\n"));
+}
+
+#[test]
+fn with_json_a_usage_error_is_json_and_still_exits_2() {
+    let sandbox = Sandbox::new(CLOSED);
+    for (args, message) in [
+        (&["apps", "list", "--bogus", "--json"][..], "unexpected argument '--bogus' found"),
+        (&["apps", "get", "--json"], "the following required arguments were not provided:\n  <appId>"),
+        (&["jobs", "list", "--json", "--limit"], "a value is required for '--limit <n>' but none was supplied"),
+        // A group takes no --json: still JSON, since it was asked for.
+        (&["apps", "--json"], "unexpected argument '--json' found"),
+    ] {
+        let out = sandbox.run(args);
+        assert_eq!((out.status.code(), text(&out.stdout)), (Some(2), String::new()), "{args:?}");
+        assert_eq!(
+            text(&out.stderr),
+            format!(
+                "{}\n",
+                serde_json::to_string(&error_shape(message, Value::Null, Value::Null, Value::Null)).unwrap()
+            ),
+            "{args:?}"
+        );
+    }
+    // Without --json, clap's text as before; help is help.
+    let out = sandbox.run(&["apps", "list", "--bogus"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(text(&out.stderr).starts_with("error: unexpected argument '--bogus' found\n"), "{}", text(&out.stderr));
+    let help = sandbox.run(&["apps", "list", "--json", "--help"]);
+    assert_eq!((help.status.code(), text(&help.stderr)), (Some(0), String::new()));
+    assert_eq!(text(&help.stdout), text(&sandbox.run(&["apps", "list", "--help"]).stdout));
+    // A group without its command prints its help, as before.
+    let out = sandbox.run(&["jobs"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(text(&out.stderr).starts_with("Monitor sync jobs\n"));
+}
+
+#[tokio::test]
+async fn refresh_source_json_keeps_the_response_on_stdout_and_adds_the_error_on_stderr() {
+    let server = MockServer::start().await;
+    let route = format!("/api/v1/accounts/acct-alpha/connections/{ID}/refresh-source");
+    serve(&server, "POST", &route, 200, json!({ "data": { "status": "unavailable" } })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let out = sandbox.run(&["destinations", "refresh-source", ID, "--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(text(&out.stdout), "{\n  \"data\": {\n    \"status\": \"unavailable\"\n  }\n}\n");
+    let headline = "Could not trigger imports — check the source configuration.";
+    assert_eq!(json_error(&out), error_shape(headline, Value::Null, Value::Null, Value::Null));
+}
+
+// ── --json on the profile commands and logout ──
+
+#[test]
+fn profile_list_json_prints_what_the_list_shows() {
+    let sandbox = Sandbox::new("https://example.test");
+    let profiles = json!({ "profiles": [
+        { "name": "alpha", "active": true, "accountId": "acct-alpha", "baseUrl": "https://example.test" },
+        { "name": "beta", "active": false, "accountId": "acct-beta", "baseUrl": "https://example.test" },
+    ] });
+    let printed = ok_output(&sandbox.run(&["profile", "list", "--json"]));
+    assert_eq!(printed, format!("{}\n", serde_json::to_string_pretty(&profiles).unwrap()));
+    // `config list`, its old name (VE-3827), prints the same.
+    assert_eq!(ok_output(&sandbox.run(&["config", "list", "--json"])), printed);
+    // --profile marks the profile it selects, as the list does.
+    let beta: Value =
+        serde_json::from_str(&ok_output(&sandbox.run(&["--profile", "beta", "profile", "list", "--json"]))).unwrap();
+    assert_eq!((&beta["profiles"][0]["active"], &beta["profiles"][1]["active"]), (&json!(false), &json!(true)));
+    // No profiles, no account.
+    let empty = tempfile::tempdir().unwrap();
+    let out = sandbox.command(&["profile", "list", "--json"]).env("HOME", empty.path()).output().unwrap();
+    assert_eq!(ok_output(&out), "{\n  \"profiles\": []\n}\n");
+    std::fs::write(
+        sandbox.home.path().join(".config/vendo/config.json"),
+        r#"{"profiles":{"x":{}},"activeProfile":"x"}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        ok_output(&sandbox.run(&["profile", "list", "--json"])),
+        "{\n  \"profiles\": [\n    {\n      \"name\": \"x\",\n      \"active\": true,\n      \"accountId\": null,\n      \"baseUrl\": \"https://app2.vendodata.com\"\n    }\n  ]\n}\n"
+    );
+}
+
+#[test]
+fn profile_switch_and_set_json_print_the_profile_they_changed() {
+    let sandbox = Sandbox::new("https://example.test");
+    let beta = json!({ "name": "beta", "active": true, "accountId": "acct-beta", "baseUrl": "https://example.test" });
+    let printed = ok_output(&sandbox.run(&["profile", "switch", "beta", "--json"]));
+    assert_eq!(printed, format!("{}\n", serde_json::to_string_pretty(&json!({ "profile": beta })).unwrap()));
+    assert_eq!(sandbox.config()["activeProfile"], "beta");
+    let out = sandbox.run(&["profile", "switch", "--account", "acct-alpha", "--json"]);
+    assert_eq!(serde_json::from_str::<Value>(&ok_output(&out)).unwrap()["profile"]["name"], "alpha");
+    // `config use`, its old name, prints the same.
+    assert_eq!(ok_output(&sandbox.run(&["config", "use", "beta", "--json"])), printed);
+    // Nothing chosen (no name, no one to pick one): nothing switched, as "Cancelled." says without --json.
+    let out = sandbox.run(&["profile", "switch", "--json"]);
+    assert_eq!((ok_output(&out), text(&out.stderr)), ("{\n  \"profile\": null\n}\n".to_string(), String::new()));
+    assert_eq!(sandbox.config()["activeProfile"], "beta");
+    // A profile that does not exist is an error, as JSON.
+    let out = sandbox.run(&["profile", "switch", "nope", "--json"]);
+    assert_eq!((out.status.code(), text(&out.stdout)), (Some(1), String::new()));
+    let message = json_error(&out)["error"]["message"].as_str().unwrap().to_string();
+    assert!(message.starts_with("Profile \"nope\" not found.\n"), "{message}");
+
+    let out = sandbox.run(&["profile", "set", "--account", "acct-b2", "--json"]);
+    let config_path = sandbox.home.path().join(".config/vendo/config.json").display().to_string();
+    let expected = json!({
+        "profile": { "name": "beta", "active": true, "accountId": "acct-b2", "baseUrl": "https://example.test" },
+        "configPath": config_path,
+    });
+    let printed = ok_output(&out);
+    assert_eq!(printed, format!("{}\n", serde_json::to_string_pretty(&expected).unwrap()));
+    assert_eq!(ok_output(&sandbox.run(&["config", "set", "--account", "acct-b2", "--json"])), printed);
+    // The API key is never printed.
+    let out = sandbox.run(&["profile", "set", "--api-key", "vendo_sk_fake_new_secret", "--json"]);
+    assert!(!ok_output(&out).contains("vendo_sk_fake_new_secret"));
+}
+
+#[test]
+fn logout_json_names_the_profiles_it_removed() {
+    let sandbox = Sandbox::new(CLOSED);
+    assert_eq!(ok_output(&sandbox.run(&["logout", "--json"])), "{\n  \"removed\": [\n    \"alpha\"\n  ]\n}\n");
+    // Not logged in: nothing removed, and no error.
+    let out = sandbox.run(&["logout", "--json"]);
+    assert_eq!((ok_output(&out), text(&out.stderr)), ("{\n  \"removed\": []\n}\n".to_string(), String::new()));
+    // --all asks first: without a terminal it needs --yes (VE-3823), refused as JSON.
+    assert_needs_yes_json(
+        &sandbox.run(&["logout", "--all", "--json"]),
+        "This removes every saved profile and its API key.",
+    );
+    assert_needs_yes_json(
+        &sandbox.run(&["config", "reset", "--json"]),
+        "This removes every saved profile and its API key.",
+    );
+    let printed = ok_output(&sandbox.run(&["logout", "--all", "--yes", "--json"]));
+    assert_eq!(printed, "{\n  \"removed\": [\n    \"beta\"\n  ]\n}\n");
+    assert!(!sandbox.home.path().join(".config/vendo/config.json").exists());
+    assert_eq!(ok_output(&sandbox.run(&["config", "reset", "--yes", "--json"])), "{\n  \"removed\": []\n}\n");
+    // Without --json, as before.
+    let keyless = Sandbox::without_api_keys(CLOSED);
+    let out = keyless.run(&["logout"]);
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), "Error: Not currently logged in.\n".to_string()));
+    let out = keyless.run(&["logout", "--json"]);
+    assert_eq!((ok_output(&out), text(&out.stderr)), ("{\n  \"removed\": []\n}\n".to_string(), String::new()));
+}
+
+// ── --json on login, jobs watch and tail, completions and self-update ──
+
+/// `login --json`'s summary.
+fn login_summary(profile: &str, base_url: &str, account_id: &str, auth: &str, name: Value) -> String {
+    let summary = json!({
+        "profile": profile, "baseUrl": base_url, "accountId": account_id, "auth": auth, "accountName": name,
+    });
+    format!("{}\n", serde_json::to_string_pretty(&summary).unwrap())
+}
+
+#[tokio::test]
+async fn login_json_prints_the_summary_and_says_the_rest_on_stderr() {
+    let server = sign_in_stub(&[ALPHA_KEY, GAMMA_KEY, NEW_KEY], 401).await;
+    let stub = server.uri();
+    let verified = json!("Demo Account (synthetic)");
+    // Headless: only the summary, never the key.
+    let sandbox = Sandbox::new(&stub);
+    let headless = ["login", "--api-key", GAMMA_KEY, "--account", "acct-gamma", "--base-url", &stub, "--json"];
+    let out = sandbox.run(&headless);
+    assert_eq!(
+        (out.status.code(), text(&out.stdout), text(&out.stderr)),
+        (Some(0), login_summary("demo-account", &stub, "acct-gamma", "verified", verified.clone()), String::new())
+    );
+    // A working key: what the text says on the way goes to stderr. `init`, its alias, is the same.
+    for command in ["login", "init"] {
+        let out = Sandbox::new(&stub).run(&[command, "--json"]);
+        assert_eq!(
+            (out.status.code(), text(&out.stdout), text(&out.stderr)),
+            (
+                Some(0),
+                login_summary("alpha", &stub, "acct-alpha", "verified", verified.clone()),
+                "Using existing profile alpha. Run `vendo login --force` to sign in again.\n".to_string()
+            ),
+            "{command}"
+        );
+    }
+    // The browser sign-in prints its URL on stderr.
+    let sandbox = Sandbox::without_api_keys(&stub);
+    let (code, stdout, stderr) = login_at_browser_json(sandbox.command(&["login", "--json"])).await;
+    assert_eq!(
+        (code, stdout, stderr),
+        (
+            Some(0),
+            login_summary("demo-account", &stub, "acct-alpha", "verified", verified),
+            browser_sign_in("No API key found. Starting browser login...", &stub)
+        )
+    );
+    assert_eq!(sandbox.config()["profiles"]["demo-account"]["apiKey"], NEW_KEY);
+    // A key that cannot be checked: the summary, then the error as JSON (exit 1, as before).
+    let down = sign_in_stub(&[], 500).await;
+    let out = Sandbox::new(&down.uri()).run(&["login", "--json"]);
+    assert_eq!(
+        (out.status.code(), text(&out.stdout)),
+        (Some(1), login_summary("alpha", &down.uri(), "acct-alpha", "unverified", Value::Null))
+    );
+    assert!(text(&out.stderr).starts_with("Using existing profile alpha."), "{}", text(&out.stderr));
+    let message = "Could not verify the API key: HTTP 500 Internal Server Error. Nothing was changed: check your connection (`vendo doctor`) and run `vendo login` again.";
+    assert_eq!(json_error(&out), error_shape(message, Value::Null, Value::Null, Value::Null));
+}
+
+#[tokio::test]
+async fn jobs_tail_json_prints_the_job_when_tailing_ends() {
+    let server = MockServer::start().await;
+    let job = format!("{V1}/jobs/{ID}");
+    let running = json!({ "data": { "id": ID, "status": "running", "jobType": "import" } });
+    let done = json!({ "data": { "id": ID, "status": "completed", "jobType": "import", "rowsProcessed": 12 } });
+    let failed =
+        json!({ "data": { "id": ID, "status": "failed", "jobType": "import", "errorMessage": "Rate limited" } });
+    let get = || Mock::given(wiremock::matchers::method("GET")).and(path(job.clone()));
+    let pretty = |body: &Value| format!("{}\n", serde_json::to_string_pretty(body).unwrap());
+    get().respond_with(ResponseTemplate::new(200).set_body_json(&running)).up_to_n_times(1).mount(&server).await;
+    get().respond_with(ResponseTemplate::new(200).set_body_json(&done)).up_to_n_times(1).mount(&server).await;
+    let sandbox = Sandbox::new(&server.uri());
+    // Nothing while it runs; the last response, as `jobs get --json` prints it, when it ends.
+    let out = sandbox.run(&["jobs", "tail", ID, "--interval", "0.05", "--json"]);
+    assert_eq!((out.status.code(), text(&out.stdout), text(&out.stderr)), (Some(0), pretty(&done), String::new()));
+    assert_eq!(sent(&server).await, vec![format!("GET {job}"); 2]);
+    // A failed job is printed the same, and what the text says of it is the JSON error; exit 0, as before.
+    get().respond_with(ResponseTemplate::new(200).set_body_json(&failed)).mount(&server).await;
+    let out = sandbox.run(&["jobs", "tail", ID, "--json"]);
+    assert_eq!((out.status.code(), text(&out.stdout)), (Some(0), pretty(&failed)));
+    let message = "Job 550e8400... failed: Rate limited";
+    assert_eq!(json_error(&out), error_shape(message, Value::Null, Value::Null, Value::Null));
+    assert_eq!(text(&sandbox.run(&["jobs", "tail", ID]).stderr), format!("Error: {message}\n"));
+
+    // The latest job of a source, then that job.
+    let server = MockServer::start().await;
+    let latest = json!({ "data": [done["data"].clone()] });
+    Mock::given(wiremock::matchers::method("GET"))
+        .and(path(format!("{V1}/jobs")))
+        .and(wiremock::matchers::query_param("source_id", "src-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(latest))
+        .mount(&server)
+        .await;
+    serve(&server, "GET", &job, 200, done.clone()).await;
+    let out = Sandbox::new(&server.uri()).run(&["jobs", "tail", "--source", "src-1", "--json"]);
+    assert_eq!((out.status.code(), text(&out.stdout), text(&out.stderr)), (Some(0), pretty(&done), String::new()));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn jobs_watch_json_prints_each_poll_that_changed_on_one_line_until_stopped() {
+    use std::io::{BufRead, Read};
+    let server = MockServer::start().await;
+    let first = json!({ "data": [{ "id": ID, "status": "running" }], "meta": { "pagination": { "total": 1 } } });
+    let second = json!({ "data": [], "meta": { "pagination": { "total": 0 } } });
+    let down = json!({ "error": { "code": "INTERNAL", "message": "Jobs are down" } });
+    let jobs = || Mock::given(wiremock::matchers::method("GET")).and(path(format!("{V1}/jobs")));
+    // The same list twice (printed once), a failed poll, then a new list.
+    jobs().respond_with(ResponseTemplate::new(200).set_body_json(&first)).up_to_n_times(2).mount(&server).await;
+    jobs().respond_with(ResponseTemplate::new(500).set_body_json(down)).up_to_n_times(1).mount(&server).await;
+    jobs().respond_with(ResponseTemplate::new(200).set_body_json(&second)).mount(&server).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut child = sandbox
+        .command(&["jobs", "watch", "--interval", "0.05", "--json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut lines = Vec::new();
+    for _ in 0..2 {
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        lines.push(line);
+    }
+    // Ctrl-C stops it, as before.
+    assert!(Command::new("kill").args(["-INT", &child.id().to_string()]).status().unwrap().success());
+    let mut rest = String::new();
+    stdout.read_to_string(&mut rest).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!((out.status.code(), rest.as_str()), (Some(0), ""), "{}", text(&out.stderr));
+    let parsed: Vec<Value> = lines.iter().map(|line| serde_json::from_str(line).unwrap()).collect();
+    assert_eq!(parsed, [first, second]);
+    assert!(lines.iter().all(|line| line.ends_with("}\n")), "{lines:?}");
+    // The failed poll, as the JSON error, once.
+    let stderr = text(&out.stderr);
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    let mut error = json_error(&out);
+    assert!(error["error"]["requestId"].as_str().unwrap().starts_with("cli-"), "{error}");
+    error["error"]["requestId"] = Value::Null;
+    assert_eq!(error, error_shape("Jobs are down", json!("INTERNAL"), json!(500), Value::Null));
+}
+
+#[test]
+fn completions_json_carries_the_script_or_bare_the_set_up() {
+    let sandbox = Sandbox::new(CLOSED);
+    for shell in ["bash", "zsh", "fish"] {
+        let script = ok_output(&sandbox.run(&["completions", shell]));
+        let out = sandbox.run(&["completions", shell, "--json"]);
+        let printed: Value = serde_json::from_str(&ok_output(&out)).unwrap();
+        assert_eq!(printed, json!({ "shell": shell, "script": script }), "{shell}");
+        assert_eq!(text(&out.stderr), "", "{shell}");
+    }
+    // Bare: on stdout, what the explanation says of the shell `$SHELL` names.
+    for (shell, expected) in [
+        (Some("/bin/zsh"), json!({ "shell": "zsh", "installed": false })),
+        (Some("/bin/tcsh"), json!({ "shell": null, "installed": null })),
+        (None, json!({ "shell": null, "installed": null })),
+    ] {
+        let mut cmd = sandbox.command(&["completions", "--json"]);
+        match shell {
+            Some(shell) => cmd.env("SHELL", shell),
+            None => cmd.env_remove("SHELL"),
+        };
+        let out = cmd.output().unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&ok_output(&out)).unwrap(), expected, "{shell:?}");
+        assert_eq!(text(&out.stderr), "", "{shell:?}");
+    }
+}
+
+/// A fake `bash` first on PATH that runs `script` in place of `curl … | bash`.
+#[cfg(unix)]
+fn fake_installer(sandbox: &Sandbox, script: &str, args: &[&str]) -> Output {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = tempfile::tempdir().unwrap();
+    let fake = bin.path().join("bash");
+    std::fs::write(&fake, format!("#!/bin/sh\n{script}")).unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
+    sandbox.command(args).env("PATH", path).output().unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn self_update_json_prints_the_versions_and_paths_and_the_installer_on_stderr() {
+    let sandbox = Sandbox::new(CLOSED);
+    let installs = "echo \"Installing vendo\"\nmkdir -p \"$HOME/.local/bin\"\nprintf '#!/bin/sh\\necho 9.9.9\\n' > \"$HOME/.local/bin/vendo\"\nchmod +x \"$HOME/.local/bin/vendo\"\n";
+    let out = fake_installer(&sandbox, installs, &["self-update", "--json"]);
+    let install_path = sandbox.home.path().join(".local/bin/vendo");
+    let binary = std::fs::canonicalize(env!("CARGO_BIN_EXE_vendo")).unwrap();
+    let expected = json!({
+        "previousVersion": env!("CARGO_PKG_VERSION"),
+        "version": "9.9.9",
+        "installPath": install_path.display().to_string(),
+        "binaryPath": binary.display().to_string(),
+    });
+    assert_eq!(ok_output(&out), format!("{}\n", serde_json::to_string_pretty(&expected).unwrap()));
+    assert_eq!(text(&out.stderr), "Installing vendo\n");
+    // Without --json, as before.
+    let out = fake_installer(&sandbox, installs, &["self-update"]);
+    assert!(ok_output(&out).starts_with("Installing vendo\nDone: Vendo CLI updated.\n"), "{}", text(&out.stdout));
+    // A failed installer: its exit code, as before, and the JSON error last on stderr.
+    let out = fake_installer(&sandbox, "echo 'download failed' >&2\nexit 3\n", &["self-update", "--json"]);
+    assert_eq!((out.status.code(), text(&out.stdout)), (Some(3), String::new()));
+    assert!(text(&out.stderr).starts_with("download failed\n"), "{}", text(&out.stderr));
+    let error = error_shape("The installer exited with code 3.", Value::Null, Value::Null, Value::Null);
+    assert_eq!(json_error(&out), error);
+    // A version the installed binary does not print is null.
+    let out = fake_installer(&sandbox, "rm -f \"$HOME/.local/bin/vendo\"\n", &["self-update", "--json"]);
+    assert_eq!(serde_json::from_str::<Value>(&ok_output(&out)).unwrap()["version"], Value::Null);
+}
+
+// ── VENDO_PROFILE ──
+
+async fn me_stub() -> MockServer {
+    let server = MockServer::start().await;
+    for account in ["acct-alpha", "acct-beta"] {
+        Mock::given(path("/api/v1/me"))
+            .and(wiremock::matchers::header("X-Account-Id", account))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "accountId": account } })))
+            .mount(&server)
+            .await;
+    }
+    server
+}
+
+fn whoami_config(sandbox: &Sandbox, args: &[&str], vendo_profile: Option<&str>) -> Value {
+    let mut cmd = sandbox.command(&[args, &["whoami", "--json"]].concat());
+    if let Some(name) = vendo_profile {
+        cmd.env("VENDO_PROFILE", name);
+    }
+    let out: Value = serde_json::from_str(&ok_output(&cmd.output().unwrap())).unwrap();
+    json!([out["data"]["accountId"], out["config"]["selectedProfile"]])
+}
+
+#[tokio::test]
+async fn vendo_profile_selects_the_profile_and_the_flag_overrides_it() {
+    let server = me_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    assert_eq!(whoami_config(&sandbox, &[], None), json!(["acct-alpha", "alpha"]));
+    assert_eq!(whoami_config(&sandbox, &[], Some("beta")), json!(["acct-beta", "beta"]));
+    assert_eq!(whoami_config(&sandbox, &["--profile", "alpha"], Some("beta")), json!(["acct-alpha", "alpha"]));
+    // Empty is unset.
+    assert_eq!(whoami_config(&sandbox, &[], Some("")), json!(["acct-alpha", "alpha"]));
+    // The profile commands act on it, as with --profile; the saved active profile stays.
+    let out = sandbox.command(&["profile", "list"]).env("VENDO_PROFILE", "beta").output().unwrap();
+    assert_eq!(
+        cells(ok_output(&out).as_bytes()),
+        rows(&[&["alpha", "acct-alpha", &server.uri()], &["* beta (active)", "acct-beta", &server.uri()]])
+    );
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
+}
+
+#[tokio::test]
+async fn whoami_and_doctor_show_the_profile_vendo_profile_selects_as_they_show_the_flags() {
+    // They name the profile as they do for --profile and activeProfile: where the name came from is
+    // not shown (that was beyond the decision; proposed to Yalcin).
+    let server = me_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let env = sandbox.command(&["whoami"]).env("VENDO_PROFILE", "beta").output().unwrap();
+    let printed = ok_output(&env);
+    assert!(printed.contains("  Profile:     beta\n"), "{printed}");
+    assert_eq!(printed, ok_output(&sandbox.run(&["--profile", "beta", "whoami"])));
+
+    let doctor = |vendo_profile: Option<&str>, args: &[&str]| {
+        let mut cmd = sandbox.command(&[args, &["doctor", "--json"]].concat());
+        if let Some(name) = vendo_profile {
+            cmd.env("VENDO_PROFILE", name);
+        }
+        let out: Value = serde_json::from_str(&text(&cmd.output().unwrap().stdout)).unwrap();
+        let check = out["checks"].as_array().unwrap().iter().find(|c| c["name"] == "Selected profile").unwrap().clone();
+        (check["status"].as_str().unwrap().to_string(), check["detail"].as_str().unwrap().to_string())
+    };
+    assert_eq!(doctor(None, &[]), ("ok".into(), "alpha".into()));
+    assert_eq!(doctor(Some("beta"), &[]), ("ok".into(), "beta".into()));
+    assert_eq!(doctor(Some("beta"), &["--profile", "alpha"]), ("ok".into(), "alpha".into()));
+    assert_eq!(doctor(Some("nope"), &[]), ("warn".into(), "nope (not found in config)".into()));
+    assert_eq!(doctor(Some("nope"), &[]), doctor(None, &["--profile", "nope"]));
+}
+
+#[tokio::test]
+async fn an_unknown_vendo_profile_fails_exactly_like_an_unknown_flag() {
+    let server = me_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    for args in [&["apps", "list"][..], &["apps", "list", "--json"], &["whoami"], &["logout"], &["profile", "switch"]] {
+        let flag = sandbox.run(&[&["--profile", "nope"][..], args].concat());
+        let env = sandbox.command(args).env("VENDO_PROFILE", "nope").output().unwrap();
+        assert_eq!(
+            (env.status.code(), &env.stdout, &env.stderr),
+            (flag.status.code(), &flag.stdout, &flag.stderr),
+            "{args:?}"
+        );
+    }
+    let out = sandbox.command(&["apps", "list"]).env("VENDO_PROFILE", "nope").output().unwrap();
+    assert_eq!(
+        (out.status.code(), stderr_line(&out)),
+        (Some(1), "Error: No API key configured. Run `vendo login` or `vendo profile set --api-key <key>` or set VENDO_API_KEY.".to_string())
+    );
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+// ── short IDs ──
+
+const V1: &str = "/api/v1/accounts/acct-alpha";
+
+/// An ID whose first 8 characters are `prefix`.
+fn uuid_with(prefix: &str, n: u64) -> String {
+    format!("{prefix}-0000-4000-8000-{n:012x}")
+}
+
+/// A v1 list page as the API sends it.
+fn list_page(ids: &[String], offset: usize, has_more: bool) -> Value {
+    let items: Vec<Value> = ids.iter().map(|id| json!({ "id": id })).collect();
+    json!({ "data": items, "meta": { "pagination": { "total": offset + ids.len() + usize::from(has_more), "limit": 100, "offset": offset, "hasMore": has_more } } })
+}
+
+/// Lists for every resource whose table shows short IDs: one ID starting `1a2b3c4d` and two
+/// starting `5e6f7a8b`. Every other request is answered `{ data: {} }`.
+async fn short_id_stub() -> MockServer {
+    let server = MockServer::start().await;
+    let ids = vec![uuid_with("1a2b3c4d", 1), uuid_with("5e6f7a8b", 2), uuid_with("5e6f7a8b", 3)];
+    for resource in ["apps", "sources", "connections", "jobs", "models"] {
+        Mock::given(wiremock::matchers::method("GET"))
+            .and(path(format!("{V1}/{resource}")))
+            .and(wiremock::matchers::query_param("limit", "100"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(list_page(&ids, 0, false)))
+            .mount(&server)
+            .await;
+    }
+    let metrics: Vec<Value> = ids.iter().map(|id| json!({ "id": id })).collect();
+    Mock::given(wiremock::matchers::method("GET"))
+        .and(path("/api/metrics"))
+        .and(wiremock::matchers::query_param("limit", "100"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "metrics": metrics, "total": 3, "limit": 100, "offset": 0 })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {} })))
+        .mount(&server)
+        .await;
+    server
+}
+
+fn listed(resource: &str) -> String {
+    format!("GET {V1}/{resource}?limit=100&offset=0")
+}
+
+#[tokio::test]
+async fn a_short_id_that_one_resource_starts_with_is_that_resource() {
+    let full = uuid_with("1a2b3c4d", 1);
+    for (args, requests) in [
+        (vec!["apps", "get", "1a2b3c4d"], vec![listed("apps"), format!("GET {V1}/apps/{full}")]),
+        (vec!["apps", "pause", "1a2b3c4d"], vec![listed("apps"), format!("POST {V1}/apps/{full}/pause")]),
+        (vec!["sources", "get", "1a2b3c4d", "--json"], vec![listed("sources"), format!("GET {V1}/sources/{full}")]),
+        (
+            vec!["destinations", "resume", "1A2B3C4D"],
+            vec![listed("connections"), format!("POST {V1}/connections/{full}/resume")],
+        ),
+        (vec!["jobs", "get", "1a2b3c4d"], vec![listed("jobs"), format!("GET {V1}/jobs/{full}")]),
+        (vec!["models", "get", "1a2b3c4d"], vec![listed("models"), format!("GET {V1}/models/{full}")]),
+        (
+            vec!["metrics", "get", "1a2b3c4d"],
+            vec!["GET /api/metrics?limit=100&offset=0".to_string(), format!("GET /api/metrics/{full}")],
+        ),
+        // IDs in flags too: a filter, and the app a new source belongs to.
+        (
+            vec!["jobs", "list", "--source", "1a2b3c4d", "--json"],
+            vec![listed("sources"), format!("GET {V1}/jobs?source_id={full}&limit=20&offset=0")],
+        ),
+        (
+            vec!["sources", "create", "--app", "1a2b3c4d", "--sync-type", "shopify", "--json"],
+            vec![
+                listed("apps"),
+                format!(
+                    "POST {V1}/sources {{\"appId\":\"{full}\",\"syncType\":\"shopify\",\"syncFrequencyValue\":24,\"syncFrequencyUnit\":\"hours\",\"runNow\":false}}"
+                ),
+            ],
+        ),
+    ] {
+        let server = short_id_stub().await;
+        let out = Sandbox::new(&server.uri()).run(&args);
+        assert_eq!(out.status.code(), Some(0), "{args:?}: {}", text(&out.stderr));
+        assert_eq!(sent(&server).await, requests, "{args:?}");
+    }
+    // The other commands that take these IDs: one lookup, first, then only the full ID goes out.
+    for (args, listing) in [
+        (&["apps", "update", "1a2b3c4d", "--name", "New"][..], listed("apps")),
+        (&["apps", "update", "1a2b3c4d", "--role", "source", "--json"], listed("apps")),
+        (&["sources", "update", "1a2b3c4d", "--frequency", "2"], listed("sources")),
+        (&["sources", "sync", "1a2b3c4d", "--json"], listed("sources")),
+        (&["sources", "sync", "1a2b3c4d", "--dry-run"], listed("sources")),
+        (&["sources", "list", "--app", "1a2b3c4d", "--json"], listed("apps")),
+        (&["destinations", "get", "1a2b3c4d", "--json"], listed("connections")),
+        (&["destinations", "update", "1a2b3c4d", "--frequency", "2"], listed("connections")),
+        (&["destinations", "refresh-source", "1a2b3c4d", "--json"], listed("connections")),
+        (&["jobs", "list", "--integration", "1a2b3c4d"], listed("connections")),
+        (&["metrics", "update", "1a2b3c4d", "--name", "New"], "GET /api/metrics?limit=100&offset=0".to_string()),
+        (&["metrics", "activate", "1a2b3c4d"], "GET /api/metrics?limit=100&offset=0".to_string()),
+    ] {
+        let server = short_id_stub().await;
+        let out = Sandbox::new(&server.uri()).run(args);
+        assert_eq!(out.status.code(), Some(0), "{args:?}: {}", text(&out.stderr));
+        let requests = sent(&server).await;
+        assert_eq!(requests[0], listing, "{args:?}");
+        assert!(requests.len() > 1, "{args:?}: {requests:?}");
+        for request in &requests[1..] {
+            assert!(!request.contains("limit=100"), "{args:?}: one lookup: {requests:?}");
+            assert!(!request.replace(&full, "").contains("1a2b3c4d"), "{args:?}: the short ID went out: {request}");
+        }
+        assert!(requests[1..].iter().any(|r| r.contains(&full)), "{args:?}: {requests:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_short_id_that_matches_none_or_several_is_sent_as_typed() {
+    // The ❓ refusal with candidates is not approved: the API answers as it does today.
+    for (short, why) in [("99999999", "none"), ("5e6f7a8b", "several")] {
+        let server = short_id_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        assert_eq!(sandbox.run(&["apps", "get", short]).status.code(), Some(0), "{why}");
+        assert_eq!(sent(&server).await, [listed("apps"), format!("GET {V1}/apps/{short}")], "{why}");
+    }
+    // A listing that fails changes nothing either: the request goes out as typed and reports its own error.
+    let server = MockServer::start().await;
+    serve(&server, "GET", &format!("{V1}/apps"), 500, json!({ "error": { "message": "Listing is down" } })).await;
+    serve(&server, "GET", &format!("{V1}/apps/1a2b3c4d"), 404, json!({ "error": { "message": "App not found" } }))
+        .await;
+    let out = Sandbox::new(&server.uri()).run(&["apps", "get", "1a2b3c4d"]);
+    assert_api_error(&out, "App not found");
+    assert_eq!(sent(&server).await, [listed("apps"), format!("GET {V1}/apps/1a2b3c4d")]);
+}
+
+#[tokio::test]
+async fn a_full_id_or_anything_but_eight_hex_digits_is_never_looked_up() {
+    let server = short_id_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let full = uuid_with("1a2b3c4d", 1);
+    for id in [full.as_str(), "1a2b3c4", "1a2b3c4d5", "1a2b3c4g", "app-1234", "1a2b3c4d..."] {
+        assert_eq!(sandbox.run(&["apps", "get", id]).status.code(), Some(0), "{id}");
+    }
+    let expected: Vec<String> = [full.as_str(), "1a2b3c4", "1a2b3c4d5", "1a2b3c4g", "app-1234", "1a2b3c4d..."]
+        .iter()
+        .map(|id| format!("GET {V1}/apps/{id}"))
+        .collect();
+    assert_eq!(sent(&server).await, expected);
+}
+
+#[tokio::test]
+async fn a_short_id_is_looked_up_only_after_consent() {
+    // VE-3823: delete and cancel decide before any request. The refusal names the ID as typed.
+    let full = uuid_with("1a2b3c4d", 1);
+    for (args, what, listing, request) in [
+        (
+            ["apps", "delete", "1a2b3c4d"],
+            "This deletes app 1a2b3c4d.",
+            listed("apps"),
+            format!("DELETE {V1}/apps/{full}"),
+        ),
+        (
+            ["sources", "delete", "1a2b3c4d"],
+            "This deletes source 1a2b3c4d.",
+            listed("sources"),
+            format!("DELETE {V1}/sources/{full}"),
+        ),
+        (
+            ["destinations", "delete", "1a2b3c4d"],
+            "This deletes destination 1a2b3c4d.",
+            listed("connections"),
+            format!("DELETE {V1}/connections/{full}"),
+        ),
+        (
+            ["jobs", "cancel", "1a2b3c4d"],
+            "This cancels job 1a2b3c4d.",
+            listed("jobs"),
+            format!("POST {V1}/jobs/{full}/cancel"),
+        ),
+        (
+            ["metrics", "delete", "1a2b3c4d"],
+            "This deletes metric 1a2b3c4d and cannot be undone.",
+            "GET /api/metrics?limit=100&offset=0".to_string(),
+            format!("DELETE /api/metrics/{full}"),
+        ),
+    ] {
+        let server = short_id_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        assert_needs_yes(&sandbox.run(&args), what);
+        assert_eq!(sent(&server).await, Vec::<String>::new(), "{args:?}");
+        let out = sandbox.run(&[&args[..], &["--yes"]].concat());
+        assert_eq!(out.status.code(), Some(0), "{args:?}: {}", text(&out.stderr));
+        assert_eq!(sent(&server).await, [listing, request], "{args:?}");
+    }
+    // A dry run sends nothing, as before.
+    let server = short_id_stub().await;
+    assert_eq!(
+        ok_output(&Sandbox::new(&server.uri()).run(&["apps", "delete", "1a2b3c4d", "--dry-run"])),
+        "[dry-run] Would delete app 1a2b3c4d\n"
+    );
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+/// `pages` pages of 100 jobs, each saying another follows unless it is the last and `last_ends`;
+/// `place` puts IDs at (page, row).
+async fn job_pages(pages: u64, last_ends: bool, place: &[(u64, usize, String)]) -> MockServer {
+    let server = MockServer::start().await;
+    for n in 0..pages {
+        let mut ids: Vec<String> =
+            (0..100).map(|i| uuid_with(&format!("{:08x}", 0x7000_0000 + n * 100 + i), i)).collect();
+        for (_, row, id) in place.iter().filter(|(page, ..)| *page == n) {
+            ids[*row] = id.clone();
+        }
+        let more = !(last_ends && n + 1 == pages);
+        Mock::given(path(format!("{V1}/jobs")))
+            .and(wiremock::matchers::query_param("offset", (n * 100).to_string()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(list_page(&ids, (n * 100) as usize, more)))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {} })))
+        .mount(&server)
+        .await;
+    server
+}
+
+#[tokio::test]
+async fn a_short_id_lookup_pages_through_the_list_up_to_five_pages() {
+    // 100 per page (the API's most), the next page while `hasMore`: a match on one page is checked
+    // against the rest, since one that several IDs start with is sent as typed.
+    let pages = |n: usize| (0..n).map(|i| format!("GET {V1}/jobs?limit=100&offset={}", i * 100));
+    let found = uuid_with("abcdef01", 1);
+    let server = job_pages(2, true, &[(1, 42, found.clone())]).await;
+    assert_eq!(Sandbox::new(&server.uri()).run(&["jobs", "get", "abcdef01"]).status.code(), Some(0));
+    assert_eq!(sent(&server).await, pages(2).chain([format!("GET {V1}/jobs/{found}")]).collect::<Vec<_>>());
+    let twin = uuid_with("abcdef01", 2);
+    let server = job_pages(3, true, &[(0, 3, found.clone()), (2, 7, twin)]).await;
+    assert_eq!(Sandbox::new(&server.uri()).run(&["jobs", "get", "abcdef01"]).status.code(), Some(0));
+    assert_eq!(sent(&server).await, pages(3).chain([format!("GET {V1}/jobs/abcdef01")]).collect::<Vec<_>>());
+    // At most five pages (the key's 60 requests a minute): a job further back is sent as typed.
+    let server = job_pages(6, false, &[(5, 0, uuid_with("abcdef02", 2))]).await;
+    assert_eq!(Sandbox::new(&server.uri()).run(&["jobs", "get", "abcdef02"]).status.code(), Some(0));
+    assert_eq!(sent(&server).await, pages(5).chain([format!("GET {V1}/jobs/abcdef02")]).collect::<Vec<_>>());
+}
+
+#[tokio::test]
+async fn a_row_read_on_two_pages_is_one_match() {
+    // A job created between two page reads moves the next page down by one: the last row of one
+    // page comes back first on the next. It is still one job.
+    let found = uuid_with("abcdef01", 1);
+    let server = job_pages(2, true, &[(0, 99, found.clone()), (1, 0, found.clone())]).await;
+    let out = Sandbox::new(&server.uri()).run(&["jobs", "get", "abcdef01", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    let pages = (0..2).map(|i| format!("GET {V1}/jobs?limit=100&offset={}", i * 100));
+    assert_eq!(sent(&server).await, pages.chain([format!("GET {V1}/jobs/{found}")]).collect::<Vec<_>>());
+}
+
+/// The metrics route as vendo-web-v2 answers it: archived metrics only when asked for them
+/// (`listMetrics`' `excludeArchivedWhenNoStatus`). Every other request is answered `{ metric: {} }`.
+async fn metrics_stub(active: &str, archived: &str) -> MockServer {
+    let server = MockServer::start().await;
+    for (status, id) in [(None, active), (Some("archived"), archived)] {
+        let list = Mock::given(wiremock::matchers::method("GET")).and(path("/api/metrics"));
+        let list = match status {
+            Some(status) => list.and(wiremock::matchers::query_param("status", status)),
+            None => list.and(wiremock::matchers::query_param_is_missing("status")),
+        };
+        let page = json!({ "metrics": [{ "id": id }], "total": 1, "limit": 100, "offset": 0 });
+        list.respond_with(ResponseTemplate::new(200).set_body_json(page)).mount(&server).await;
+    }
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "metric": {} })))
+        .mount(&server)
+        .await;
+    server
+}
+
+#[tokio::test]
+async fn an_archived_metrics_short_id_is_looked_up_in_the_archived_list_when_the_default_list_misses() {
+    // `metrics list --status archived` shows archived metrics' short IDs, which the default list leaves out.
+    let active = uuid_with("aaaaaaaa", 1);
+    let archived = uuid_with("c0ffee01", 2);
+    let listed = "GET /api/metrics?limit=100&offset=0".to_string();
+    let archived_listed = "GET /api/metrics?status=archived&limit=100&offset=0".to_string();
+    for (args, requests) in [
+        (
+            &["metrics", "get", "c0ffee01"][..],
+            vec![listed.clone(), archived_listed.clone(), format!("GET /api/metrics/{archived}")],
+        ),
+        // Un-archiving it by its short ID.
+        (
+            &["metrics", "update", "c0ffee01", "--status", "active", "--json"],
+            vec![
+                listed.clone(),
+                archived_listed.clone(),
+                format!("PATCH /api/metrics/{archived} {{\"status\":\"active\"}}"),
+            ],
+        ),
+        // A match in the default list reads nothing more.
+        (&["metrics", "get", "aaaaaaaa"], vec![listed.clone(), format!("GET /api/metrics/{active}")]),
+        // In neither: sent as typed.
+        (
+            &["metrics", "get", "99999999"],
+            vec![listed.clone(), archived_listed.clone(), "GET /api/metrics/99999999".to_string()],
+        ),
+    ] {
+        let server = metrics_stub(&active, &archived).await;
+        let out = Sandbox::new(&server.uri()).run(args);
+        assert_eq!(out.status.code(), Some(0), "{args:?}: {}", text(&out.stderr));
+        assert_eq!(sent(&server).await, requests, "{args:?}");
+    }
+}
+
+#[tokio::test]
+async fn methodologies_get_takes_the_short_id_its_list_shows() {
+    // `methodologies get` already reads the list: a short ID is found in it, with no extra request.
+    let server = MockServer::start().await;
+    let full = uuid_with("0d0e0f10", 9);
+    let methodologies = json!({ "data": { "methodologies": [
+        { "id": full, "name": "Blended", "click_path_model": "linear", "is_system": false, "version": 1 },
+        { "id": uuid_with("5e6f7a8b", 1), "name": "A" }, { "id": uuid_with("5e6f7a8b", 2), "name": "B" },
+    ] } });
+    serve(&server, "GET", "/api/measurement/methodologies", 200, methodologies).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let short = ok_output(&sandbox.run(&["measurement", "methodologies", "get", "0d0e0f10", "--json"]));
+    assert_eq!(short, ok_output(&sandbox.run(&["measurement", "methodologies", "get", &full, "--json"])));
+    assert_eq!(sent(&server).await.len(), 2);
+    let out = sandbox.run(&["measurement", "methodologies", "get", "5e6f7a8b"]);
+    assert_eq!((out.status.code(), stderr_line(&out)), (Some(1), "Error: Methodology 5e6f7a8b not found".to_string()));
 }

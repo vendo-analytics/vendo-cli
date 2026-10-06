@@ -19,6 +19,7 @@ use crate::{
         print_field, print_json, print_label, print_list_count, print_status_label, print_success, red,
         resolve_output_mode, run_action, short_id, table, time_ago, yellow,
     },
+    short_ids::{Listing, resolve},
 };
 
 // ── roles and permissions ──────────────────────────────────────────────────
@@ -280,6 +281,7 @@ pub async fn diagnose(ctx: &Ctx, json: bool) -> Result<()> {
 
 pub async fn get(ctx: &Ctx, app_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
+    let app_id = resolve(&client, Listing::Apps, app_id).await;
     let res = run_action("Fetching app...", client.get(&format!("/apps/{app_id}"), &[])).await?;
     if json {
         print_json(&res);
@@ -424,6 +426,8 @@ pub struct UpdateArgs {
 }
 
 pub async fn update(ctx: &Ctx, app_id: &str, args: UpdateArgs) -> Result<()> {
+    // A short ID is looked up once, with the first request that needs it (VE-3831).
+    let mut resolved: Option<String> = None;
     let mut body = Map::new();
     if let Some(name) = args.name.filter(|n| !n.is_empty()) {
         body.insert("displayName".into(), json!(name));
@@ -433,7 +437,9 @@ pub async fn update(ctx: &Ctx, app_id: &str, args: UpdateArgs) -> Result<()> {
     } else if let Some(role) = args.role.as_deref().filter(|r| !r.is_empty()) {
         // Role defaults are per platform: look up the app's type.
         let client = ctx.client()?;
-        let current = client.get(&format!("/apps/{app_id}"), &[]).await?;
+        let id = resolve(&client, Listing::Apps, app_id).await;
+        let current = client.get(&format!("/apps/{id}"), &[]).await?;
+        resolved = Some(id);
         let app_type = text(payload(&current), "appType").unwrap_or_default();
         body.insert(
             "permissions".into(),
@@ -450,11 +456,15 @@ pub async fn update(ctx: &Ctx, app_id: &str, args: UpdateArgs) -> Result<()> {
         bail!("Nothing to update — pass at least one flag.");
     }
     let client = ctx.client()?;
+    let app_id = match resolved {
+        Some(id) => id,
+        None => resolve(&client, Listing::Apps, app_id).await,
+    };
     let res = run_action("Updating app...", client.patch(&format!("/apps/{app_id}"), Value::Object(body))).await?;
     match resolve_output_mode(args.json, args.output.as_deref()) {
         OutputMode::Json => print_json(&res),
         OutputMode::Field => println!("{app_id}"),
-        OutputMode::Table => print_success(&format!("App {} updated.", short_id(app_id))),
+        OutputMode::Table => print_success(&format!("App {} updated.", short_id(&app_id))),
     }
     Ok(())
 }

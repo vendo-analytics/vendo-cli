@@ -1,12 +1,24 @@
 //! Profile listing and switching (port of `src/profile-display.ts`).
 
 use anyhow::{Result, bail};
+use serde_json::{Value, json};
 
 use crate::{
     config::{DEFAULT_BASE_URL, ProfileSummary},
     context::Ctx,
-    output::{SelectOption, bold, dim, green, print_success, search_select_option},
+    output::{SelectOption, bold, dim, green, print_json, print_success, search_select_option},
 };
+
+/// A profile as the `--json` of the profile commands prints it (VE-3831): what `profile list`
+/// shows, `accountId` null where it says "no account". Never the API key.
+pub fn profile_json(profile: &ProfileSummary) -> Value {
+    json!({
+        "name": profile.name,
+        "active": profile.active,
+        "accountId": profile.account_id,
+        "baseUrl": profile.base_url,
+    })
+}
 
 pub fn format_profile_label(profile: &ProfileSummary, annotate_active: bool) -> String {
     let mut parts = vec![
@@ -48,11 +60,23 @@ pub struct SwitchOptions<'a> {
     pub list_command: &'a str,
     pub profile_command: &'a str,
     pub verify_hint: &'a str,
+    /// `--json`: print `{ "profile": … }`, the profile now selected or null when nothing was
+    /// switched, and never open the picker, whose questions would share stdout with the JSON.
+    pub json: bool,
+}
+
+/// `{ "profile": null }`: nothing was switched.
+fn print_no_switch(json: bool, message: &str) {
+    if json {
+        print_json(&json!({ "profile": null }));
+    } else {
+        println!("{}", dim(message));
+    }
 }
 
 pub fn switch_profile_selection(ctx: &Ctx, profiles: &[ProfileSummary], opts: SwitchOptions) -> Result<()> {
     if profiles.is_empty() {
-        println!("{}", dim(opts.empty_message));
+        print_no_switch(opts.json, opts.empty_message);
         return Ok(());
     }
     // Empty values count as unset, as the TS CLI's truthiness checks had it.
@@ -78,7 +102,7 @@ pub fn switch_profile_selection(ctx: &Ctx, profiles: &[ProfileSummary], opts: Sw
         }
     }
 
-    if profile_name.is_none() {
+    if profile_name.is_none() && !opts.json {
         let options: Vec<SelectOption> = profiles
             .iter()
             .map(|p| SelectOption {
@@ -91,7 +115,7 @@ pub fn switch_profile_selection(ctx: &Ctx, profiles: &[ProfileSummary], opts: Sw
     }
 
     let Some(profile_name) = profile_name else {
-        println!("{}", dim("Cancelled."));
+        print_no_switch(opts.json, "Cancelled.");
         return Ok(());
     };
     let Some(target) = profiles.iter().find(|p| p.name == profile_name) else {
@@ -102,6 +126,13 @@ pub fn switch_profile_selection(ctx: &Ctx, profiles: &[ProfileSummary], opts: Sw
     };
 
     ctx.store.set_active_profile(&target.name)?;
+    if opts.json {
+        // Read back: `active` says whether it is now the one commands use (--profile or
+        // VENDO_PROFILE may still select another).
+        let switched = ctx.store.profile_summaries().into_iter().find(|p| p.name == target.name);
+        print_json(&json!({ "profile": switched.as_ref().map(profile_json) }));
+        return Ok(());
+    }
     print_success(&format!("Switched to profile {}.", bold(&target.name)));
     println!(
         "{}",
