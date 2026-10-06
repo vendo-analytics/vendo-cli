@@ -2215,7 +2215,7 @@ _vendo__subcmd__help__subcmd__profile_commands() {
     local commands; commands=(
 'list:List all configured profiles' \
 'switch:Switch to a different profile' \
-'set:Set configuration values' \
+'set:Set values on the active profile' \
     )
     _describe -t commands 'vendo help profile commands' commands "$@"
 }
@@ -2501,7 +2501,7 @@ _vendo__subcmd__profile_commands() {
     local commands; commands=(
 'list:List all configured profiles' \
 'switch:Switch to a different profile' \
-'set:Set configuration values' \
+'set:Set values on the active profile' \
     )
     _describe -t commands 'vendo profile commands' commands "$@"
 }

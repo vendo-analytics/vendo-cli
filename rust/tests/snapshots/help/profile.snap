@@ -8,7 +8,7 @@ Usage: vendo profile [OPTIONS] <COMMAND>
 Commands:
   list    List all configured profiles
   switch  Switch to a different profile
-  set     Set configuration values
+  set     Set values on the active profile
 
 Options:
   -h, --help  Print help

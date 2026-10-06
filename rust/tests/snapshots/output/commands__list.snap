@@ -63,7 +63,7 @@ measurement signals list        Per-signal availability summary
 measurement signals click-path  Click-path signal status — readiness, last-computed, recent SignalEstimates
 profile list                    List all configured profiles
 profile switch                  Switch to a different profile
-profile set                     Set configuration values
+profile set                     Set values on the active profile
 mcp                             Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo
 completions                     Generate shell completion script (bash, zsh, fish)
 self-update                     Update the Vendo CLI using the hosted installer

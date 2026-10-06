@@ -558,7 +558,7 @@ pub enum ProfileCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Set configuration values
+    /// Set values on the active profile
     #[command(
         after_help = "Examples:\n  $ vendo profile set --api-key <key>\n  $ vendo profile set --account <id>\n  $ vendo profile set --api-key <key> --account <id>"
     )]

@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Set configuration values
+Set values on the active profile
 
 Usage: vendo profile set [OPTIONS]
 

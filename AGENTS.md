@@ -64,10 +64,11 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
 - Help layout (VE-3827, CLI 1.1): `vendo --help` is one sectioned list built at runtime from the command tree;
   `HELP_SECTIONS` in `rust/src/cli.rs` places each command, and a test fails when a visible command is in none.
   Group screens have no `help` row; `--profile`/`--debug` sit under "Global options". `whoami` is the one identity
-  command and `config` moved under `profile`. Old paths keep working, hidden, printing exactly what their command
-  prints: clap hidden aliases where clap allows (`config` = `profile`, `use` = `profile switch`), `MOVED` in `cli.rs`
-  where it does not (`profile current`/`config show` → `whoami`, `config reset` → `logout --all`). Give a new
-  hidden path a byte-identity test.
+  command and `config` moved under `profile`; `profile set` is described as "Set values on the active profile"
+  (Yalcin, 2026-10-06). Old paths keep working, hidden, printing exactly what their command prints: clap hidden
+  aliases where clap allows (`config` = `profile`, `use` = `profile switch`), `MOVED` in `cli.rs` where it does not
+  (`profile current`/`config show` → `whoami`, `config reset` → `logout --all`). Give a new hidden path a
+  byte-identity test.
 - Login (VE-3825, CLI 1.1): `vendo login` does what `init` did, and `init` is its hidden clap alias. It signs in
   through the browser when there is no working key, checks the key with `/me` and prints the setup summary. A key it
   has (profile or `VENDO_API_KEY`) is checked and kept; `--force`, `--env`/`--base-url` naming another instance, or a
@@ -264,8 +265,9 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
   commit `cli-vX.Y.Z-rc.N` and push the tag. Agents never push tags or create releases: Yalcin approves each one.
 - Before tagging, run `pnpm build && pnpm parity:help --rust rust/target/release/vendo` on that commit. Every help
   screen must be the same, except the two accepted for VE-3823 (`logout`, `metrics delete`; Yalcin, 2026-10-06),
-  `--profile`'s description on the root screen, which names VENDO_PROFILE (VE-3831, Yalcin 2026-10-06), and
-  `jobs list`'s `--status` and `--type`, which list the API's values (VE-3830, Yalcin 2026-10-06).
+  `--profile`'s description on the root screen, which names VENDO_PROFILE (VE-3831, Yalcin 2026-10-06),
+  `jobs list`'s `--status` and `--type`, which list the API's values (VE-3830, Yalcin 2026-10-06), and `config set`'s
+  description, `profile set`'s "Set values on the active profile" (VE-3827, Yalcin 2026-10-06).
   This is a manual step, not a CI job (decided by Yalcin, 2026-10-05): the TypeScript CLI
   it compares against is deleted at 1.0.0 (VE-3669).
 - Installing a release candidate: `VENDO_VERSION=cli-vX.Y.Z-rc.N bash install.sh` from a checkout,

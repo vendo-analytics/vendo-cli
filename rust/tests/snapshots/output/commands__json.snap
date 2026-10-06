@@ -3649,7 +3649,7 @@ exit: 0
         {
           "name": "set",
           "path": "profile set",
-          "description": "Set configuration values",
+          "description": "Set values on the active profile",
           "aliases": [],
           "arguments": [],
           "options": [
