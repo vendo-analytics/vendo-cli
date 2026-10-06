@@ -80,7 +80,7 @@ first; pass `--yes` in scripts).
 
 | Section | Commands |
 | --- | --- |
-| Getting started | `login`, `logout`, `whoami`, `status`, `doctor`, `commands` |
+| Getting started | `login`, `logout`, `whoami`, `status`, `doctor`, `commands`, `help`, `version` |
 | Data pipeline | `apps`, `sources`, `destinations`, `jobs` |
 | Data catalog | `catalog`, `dictionary`, `metrics`, `models`, `measurement` |
 | Account | `profile`, `mcp`, `completions`, `self-update` |
@@ -100,9 +100,9 @@ The commands in each group:
 | `measurement` | `methodologies list`, `methodologies get`, `rules preview`, `ltv list`, `ltv cohort`, `ltv customer`, `signals list`, `signals click-path` |
 | `profile` | `list`, `switch`, `set` |
 
-`vendo <command> --help` shows a command's flags and examples, and `vendo commands` lists every command on one line
-each. `--profile <name>` and `--debug` work with every command. At a terminal, a group run without its command
-(`vendo apps`) opens a menu of its commands: arrow keys move, typing filters, Enter runs, Esc leaves. The menu
+`vendo <command> --help` shows a command's flags and examples, and `vendo commands` lists every command but `help`
+on one line each. `--profile <name>` and `--debug` work with every command. At a terminal, a group run without its
+command (`vendo apps`) opens a menu of its commands: arrow keys move, typing filters, Enter runs, Esc leaves. The menu
 needs stdin, stdout and stderr to be terminals, `TERM` not `dumb` and prompts on (see
 [Non-interactive runs](#non-interactive-runs-ci-and-vendo_no_input)); otherwise the group prints its help and
 exits 2.

@@ -4,9 +4,11 @@
 //!
 //! - `help/`: every `vendo … --help` screen, exactly as printed. The list
 //!   comes from walking the command lists of the real help output (the root's
-//!   sections, each group's `Commands:`; all but clap's `help`, which has no
-//!   screen of its own), so a new command is recorded automatically and a
-//!   removed one leaves a stale snapshot that fails the run.
+//!   sections, each group's `Commands:`), so a new command is recorded
+//!   automatically and a removed one leaves a stale snapshot that fails the run.
+//!   clap's `help`, which the root lists (VE-3893), takes no `--help`
+//!   (`vendo help --help` is clap's usage error): its own screen is
+//!   `vendo help help`, recorded as `help/help.snap`.
 //! - `output/`: the table and `--json` output of every command that prints
 //!   data, and the confirmation and `--json` output of write commands, run
 //!   against the local stub with the synthetic account below; and the three
@@ -137,9 +139,10 @@ fn subcommands(screen: &str) -> Vec<String> {
     names
 }
 
-/// clap's `help` command, which the root help lists with the commands since VE-3893. It has no help
-/// screen of its own (`vendo help --help` is clap's usage error, and `vendo help <command>` prints that
-/// command's screen), so the walks below leave it out, and `vendo commands` lists no `help`.
+/// clap's `help` command, which the root help lists with the commands since VE-3893. It takes no
+/// `--help` (`vendo help --help` is clap's usage error), so the walks below leave it out and
+/// [`every_help_screen_matches_its_snapshot`] records its own screen as `vendo help help` prints it
+/// (`vendo help <command>` prints that command's screen). `vendo commands` lists no `help`.
 const CLAP_HELP: &str = "help";
 
 /// [`subcommands`] less clap's `help`: the commands a walk of the help screens visits.
@@ -160,17 +163,24 @@ fn retired_word(screen: &str) -> Option<&'static str> {
     lower.split(|c: char| !c.is_ascii_alphanumeric()).any(|word| word == "int").then_some("int")
 }
 
+/// Records the help screen `vendo <args>` prints as `help/<name>.snap` and returns it.
+fn record_screen(sandbox: &Sandbox, recorder: &mut Recorder, args: &[&str], name: &str) -> String {
+    let out = sandbox.run(args);
+    let screen = text(&out.stdout);
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), String::new()), "vendo {}", args.join(" "));
+    assert_eq!(retired_word(&screen), None, "vendo {} uses a retired word", args.join(" "));
+    recorder.check(name, &screen);
+    screen
+}
+
 /// Records `vendo <path> --help` and, depth first in help order, every
 /// command it lists. Returns the number of screens.
 fn record_help(sandbox: &Sandbox, recorder: &mut Recorder, path: &[String]) -> usize {
     let mut args: Vec<&str> = path.iter().map(String::as_str).collect();
     args.push("--help");
-    let out = sandbox.run(&args);
-    let screen = text(&out.stdout);
-    assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), String::new()), "vendo {}", args.join(" "));
-    assert_eq!(retired_word(&screen), None, "vendo {} uses a retired word", args.join(" "));
     // `help/vendo.snap` for the root, `help/measurement__ltv__list.snap` for `vendo measurement ltv list`.
-    recorder.check(&if path.is_empty() { "vendo".to_string() } else { path.join("__") }, &screen);
+    let name = if path.is_empty() { "vendo".to_string() } else { path.join("__") };
+    let screen = record_screen(sandbox, recorder, &args, &name);
     // `vendo help <command>` stays; only the root lists clap's `help` (VE-3827, VE-3893).
     let lists_help = subcommands(&screen).contains(&CLAP_HELP.to_string());
     assert_eq!(lists_help, path.is_empty(), "vendo {}: the root help alone lists help", args.join(" "));
@@ -192,6 +202,9 @@ fn every_help_screen_matches_its_snapshot() {
     let sandbox = Sandbox::new(CLOSED);
     let mut recorder = Recorder::new("help", "");
     let mut count = record_help(&sandbox, &mut recorder, &[]);
+    // clap's `help`, which the root lists and the walk leaves out: its screen is `vendo help help`.
+    record_screen(&sandbox, &mut recorder, &[CLAP_HELP, CLAP_HELP], CLAP_HELP);
+    count += 1;
     for path in HIDDEN_COMMANDS {
         let path: Vec<String> = path.iter().map(|word| word.to_string()).collect();
         let (parent, name) = path.split_at(path.len() - 1);
@@ -1812,13 +1825,14 @@ fn the_command_tree_matches_the_help_screens() {
             pending.push((child_path, child));
         }
     }
-    // Every help screen the snapshot walk records, less the hidden `catalog credential-schema`.
+    // Every help screen the snapshot walk records, less the hidden `catalog credential-schema` and clap's
+    // `help` (`help/help.snap`), which the tree leaves out (VE-3893).
     let help_screens = std::fs::read_dir(Path::new(SNAPSHOTS).join("help"))
         .unwrap()
         .flatten()
         .filter(|entry| entry.file_name().to_string_lossy().ends_with(".snap"))
         .count();
-    assert_eq!(checked, help_screens - HIDDEN_COMMANDS.len());
+    assert_eq!(checked, help_screens - HIDDEN_COMMANDS.len() - 1);
 }
 
 #[test]

@@ -1,7 +1,8 @@
-//! `vendo commands` (VE-3831): every command the help screens show, read at runtime from the clap
-//! tree the CLI parses with, so the list cannot drift from what runs. Bare, one line per command
-//! with its description; with `--json`, the whole tree with arguments and flags, for an agent to
-//! read instead of parsing help screens. Hidden commands and aliases stay out, as in the help.
+//! `vendo commands` (VE-3831): every command the help screens show but clap's `help`, which only the
+//! root help lists (VE-3893), read at runtime from the clap tree the CLI parses with, so the list
+//! cannot drift from what runs. Bare, one line per command with its description; with `--json`, the
+//! whole tree with arguments and flags, for an agent to read instead of parsing help screens. Hidden
+//! commands and aliases stay out, as in the help.
 
 use clap::{Arg, builder::PossibleValue};
 use serde_json::{Value, json};
