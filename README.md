@@ -28,8 +28,9 @@ Supported systems: macOS on Apple silicon and Intel (`darwin-arm64`, `darwin-x64
 curl -fsSL https://app2.vendodata.com/install.sh | VENDO_VERSION=1.1.0 bash
 ```
 
-To update later, run `vendo self-update` (`--version <version>` installs a specific release). `vendo login`,
-`vendo status` and `vendo whoami` check for a newer release once a day and print a notice when there is one.
+To update later, run `vendo self-update` (`--version <version>` installs a specific release). `vendo status`,
+`vendo whoami` and the browser sign-in of `vendo login` check for a newer release once a day and print a notice
+when there is one.
 
 ## Sign in
 
@@ -101,7 +102,10 @@ The commands in each group:
 
 `vendo <command> --help` shows a command's flags and examples, and `vendo commands` lists every command on one line
 each. `--profile <name>` and `--debug` work with every command. At a terminal, a group run without its command
-(`vendo apps`) opens a menu of its commands: arrow keys move, typing filters, Enter runs, Esc leaves.
+(`vendo apps`) opens a menu of its commands: arrow keys move, typing filters, Enter runs, Esc leaves. The menu
+needs stdin, stdout and stderr to be terminals, `TERM` not `dumb` and prompts on (see
+[Non-interactive runs](#non-interactive-runs-ci-and-vendo_no_input)); otherwise the group prints its help and
+exits 2.
 
 ### Apps, sources and destinations
 
@@ -285,7 +289,16 @@ to stderr, so stdout stays parseable.
 
 - The commands for your data (`apps`, `sources`, `destinations`, `jobs`, `catalog`, `dictionary`, `metrics`,
   `models`, `measurement`) print the API's response as it came, mostly `{ "data": ... }`, with `meta` beside the
-  data of a list.
+  data of a list. These build their own JSON instead:
+  - The `metrics` commands put the metric under `data`. `metrics list` puts the metrics under `data` and the
+    total in `meta.pagination.total`; `metrics delete` puts the API's response under `data`.
+  - `apps diagnose`: `{"broken":[...],"orphaned":[...]}`, where `missing` on each orphaned app says what it
+    lacks, `source` or `destination`.
+  - `measurement methodologies get`: the methodology alone, with no `data` around it.
+  - `sources sync` and `destinations sync`, when a job is already running:
+    `{"data":{"jobId","status","message":"Sync already in progress"}}`.
+  - `apps create` without `--credentials-file`, which connects the app through OAuth in the browser:
+    `{"data":{"id"}}`.
 - The other commands print objects of their own, for example `vendo profile list --json`:
   `{"profiles":[{"name","active","accountId","baseUrl"}]}`, and `vendo login --json`:
   `{"profile","baseUrl","accountId","auth","accountName"}`.
@@ -293,9 +306,11 @@ to stderr, so stdout stays parseable.
   the job when it ends, as `vendo jobs get --json` does.
 - `vendo mcp --json` prints the `mcpServers` block.
 - No JSON output contains your API key unless you ask for it with `vendo mcp --show-key`.
-- `--dry-run` prints a line of text, with `--json` too.
+- `--dry-run` prints text, with `--json` too: one line for delete, pause, resume and cancel, and a few lines (the
+  resource and its active job) for `sources sync` and `destinations sync`.
 
-List commands also take `--output <field>`, which prints one field per row:
+The list commands, except `profile list` and `measurement signals list`, also take `--output <field>`, which
+prints one field per row, and so does `dictionary search`:
 
 ```bash
 vendo sources list --state active --output id
@@ -304,7 +319,11 @@ vendo sources list --state active --output id
 ### Errors and exit codes
 
 A command exits with 0 when it succeeds, 1 when it fails and 2 when it was called wrongly (an unknown command, a
-missing argument). With `--json`, a failure is one line of JSON on stderr, its last line:
+missing argument). Two report a failure and still exit 0: `vendo logout` when you are not logged in, and
+`vendo jobs tail` when the job fails or the wait times out. With `--json` both print the JSON error, and
+`jobs tail` still prints the last job it read, if any, on stdout.
+
+With `--json`, a failure is one line of JSON on stderr, its last line:
 
 ```json
 {"error":{"message":"App not found","code":"NOT_FOUND","status":404,"requestId":"req_1a2b3c4d5e6f7a8b"}}
@@ -344,14 +363,17 @@ vendo apps pause 1a2b3c4d...
 - When several items start with it, the command stops with exit 1 before it sends its request, and the error
   lists up to 10 of them by full ID. Use the full ID.
 - When none does, the short ID is sent as typed and the API answers as it would for any unknown ID.
-- A `--dry-run` sends nothing, so it does not look the ID up.
+- A `--dry-run` of delete, pause, resume or cancel sends nothing, so it does not look the ID up. A `--dry-run` of
+  `sources sync` or `destinations sync` looks it up, then reads the resource and its active job (GET requests
+  only).
 
 ### Choosing a profile: `VENDO_PROFILE`
 
 `VENDO_PROFILE=<profile>` selects a profile like `--profile`, for every command in that shell. `--profile` wins
 over `VENDO_PROFILE`, which wins over the active profile. `VENDO_PROFILE` never changes which profile is saved as
-active; `vendo profile switch` does. A name no profile has stops the command with exit 1 and an error that names
-it.
+active; `vendo profile switch` does. With a name no profile has, the commands that need an API key, and
+`vendo logout`, stop with exit 1 and an error that names it, unless `VENDO_API_KEY` is set. Other commands carry
+on, and `vendo doctor` shows it as a warning.
 
 ### Non-interactive runs: `CI` and `VENDO_NO_INPUT`
 
@@ -364,6 +386,8 @@ empty, `0` or `false` and it asks none, at a terminal too:
 - `vendo profile switch` without a profile name prints `Cancelled.` instead of a list to pick from.
 - `vendo login` without a key prints the sign-in link and waits; it opens no browser. In CI, use
   `vendo login --api-key ... --account ...` or the environment variables below.
+
+`TERM=dumb` turns off only the group menu; the y/N questions and the profile picker still ask.
 
 ### Environment variables
 
@@ -388,7 +412,10 @@ Old command names keep working but are no longer in the help:
 | `vendo config ...` | `vendo profile ...` |
 | `vendo profile current`, `vendo config show` | `vendo whoami` |
 | `vendo config reset` | `vendo logout --all` |
-| `vendo profile use` | `vendo profile switch` |
+| `vendo config use` | `vendo profile switch` |
+
+`vendo catalog credential-schema <platform>` also still works but is no longer in the help;
+`vendo catalog get <platform>` shows the same credential fields.
 
 Delete, cancel and `logout --all` no longer go ahead without `--yes` when no one can answer the question, and
 `--json` no longer implies `--yes`.
