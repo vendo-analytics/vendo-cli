@@ -1670,8 +1670,21 @@ impl OnTerminal {
 
     /// [`OnTerminal::spawn`], the terminal `vendo`'s controlling terminal when `controlling`.
     fn launch(
-        mut cmd: Command,
+        cmd: Command,
         (lines, columns): (u16, u16),
+        before: &str,
+        stdin: Option<Stdio>,
+        stderr: Option<Stdio>,
+        controlling: bool,
+    ) -> Self {
+        Self::launch_on(pseudo_terminal_sized(lines, columns), cmd, before, stdin, stderr, controlling)
+    }
+
+    /// [`OnTerminal::launch`] on a pseudo-terminal the test made ([`pseudo_terminal_sized`]), so that
+    /// it can open the terminal end by name first.
+    fn launch_on(
+        (controller, terminal, name): (std::fs::File, std::os::fd::OwnedFd, std::ffi::CString),
+        mut cmd: Command,
         before: &str,
         stdin: Option<Stdio>,
         stderr: Option<Stdio>,
@@ -1681,7 +1694,6 @@ impl OnTerminal {
             io::{Read, Write},
             os::unix::process::CommandExt,
         };
-        let (controller, terminal, name) = pseudo_terminal_sized(lines, columns);
         std::fs::File::from(terminal.try_clone().unwrap()).write_all(before.as_bytes()).unwrap();
         let kept = terminal.try_clone().unwrap();
         cmd.env("NO_COLOR", "1")
@@ -4239,6 +4251,127 @@ async fn the_questions_and_login_do_not_spin_when_their_terminal_hangs_up() {
 }
 
 #[cfg(unix)]
+#[tokio::test]
+async fn the_menu_exits_as_ctrl_d_does_when_the_terminal_it_is_drawn_on_hangs_up() {
+    // Keys from one terminal and the menu drawn on another (stdout and stderr), which hangs up
+    // while the first stays up: the menu waited for a key on the first, then exited 2 with the
+    // usage error on the terminal that had gone. It exits 0 as for Ctrl-D, running nothing, and
+    // the terminal the keys come from is back in line mode.
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let (_up, keys, _) = pseudo_terminal_sized(40, 120);
+    let watched = keys.try_clone().unwrap();
+    let mut terminal = OnTerminal::launch(sandbox.command(&["apps"]), (40, 120), "", Some(keys.into()), None, false);
+    terminal.wait_for("Update an app");
+    let (exited, ended) = hang_up(&mut terminal);
+    assert!(
+        exited && ended.code == Some(0) && ended.cpu < HUNG_UP_CPU,
+        "it should exit 0 within {HUNG_UP_EXIT:?}, using under {HUNG_UP_CPU:?} of processor time: {ended:?}"
+    );
+    // SAFETY: tcgetattr fills `settings` from a descriptor this test owns.
+    let settings = unsafe {
+        let mut settings: libc::termios = std::mem::zeroed();
+        assert_eq!(libc::tcgetattr(std::os::fd::AsRawFd::as_raw_fd(&watched), &mut settings), 0);
+        settings
+    };
+    assert_ne!(settings.c_lflag & libc::ICANON, 0, "the keys' terminal should be back in line mode");
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+/// Kills a process group when dropped: one a test's shell started, which the test cannot reap.
+#[cfg(unix)]
+struct KillGroup(libc::pid_t);
+
+#[cfg(unix)]
+impl Drop for KillGroup {
+    fn drop(&mut self) {
+        // SAFETY: kill only sends a signal.
+        unsafe {
+            libc::kill(-self.0, libc::SIGKILL);
+        }
+    }
+}
+
+/// The first line a process writes to `path`, within 5 seconds.
+#[cfg(unix)]
+fn line_in(path: &std::path::Path) -> String {
+    let asked = std::time::Instant::now();
+    loop {
+        if let Some((line, _)) = std::fs::read_to_string(path).ok().as_deref().and_then(|text| text.split_once('\n')) {
+            return line.to_string();
+        }
+        assert!(asked.elapsed() < std::time::Duration::from_secs(5), "nothing was written to {}", path.display());
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_menu_exits_as_ctrl_d_does_when_a_shell_takes_its_terminal_back_for_good() {
+    // A program run from a shell started `vendo apps` and was gone while the menu was open: the
+    // shell took its terminal back, and the menu was left in the background with nothing that
+    // could bring it back (its process group orphaned). Every key typed at the shell then made
+    // crossterm's read fail with EIO, at once, every time, and the CLI spun at a whole core for as
+    // long as the window stayed open (2026-10-06). It exits 0 as for Ctrl-D, running nothing, and
+    // leaves the terminal, the shell's now, as it is.
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let dir = tempfile::tempdir().unwrap();
+    let [program, job, code, done] = ["program", "job", "code", "done"].map(|name| dir.path().join(name));
+    // The shell, with job control as at a prompt (`sh` is bash on macOS, dash on Ubuntu), runs
+    // the program in the foreground. The program, a shell with job control too, runs `vendo apps`
+    // in a job of its own that it gives the terminal, and that job records how `vendo` ended.
+    // Then it waits for its next command, which comes once `done` exists.
+    let script = r#"set -m
+sh -c "$PROGRAM" "$0" "$1" "$2" "$3"
+printf 'the shell has the terminal'
+while [ ! -e "$4" ]; do sleep 0.05; done
+printf done"#;
+    let vendo = sandbox.command(&["apps"]);
+    let mut shell = Command::new("/bin/sh");
+    shell.args(["-c", script]).arg(vendo.get_program()).args([&program, &job, &code, &done]);
+    for (key, value) in vendo.get_envs() {
+        match value {
+            Some(value) => shell.env(key, value),
+            None => shell.env_remove(key),
+        };
+    }
+    shell
+        .env("PROGRAM", r#"echo $$ >"$1"; set -m; sh -c "$JOB" "$0" "$2" "$3""#)
+        .env("JOB", r#"echo $$ >"$1"; "$0" apps; echo $? >"$2""#);
+    let mut terminal = OnTerminal::spawn(shell, (40, 120), "", None, None);
+    terminal.wait_for("Update an app");
+    let job = KillGroup(line_in(&job).parse().unwrap());
+    let program: libc::pid_t = line_in(&program).parse().unwrap();
+    // The program is gone: the shell takes the terminal back, and someone types at it.
+    // SAFETY: kill only sends a signal, to the program's shell.
+    unsafe {
+        libc::kill(program, libc::SIGKILL);
+    }
+    terminal.wait_for("the shell has the terminal");
+    terminal.press("l");
+    let asked = std::time::Instant::now();
+    let ended = loop {
+        match std::fs::read_to_string(&code) {
+            Ok(code) if code.ends_with('\n') => break Some(code),
+            _ if asked.elapsed() >= HUNG_UP_EXIT => break None,
+            _ => std::thread::sleep(std::time::Duration::from_millis(20)),
+        }
+    };
+    // Gone by now, unless it still runs.
+    drop(job);
+    std::fs::write(&done, "").unwrap();
+    let shown = terminal.finish();
+    assert_eq!(
+        ended.as_deref(),
+        Some("0\n"),
+        "vendo should exit 0 within {HUNG_UP_EXIT:?} (the shell showed {shown:?})"
+    );
+    assert_eq!(shown, ("done".to_string(), Some(0)), "vendo should leave the shell's terminal as it is");
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+#[cfg(unix)]
 #[test]
 fn choosing_a_group_opens_its_menu() {
     // `vendo measurement` → `ltv` → the menu of `vendo measurement ltv`.
@@ -4331,6 +4464,19 @@ fn a_bare_group_needs_stdin_stdout_and_stderr_on_a_terminal_to_open_the_menu() {
         assert_eq!(terminal.finish(), (String::new(), Some(2)));
     }
     assert_eq!(std::fs::read_to_string(log.path()).unwrap(), help);
+    // Keys from the terminal opened for writing only (`vendo apps 0>/dev/ttys004`): a terminal, but
+    // no key can be read from it. The menu waited for keys, and from the first one on crossterm's
+    // read loop spun at a whole core on the error (EBADF) (2026-10-06).
+    let pseudo_terminal = pseudo_terminal_sized(40, 120);
+    let write_only = {
+        use std::os::unix::{ffi::OsStrExt, fs::OpenOptionsExt};
+        let name = std::ffi::OsStr::from_bytes(pseudo_terminal.2.as_bytes());
+        std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOCTTY).open(name).unwrap()
+    };
+    let mut terminal =
+        OnTerminal::launch_on(pseudo_terminal, sandbox.command(&["apps"]), "", Some(write_only.into()), None, true);
+    let (shown, code) = terminal.finish();
+    assert_eq!((plain(&shown).replace("\r\n", "\n"), code), (help, Some(2)));
 }
 
 #[cfg(unix)]

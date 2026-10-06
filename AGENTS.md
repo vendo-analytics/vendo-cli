@@ -196,16 +196,23 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   (`cli::chosen_command`), so global options, `MOVED`, confirmations and usage errors (a missing `<appId>`) apply as
   typed; a chosen group opens its own menu. Esc, Ctrl-C and Ctrl-D exit 0 (`output::quit_quietly`) and leave the
   title and `<canceled>`: inquire leaves the menu standing on Ctrl-C, so `output::clear_menu` redraws it from the
-  line `choose_command` saved. A terminal that hangs up while the menu is open (its window closed, or the program
-  that opened the pseudo-terminal dropped it) ends the CLI as Ctrl-D does, exit 0 with nothing run, within a quarter
-  of a second (`output::HangUpWatch`, a thread that polls stdin for POLLHUP, re-polling every 250 ms because macOS
-  does not wake a poll that began with a key waiting): where it is not `vendo`'s controlling terminal no SIGHUP
-  comes, and crossterm's read loop, which gets the end of the input (or an I/O error) at once from such a terminal,
-  every time, spun at a whole core for hours (2026-10-06). The y/N questions and the profile picker read that once
-  and exit 0 as for Ctrl-D; login's ENTER read ends with no browser opened, and login waits for the sign-in as with
-  stdin closed (`the_questions_and_login_do_not_spin_when_their_terminal_hangs_up`). The menu takes the screen's
-  height less one line at most, and on a short screen its list scrolls (`output::menu_page`). Without a terminal the
-  usage error stays: the group's help on stderr, exit 2.
+  line `choose_command` saved. A terminal of the menu's that hangs up while it is open (stdin's or stderr's: its
+  window closed, or the program that opened the pseudo-terminal dropped it) ends the CLI as Ctrl-D does, exit 0 with
+  nothing run, within a quarter of a second (`output::HangUpWatch`, a thread that polls stdin and stderr for POLLHUP,
+  re-polling every 250 ms because macOS does not wake a poll that began with a key waiting): where it is not
+  `vendo`'s controlling terminal no SIGHUP comes, and crossterm's read loop, which gets the end of the input (or an
+  I/O error) at once from such a terminal, every time, spun at a whole core for hours (2026-10-06). The y/N
+  questions and the profile picker read that once and exit 0 as for Ctrl-D; login's ENTER read ends with no browser
+  opened, and login waits for the sign-in as with stdin closed
+  (`the_questions_and_login_do_not_spin_when_their_terminal_hangs_up`). A menu left in the background of its
+  terminal for good ends the CLI the same way, leaving that terminal, the shell's now, as it is
+  (`output::reads_fail_in_background`): a program that ran `vendo <group>` from a shell exited while the menu was
+  open, the shell took the terminal back, and each key typed at the shell made the read fail (EIO, the process group
+  orphaned) and the loop spin. A menu that job control can bring back (`fg`) stays: `tcdrain`, which tells the two
+  apart, stops it with SIGTTOU as a read would. A stdin opened write-only (`vendo apps 0>/dev/ttys004`), which no key
+  can be read from, keeps the usage error (`output::stdin_reads`); the questions and the picker read it once and
+  exit 0 as for Ctrl-D. The menu takes the screen's height less one line at most, and on a short screen its list
+  scrolls (`output::menu_page`). Without a terminal the usage error stays: the group's help on stderr, exit 2.
   The menu is inquire with its crossterm backend and no fuzzy matching (`output::choose_command`); crossterm,
   inquire's version, is a direct dependency for the screen size and the Ctrl-C redraw. Both are the default-on
   `menu` cargo feature: built with `--no-default-features` the CLI has no menu (`cli::menu_choice`), so a bare group
@@ -218,7 +225,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   what the terminal shows). `OnTerminal` keeps its own copy of the terminal end until `vendo` exits: macOS drops what
   the reader has not read yet when the last copy closes. `OnTerminal::start_detached` runs `vendo` on a terminal that
   is not its controlling terminal, and `hang_up` closes every copy of the controller and the test's terminal end;
-  `exit_within` then reaps `vendo` with the processor time it used (`wait4`).
+  `exit_within` then reaps `vendo` with the processor time it used (`wait4`). `OnTerminal::launch_on` takes a
+  pseudo-terminal the test made, to open its terminal end by name first. The orphaned-menu test drives job control
+  with `/bin/sh -c 'set -m; …'` (bash on macOS, dash on Ubuntu) and kills what it leaves with `KillGroup`.
 - Prompts off (VE-3826, decided by Yalcin 2026-10-06, CLI 1.1): `CI` or `VENDO_NO_INPUT` set to anything but empty,
   `0` or `false` (any case) turns every prompt off, also at a terminal; there is no `--no-input` flag.
   `output::prompts_off` owns the rule, and every prompt asks by it: the y/N questions refuse without `--yes`, a bare

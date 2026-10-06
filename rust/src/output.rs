@@ -878,10 +878,30 @@ pub fn can_prompt() -> bool {
 /// menu, is a terminal that can draw it. With stderr redirected (`vendo apps
 /// 2>err.log`) the menu would wait for keys with nothing on the screen, and
 /// `TERM=dumb` says the terminal moves no cursor (decided by Yalcin 2026-10-06),
-/// so the usage error stays. The questions still ask on `TERM=dumb`.
+/// so the usage error stays. The questions still ask on `TERM=dumb`. A stdin that is a terminal
+/// opened for writing only ([`stdin_reads`]) gives no keys either.
 #[cfg(feature = "menu")]
 pub fn can_show_menu() -> bool {
-    can_prompt() && std::io::stderr().is_terminal() && std::env::var_os("TERM").is_none_or(|term| term != "dumb")
+    can_prompt()
+        && stdin_reads()
+        && std::io::stderr().is_terminal()
+        && std::env::var_os("TERM").is_none_or(|term| term != "dumb")
+}
+
+/// Whether stdin was opened for reading. A terminal opened write-only (`vendo apps
+/// 0>/dev/ttys004`) is a terminal all the same, but reading it fails at once, every time (EBADF):
+/// crossterm's read loop spun on that from the first key on (2026-10-06). The y/N questions and the
+/// profile picker read it once and end as for Ctrl-D.
+#[cfg(feature = "menu")]
+fn stdin_reads() -> bool {
+    #[cfg(unix)]
+    {
+        // SAFETY: F_GETFL only reads stdin's status flags.
+        let flags = unsafe { libc::fcntl(libc::STDIN_FILENO, libc::F_GETFL) };
+        flags >= 0 && flags & libc::O_ACCMODE != libc::O_WRONLY
+    }
+    #[cfg(not(unix))]
+    true
 }
 
 /// What happens before a delete, cancel or reset (VE-3823).
@@ -982,8 +1002,8 @@ pub fn choose_command(title: &str, commands: &[MenuCommand]) -> Option<usize> {
             quit_quietly()
         }
         // inquire could not draw on a terminal that hung up (a key read before the hang-up
-        // redraws the menu): as when the watch sees it first.
-        Err(_) if input_hung_up(Duration::ZERO) == Some(true) => quit_quietly(),
+        // redraws the menu), or from the background: as when the watch sees it first.
+        Err(_) if menu_lost() => quit_quietly(),
         Err(_) => None,
     }
 }
@@ -993,9 +1013,16 @@ pub fn choose_command(title: &str, commands: &[MenuCommand]) -> Option<usize> {
 #[cfg(all(feature = "menu", unix))]
 const HANG_UP_CHECK: Duration = Duration::from_millis(250);
 
-/// While [`choose_command`]'s menu is open, a thread that watches the terminal its keys come from
-/// (stdin) and, once that terminal hangs up, puts its settings back as far as it still takes them
-/// and ends the CLI as Ctrl-D does ([`quit_quietly`]: exit 0, nothing run).
+/// The terminals [`choose_command`]'s menu uses: stdin, where its keys come from, and stderr, where
+/// inquire draws it. The same terminal, unless a program gave `vendo` two.
+#[cfg(all(feature = "menu", unix))]
+const MENU_TERMINALS: [libc::c_int; 2] = [libc::STDIN_FILENO, libc::STDERR_FILENO];
+
+/// While [`choose_command`]'s menu is open, a thread that ends the CLI as Ctrl-D does
+/// ([`quit_quietly`]: exit 0, nothing run) once the menu can no longer read its keys: a terminal it
+/// uses hung up ([`MENU_TERMINALS`]; stdin's settings are put back first, as far as its terminal
+/// still takes them), or the menu is in the background of its terminal for good
+/// ([`reads_fail_in_background`]; that terminal is another job's now and is left as it is).
 ///
 /// A terminal hangs up when its window closes or the program that opened the pseudo-terminal
 /// drops it. SIGHUP then ends a process whose controlling terminal it is, as at a shell; nothing
@@ -1004,14 +1031,16 @@ const HANG_UP_CHECK: Duration = Duration::from_millis(250);
 /// (2026-10-06): reading a terminal that hung up returns at once, every time, with the end of the
 /// input (or an I/O error while Linux is still hanging it up), and crossterm's read loop
 /// (`UnixInternalEventSource::try_read`) keeps going after either, as it only stops for a key or
-/// `WouldBlock`. inquire loops on crossterm's `event::read` and has no public way to read the keys
-/// otherwise, so the watch runs beside them.
+/// `WouldBlock`. Reading from the background fails at once, every time, too. inquire loops on
+/// crossterm's `event::read` and has no public way to read the keys otherwise, so the watch runs
+/// beside them.
 ///
 /// It asks `poll` for POLLHUP alone: reported once the terminal hangs up (with POLLERR on Linux),
 /// it reads nothing, so it takes no key from the menu, and keys waiting to be read do not wake it.
 /// macOS reports POLLHUP only when asked for it (not when `events` is 0) and does not wake a `poll`
 /// that began while a key waited to be read; a new one sees the hang-up at once, so it asks again
-/// every [`HANG_UP_CHECK`]. On Linux the hang-up wakes any `poll` on the terminal.
+/// every [`HANG_UP_CHECK`], and looks at the background each time. On Linux the hang-up wakes any
+/// `poll` on the terminal.
 #[cfg(all(feature = "menu", unix))]
 struct HangUpWatch {
     /// Whether the menu is open. The watch ends the CLI only while it is and holding the lock, so a
@@ -1027,17 +1056,26 @@ impl HangUpWatch {
         // Before inquire turns raw mode on.
         let settings = terminal_settings(libc::STDIN_FILENO);
         let watch = move || {
-            loop {
-                match hung_up(libc::STDIN_FILENO, HANG_UP_CHECK) {
-                    Some(true) => break,
-                    Some(false) if *Self::lock(&watched) => {}
-                    // The menu closed, or poll cannot watch this terminal.
-                    _ => return,
+            let hung_up = loop {
+                match hung_up(&MENU_TERMINALS, HANG_UP_CHECK) {
+                    Some(true) => break true,
+                    // poll cannot watch these terminals.
+                    None => return,
+                    Some(false) => {}
                 }
-            }
+                if !*Self::lock(&watched) {
+                    // The menu closed.
+                    return;
+                }
+                if reads_fail_in_background() {
+                    break false;
+                }
+            };
             let open = Self::lock(&watched);
             if *open {
-                restore_terminal(settings.as_ref());
+                if hung_up {
+                    restore_terminal(settings.as_ref());
+                }
                 quit_quietly();
             }
         };
@@ -1059,27 +1097,75 @@ impl Drop for HangUpWatch {
     }
 }
 
-/// Whether stdin's terminal has hung up ([`hung_up`]).
+/// Whether the menu can no longer read its keys, as [`HangUpWatch`] tells it, now.
 #[cfg(all(feature = "menu", unix))]
-fn input_hung_up(timeout: Duration) -> Option<bool> {
-    hung_up(libc::STDIN_FILENO, timeout)
+fn menu_lost() -> bool {
+    hung_up(&MENU_TERMINALS, Duration::ZERO) == Some(true) || reads_fail_in_background()
 }
 
-/// Whether the terminal `fd` reads has hung up, waiting up to `timeout` for it ([`HangUpWatch`] says
-/// how). `Some(false)` when it has not by then, or a signal cut the wait short; `None` when `poll`
-/// cannot watch it (POLLNVAL) or fails.
+/// Whether one of the terminals `fds` has hung up, waiting up to `timeout` for it ([`HangUpWatch`]
+/// says how). `Some(false)` when none has by then, or a signal cut the wait short; `None` when
+/// `poll` cannot watch one (POLLNVAL) or fails.
 #[cfg(all(feature = "menu", unix))]
-fn hung_up(fd: libc::c_int, timeout: Duration) -> Option<bool> {
-    let mut input = libc::pollfd { fd, events: libc::POLLHUP, revents: 0 };
+fn hung_up(fds: &[libc::c_int], timeout: Duration) -> Option<bool> {
+    let mut polled: Vec<libc::pollfd> =
+        fds.iter().map(|&fd| libc::pollfd { fd, events: libc::POLLHUP, revents: 0 }).collect();
     let timeout = libc::c_int::try_from(timeout.as_millis()).unwrap_or(libc::c_int::MAX);
-    // SAFETY: poll on one pollfd, which outlives the call.
-    if unsafe { libc::poll(&mut input, 1, timeout) } < 0 {
+    // SAFETY: poll on the pollfds in `polled`, which outlives the call.
+    if unsafe { libc::poll(polled.as_mut_ptr(), polled.len() as libc::nfds_t, timeout) } < 0 {
         return (std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted).then_some(false);
     }
-    if input.revents & libc::POLLNVAL != 0 {
+    if polled.iter().any(|fd| fd.revents & libc::POLLNVAL != 0) {
         return None;
     }
-    Some(input.revents & (libc::POLLHUP | libc::POLLERR) != 0)
+    Some(polled.iter().any(|fd| fd.revents & (libc::POLLHUP | libc::POLLERR) != 0))
+}
+
+/// Whether the menu is in the background of its controlling terminal (stdin) for good, where
+/// reading its keys fails at once, every time (EIO): its process group is not the terminal's
+/// foreground group, and the group is orphaned (no member's parent is in another group of its
+/// session, such as a shell that could bring it back with `fg`) or SIGTTIN is ignored or blocked.
+/// Elsewhere in the background a read stops the process (SIGTTIN) until job control brings it back,
+/// and the menu goes on.
+///
+/// It happens when a program that ran `vendo <group>` from a shell exits while the menu is open:
+/// the shell takes its terminal back, and each key typed at the shell then made crossterm's read
+/// fail, spinning at a whole core until the window closed (2026-10-06). Only the kernel's refusal
+/// tells an orphaned group: `tcdrain`, which reads nothing and changes nothing, makes the check a
+/// read makes, with SIGTTOU in place of SIGTTIN, and fails with EIO for an orphaned group (macOS
+/// and Linux alike); a group that is not orphaned it stops with SIGTTOU, as the read would, and the
+/// call returns once job control brings it back. With SIGTTOU ignored or blocked `tcdrain` cannot
+/// tell, so the menu ends then too. Never where stdin is not the controlling terminal (`tcgetpgrp`
+/// fails), as for a terminal opened with `O_NOCTTY`, nor where the terminal has no foreground group
+/// (0 on Linux, which then lets the read through).
+#[cfg(all(feature = "menu", unix))]
+fn reads_fail_in_background() -> bool {
+    // SAFETY: tcgetpgrp, getpgrp and tcdrain on stdin.
+    let (foreground, own) = unsafe { (libc::tcgetpgrp(libc::STDIN_FILENO), libc::getpgrp()) };
+    if foreground <= 0 || foreground == own {
+        return false;
+    }
+    if [libc::SIGTTIN, libc::SIGTTOU].into_iter().any(held_off) {
+        return true;
+    }
+    // SAFETY: as above.
+    let drained = unsafe { libc::tcdrain(libc::STDIN_FILENO) };
+    drained < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::EIO)
+}
+
+/// Whether `signal` is ignored, or blocked in this thread: [`HangUpWatch`]'s has the signal mask of
+/// the thread that started it, where inquire reads the keys.
+#[cfg(all(feature = "menu", unix))]
+fn held_off(signal: libc::c_int) -> bool {
+    // SAFETY: sigaction and pthread_sigmask only write the signal's action and this thread's mask
+    // into values that outlive the calls, and change neither; sigismember reads the mask.
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        let mut mask: libc::sigset_t = std::mem::zeroed();
+        (libc::sigaction(signal, std::ptr::null(), &mut action) == 0 && action.sa_sigaction == libc::SIG_IGN)
+            || (libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), &mut mask) == 0
+                && libc::sigismember(&mask, signal) == 1)
+    }
 }
 
 /// `fd`'s terminal settings, `None` when it has none.
@@ -1120,10 +1206,10 @@ impl HangUpWatch {
     }
 }
 
-/// Elsewhere than on Unix, whether the terminal hung up cannot be told.
+/// Elsewhere than on Unix, whether the menu's terminal is gone cannot be told.
 #[cfg(all(feature = "menu", not(unix)))]
-fn input_hung_up(_timeout: Duration) -> Option<bool> {
-    None
+fn menu_lost() -> bool {
+    false
 }
 
 /// How many commands the menu lists at once, and the most lines it then takes, on a screen of
@@ -1729,25 +1815,44 @@ mod tests {
     #[test]
     fn a_terminal_hangs_up_when_its_controller_closes_and_a_waiting_key_is_no_hang_up() {
         use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-        // SAFETY: posix_openpt, grantpt, unlockpt, ptsname and open on descriptors this test owns.
-        let (controller, terminal) = unsafe {
-            let controller = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
-            assert!(controller >= 0, "posix_openpt failed");
-            assert_eq!((libc::grantpt(controller), libc::unlockpt(controller)), (0, 0));
-            let terminal = libc::open(libc::ptsname(controller), libc::O_RDWR | libc::O_NOCTTY);
-            assert!(terminal >= 0, "open failed");
-            (OwnedFd::from_raw_fd(controller), OwnedFd::from_raw_fd(terminal))
+        let pseudo_terminal = || {
+            // SAFETY: posix_openpt, grantpt, unlockpt, ptsname and open on descriptors this test owns.
+            unsafe {
+                let controller = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
+                assert!(controller >= 0, "posix_openpt failed");
+                assert_eq!((libc::grantpt(controller), libc::unlockpt(controller)), (0, 0));
+                let terminal = libc::open(libc::ptsname(controller), libc::O_RDWR | libc::O_NOCTTY);
+                assert!(terminal >= 0, "open failed");
+                (OwnedFd::from_raw_fd(controller), OwnedFd::from_raw_fd(terminal))
+            }
         };
-        assert_eq!(hung_up(terminal.as_raw_fd(), Duration::ZERO), Some(false));
+        let (controller, terminal) = pseudo_terminal();
+        let watched = [terminal.as_raw_fd()];
+        assert_eq!(hung_up(&watched, Duration::ZERO), Some(false));
         // A key waiting to be read is no hang-up, and does not end the wait: the watch would spin
-        // until the menu read it.
+        // until the menu read it. In raw mode, as the menu has it, so that the key can be read
+        // (POLLIN) at once: in the line mode a new terminal starts in, it waits for a line end.
+        let mut raw = terminal_settings(watched[0]).expect("a terminal has settings");
+        // SAFETY: cfmakeraw and tcsetattr on settings tcgetattr read from the same descriptor.
+        unsafe {
+            libc::cfmakeraw(&mut raw);
+            assert_eq!(libc::tcsetattr(watched[0], libc::TCSANOW, &raw), 0);
+        }
         std::fs::File::from(controller.try_clone().unwrap()).write_all(b"k").unwrap();
+        let mut key = libc::pollfd { fd: watched[0], events: libc::POLLIN, revents: 0 };
+        // SAFETY: poll on one pollfd, which outlives the call.
+        assert_eq!(unsafe { libc::poll(&mut key, 1, 1000) }, 1, "the key can be read");
         let asked = std::time::Instant::now();
-        assert_eq!(hung_up(terminal.as_raw_fd(), Duration::from_millis(200)), Some(false));
+        assert_eq!(hung_up(&watched, Duration::from_millis(200)), Some(false));
         assert!(asked.elapsed() >= Duration::from_millis(150), "returned after {:?}", asked.elapsed());
-        // The controller closes: the key still waits, and the terminal has hung up.
+        // The controller closes: the key still waits, and the terminal has hung up, also when it is
+        // watched with another that is still up (the menu's keys and its screen on two terminals).
+        let (_up, other) = pseudo_terminal();
+        assert_eq!(hung_up(&[other.as_raw_fd(), watched[0]], Duration::ZERO), Some(false));
         drop(controller);
-        assert_eq!(hung_up(terminal.as_raw_fd(), Duration::ZERO), Some(true));
+        assert_eq!(hung_up(&watched, Duration::ZERO), Some(true));
+        assert_eq!(hung_up(&[other.as_raw_fd(), watched[0]], Duration::ZERO), Some(true));
+        assert_eq!(hung_up(&[other.as_raw_fd()], Duration::ZERO), Some(false));
     }
 
     #[cfg(feature = "menu")]
