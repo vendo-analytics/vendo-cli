@@ -433,10 +433,11 @@ async fn metrics_list_prints_the_table_fields_and_the_ts_envelope() {
     assert_eq!(
         cells(ok_output(&out).as_bytes()),
         rows(&[
-            &["ID", "Name", "Type", "Format", "Status", "Updated"],
+            &["ID", "Name", "Format", "Status", "Updated"],
             &["6f1c2a9e...", "ROAS", "multiplier", "active", "—"],
             &["short-id", "Draft one", "number", "draft", "—"],
-            &["abcdefab...", "Archived", "legacy", "currency", "archived", "—"],
+            // The API sends no type (VE-3856): one an older server sent is not shown.
+            &["abcdefab...", "Archived", "currency", "archived", "—"],
             &["3 metrics"],
         ])
     );
@@ -470,6 +471,7 @@ async fn metrics_get_prints_the_detail_view_like_ts() {
         json!({ "metric": metric(json!({})), "registryWarning": "x" }),
     )
     .await;
+    // The API sends no type (VE-3856): one an older server sent is not shown.
     let draft = metric(json!({
         "id": "short-id", "definition": null, "description": "", "unit": null, "higher_is_better": false,
         "status": "draft", "metric_type": "ratio",
@@ -485,16 +487,16 @@ async fn metrics_get_prints_the_detail_view_like_ts() {
     assert_eq!(
         ok_output(&sandbox.run(&["metrics", "get", M1])),
         format!(
-            "\nROAS (undefined)\n\n  ID:           {M1}\n  Type:         undefined\n  Format:       multiplier\n  Status:       active\n  Updated:      —\n  Description:  Return on ad spend\n  Unit:         x\n  Higher=Better: yes\n  Calculation:  segmentation\n"
+            "\nROAS\n\n  ID:           {M1}\n  Format:       multiplier\n  Status:       active\n  Updated:      —\n  Description:  Return on ad spend\n  Unit:         x\n  Higher=Better: yes\n  Calculation:  segmentation\n"
         )
     );
     assert_eq!(
         ok_output(&sandbox.run(&["metrics", "get", "short-id"])),
-        "\nROAS (ratio)\n\n  ID:           short-id\n  Type:         ratio\n  Format:       multiplier\n  Status:       draft\n  Updated:      —\n  Higher=Better: no\n  Calculation:  unknown\n"
+        "\nROAS\n\n  ID:           short-id\n  Format:       multiplier\n  Status:       draft\n  Updated:      —\n  Higher=Better: no\n  Calculation:  unknown\n"
     );
     assert_eq!(
         ok_output(&sandbox.run(&["metrics", "get", "odd"])),
-        "\nnull (undefined)\n\n  ID:           odd\n  Type:         undefined\n  Format:       null\n  Status:       null\n  Updated:      —\n  Description:  Return on ad spend\n  Unit:         x\n  Higher=Better: yes\n  Calculation:  unknown\n"
+        "\nnull\n\n  ID:           odd\n  Format:       null\n  Status:       null\n  Updated:      —\n  Description:  Return on ad spend\n  Unit:         x\n  Higher=Better: yes\n  Calculation:  unknown\n"
     );
     let printed: Value = serde_json::from_str(&ok_output(&sandbox.run(&["metrics", "get", M1, "--json"]))).unwrap();
     assert_eq!(printed, json!({ "data": metric(json!({})) }));

@@ -1026,16 +1026,33 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
     }
 
     // ── metrics (web-app routes) ──
-    let roas = metric(json!({ "metric_type": "derived", "updated_at": SYNCED }));
+    // As `lib/vendo/metrics/queries.ts` builds them, neither with a type: the list sends `listMetrics`'s
+    // summary columns in their order; the detail and write routes answer with `toNativeMetricRow`: its
+    // columns, in its order, with the table's default icon. A registry publish that fails adds
+    // `registryWarning`.
+    let roas = metric(json!({ "updated_at": SYNCED }));
     let draft = metric(json!({
         "id": "7a2d3b0f-2222-4c3b-9a7e-000000000002", "name": "Blended CAC", "description": "", "format": "currency",
-        "higher_is_better": false, "unit": "$", "status": "draft", "metric_type": "composed", "updated_at": null,
+        "higher_is_better": false, "unit": "$", "status": "draft", "updated_at": null,
     }));
-    let metrics = json!({ "metrics": [roas.clone(), draft], "total": 2, "limit": 20, "offset": 0 });
-    serve(server, "GET", "/api/metrics", 200, metrics).await;
-    serve(server, "GET", &format!("/api/metrics/{M1}"), 200, json!({ "metric": roas.clone() })).await;
-    // The write routes answer with `toNativeMetricRow` (`lib/vendo/metrics/queries.ts`): its columns, in
-    // its order, with the table's default icon. A registry publish that fails adds `registryWarning`.
+    let summary = |row: &Value| {
+        let columns = [
+            "id",
+            "access_scope",
+            "account_id",
+            "name",
+            "description",
+            "format",
+            "higher_is_better",
+            "unit",
+            "status",
+            "verified_at",
+            "verified_by",
+            "created_at",
+            "updated_at",
+        ];
+        Value::Object(columns.iter().map(|key| (key.to_string(), row[*key].clone())).collect())
+    };
     let native = |row: &Value| {
         let column = |key: &str| row.get(key).cloned().unwrap_or(Value::Null);
         json!({
@@ -1048,6 +1065,9 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
             "updated_by": null,
         })
     };
+    let metrics = json!({ "metrics": [summary(&roas), summary(&draft)], "total": 2, "limit": 20, "offset": 0 });
+    serve(server, "GET", "/api/metrics", 200, metrics).await;
+    serve(server, "GET", &format!("/api/metrics/{M1}"), 200, json!({ "metric": native(&roas) })).await;
     let created = with(
         roas.clone(),
         json!({ "id": "8b3e4c1a-3333-4c3b-9a7e-000000000003", "name": "Demo metric", "status": "draft",

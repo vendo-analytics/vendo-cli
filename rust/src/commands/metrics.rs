@@ -3,7 +3,9 @@
 //!
 //! `--json` prints the TS command's own envelope (`{ data: metric }`, and
 //! `{ data, meta: { pagination: { total } } }` for the list) around the
-//! route's snake_case rows, unchanged (Yalcin, 2026-10-05).
+//! route's snake_case rows, unchanged (Yalcin, 2026-10-05). The routes send no
+//! type, so the list has no Type column and get no type (VE-3856, Yalcin
+//! 2026-10-06), where the TS CLI showed the `metric_type` the API dropped.
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value, json};
@@ -73,12 +75,11 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
         }
         OutputMode::Field => print_field(&rows, args.output.as_deref().unwrap_or_default()),
         OutputMode::Table => {
-            let mut grid = table(&["ID", "Name", "Type", "Format", "Status", "Updated"]);
+            let mut grid = table(&["ID", "Name", "Format", "Status", "Updated"]);
             for metric in &rows {
                 grid.add_row(vec![
                     dim(&short_id(&cell(metric.get("id")))),
                     cell(metric.get("name")),
-                    cell(metric.get("metric_type")),
                     cell(metric.get("format")),
                     status_cell(metric.get("status")),
                     time_ago_of(metric.get("updated_at")),
@@ -112,10 +113,9 @@ pub fn render_metric(metric: &Value) -> String {
     };
     let mut lines = vec![
         String::new(),
-        format!("{} {}", bold(&t("name")), dim(&format!("({})", t("metric_type")))),
+        bold(&t("name")),
         String::new(),
         format!("  ID:           {}", t("id")),
-        format!("  Type:         {}", t("metric_type")),
         format!("  Format:       {}", t("format")),
         format!("  Status:       {status}"),
         format!("  Updated:      {}", time_ago_of(metric.get("updated_at"))),
@@ -299,7 +299,7 @@ mod tests {
         );
         assert_eq!(
             out,
-            "\nnull (undefined)\n\n  ID:           m1\n  Type:         undefined\n  Format:       number\n  Status:       draft\n  Updated:      —\n  Higher=Better: no\n  Calculation:  unknown\n"
+            "\nnull\n\n  ID:           m1\n  Format:       number\n  Status:       draft\n  Updated:      —\n  Higher=Better: no\n  Calculation:  unknown\n"
         );
     }
 }

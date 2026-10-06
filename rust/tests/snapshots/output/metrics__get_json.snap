@@ -11,18 +11,23 @@ exit: 0
     "account_id": "acct-alpha",
     "name": "ROAS",
     "description": "Return on ad spend",
+    "definition": {
+      "version": 2,
+      "reportType": "segmentation"
+    },
+    "designated_breakdowns": [],
     "format": "multiplier",
     "higher_is_better": true,
+    "icon_color": "emerald",
+    "icon_name": "gauge",
+    "owner_user_id": null,
     "unit": "x",
     "status": "active",
     "verified_at": null,
     "verified_by": null,
     "created_at": "2026-01-01T00:00:00Z",
+    "created_by": null,
     "updated_at": "2026-01-05T09:07:03.000Z",
-    "definition": {
-      "version": 2,
-      "reportType": "segmentation"
-    },
-    "metric_type": "derived"
+    "updated_by": null
   }
 }

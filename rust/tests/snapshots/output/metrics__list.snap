@@ -4,7 +4,7 @@ source: tests/cli/snapshots.rs
 $ vendo metrics list
 exit: 0
 --- stdout ---
- ID           Name         Type      Format      Status  Updated  
- 6f1c2a9e...  ROAS         derived   multiplier  active  1/5/2026 
- 7a2d3b0f...  Blended CAC  composed  currency    draft   —        
+ ID           Name         Format      Status  Updated  
+ 6f1c2a9e...  ROAS         multiplier  active  1/5/2026 
+ 7a2d3b0f...  Blended CAC  currency    draft   —        
 2 metrics

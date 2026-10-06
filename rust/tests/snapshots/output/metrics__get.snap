@@ -5,10 +5,9 @@ $ vendo metrics get 6f1c2a9e-1111-4c3b-9a7e-000000000001
 exit: 0
 --- stdout ---
 
-ROAS (derived)
+ROAS
 
   ID:           6f1c2a9e-1111-4c3b-9a7e-000000000001
-  Type:         derived
   Format:       multiplier
   Status:       active
   Updated:      1/5/2026
