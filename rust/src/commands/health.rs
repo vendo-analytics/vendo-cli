@@ -287,21 +287,30 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
     checks
 }
 
-pub fn auth_check(result: Option<&Result<Identity, IdentityError>>) -> DoctorCheck {
+/// The API check. `vendo_profile` is the profile `VENDO_PROFILE` chose (no `--profile`): each fix
+/// sends the user to whoami, so it says that VENDO_PROFILE overrides the active profile (Yalcin,
+/// 2026-10-06).
+pub fn auth_check(result: Option<&Result<Identity, IdentityError>>, vendo_profile: Option<&str>) -> DoctorCheck {
     use CheckStatus::{Fail, Warn};
     match result {
         None => check("API auth", Warn, "Skipped because API key or account ID is missing".into(), None),
         Some(Ok(identity)) => {
             check("API auth", CheckStatus::Ok, format!("Authenticated as {}", identity.me.display_name()), None)
         }
-        Some(Err(IdentityError::Http { status, status_text })) => {
-            check("API auth", Fail, format!("HTTP {status}: {status_text}"), Some(api_auth_remediation(*status)))
-        }
+        Some(Err(IdentityError::Http { status, status_text })) => check(
+            "API auth",
+            Fail,
+            format!("HTTP {status}: {status_text}"),
+            Some(&api_auth_remediation(*status, vendo_profile)),
+        ),
         Some(Err(other)) => check(
             "API auth",
             Fail,
             other.to_string(),
-            Some("Check network access and run `vendo whoami --debug` to inspect the failing request."),
+            Some(&with_override(
+                "Check network access and run `vendo whoami --debug` to inspect the failing request.",
+                vendo_profile,
+            )),
         ),
     }
 }
@@ -335,11 +344,27 @@ fn path_remediation(shell: Option<&str>) -> String {
     }
 }
 
-fn api_auth_remediation(status: u16) -> &'static str {
-    match status {
-        401 | 403 => "Run `vendo login` to refresh credentials, then retry `vendo whoami`.",
-        404 => "Verify the configured account and base URL with `vendo whoami --debug`.",
-        _ => "Run `vendo whoami --debug` to inspect the failing request and response.",
+fn api_auth_remediation(status: u16, vendo_profile: Option<&str>) -> String {
+    match (status, vendo_profile) {
+        // Under VENDO_PROFILE login saves the new key without making its profile active, and a plain
+        // `vendo whoami` checks the profile VENDO_PROFILE names (Yalcin, 2026-10-06).
+        (401 | 403, Some(name)) => format!(
+            "Run `vendo login` to refresh credentials, then retry `vendo --profile <profile> whoami` with the profile it saved ({}).",
+            vendo_profile_overrides(name)
+        ),
+        (401 | 403, None) => "Run `vendo login` to refresh credentials, then retry `vendo whoami`.".into(),
+        (404, _) => {
+            with_override("Verify the configured account and base URL with `vendo whoami --debug`.", vendo_profile)
+        }
+        _ => with_override("Run `vendo whoami --debug` to inspect the failing request and response.", vendo_profile),
+    }
+}
+
+/// `fix`, ending with the VENDO_PROFILE note when VENDO_PROFILE chose the profile.
+fn with_override(fix: &str, vendo_profile: Option<&str>) -> String {
+    match vendo_profile {
+        Some(name) => format!("{} ({}).", fix.trim_end_matches('.'), vendo_profile_overrides(name)),
+        None => fix.to_string(),
     }
 }
 
@@ -367,7 +392,7 @@ pub async fn doctor(ctx: &Ctx, json: bool) -> Result<ExitCode> {
         (Some(key), Some(account)) => Some(fetch_identity(key, account, &config.base_url, ctx.debug).await),
         _ => None,
     };
-    checks.push(auth_check(identity.as_ref()));
+    checks.push(auth_check(identity.as_ref(), ctx.store.vendo_profile()));
 
     let summary = |status: CheckStatus| checks.iter().filter(|c| c.status == status).count();
     let (ok, warn, fail) = (summary(CheckStatus::Ok), summary(CheckStatus::Warn), summary(CheckStatus::Fail));
@@ -564,7 +589,7 @@ mod tests {
 
     #[test]
     fn auth_check_maps_identity_results() {
-        assert_eq!(auth_check(None).status, CheckStatus::Warn);
+        assert_eq!(auth_check(None, None).status, CheckStatus::Warn);
         let ok = Ok(Identity {
             me: Me {
                 account_id: "a".into(),
@@ -575,9 +600,9 @@ mod tests {
             },
             raw: json!({}),
         });
-        assert_eq!(auth_check(Some(&ok)).detail, "Authenticated as Acme");
+        assert_eq!(auth_check(Some(&ok), None).detail, "Authenticated as Acme");
         let http = Err(IdentityError::Http { status: 401, status_text: "Unauthorized".into() });
-        let c = auth_check(Some(&http));
+        let c = auth_check(Some(&http), None);
         assert_eq!((c.status, c.detail.as_str()), (CheckStatus::Fail, "HTTP 401: Unauthorized"));
         assert_eq!(
             c.remediation.as_deref(),
@@ -592,7 +617,49 @@ mod tests {
             details: None,
             status_text: None,
         }));
-        assert_eq!(auth_check(Some(&net)).detail, "Request timed out");
+        assert_eq!(auth_check(Some(&net), None).detail, "Request timed out");
+    }
+
+    #[test]
+    fn auth_fixes_under_vendo_profile_say_it_overrides_the_active_profile() {
+        // Each fix sends the user to whoami, which checks the profile VENDO_PROFILE names; after a
+        // login under it the new key is in a profile it did not make active (Yalcin, 2026-10-06).
+        let fix = |status: u16, vendo_profile: Option<&str>| {
+            let http = Err(IdentityError::Http { status, status_text: "x".into() });
+            auth_check(Some(&http), vendo_profile).remediation.unwrap()
+        };
+        let note = "(VENDO_PROFILE=beta overrides the active profile in this shell).";
+        assert_eq!(
+            fix(401, Some("beta")),
+            format!(
+                "Run `vendo login` to refresh credentials, then retry `vendo --profile <profile> whoami` with the profile it saved {note}"
+            )
+        );
+        assert_eq!(fix(403, Some("beta")), fix(401, Some("beta")));
+        assert_eq!(
+            fix(404, Some("beta")),
+            format!("Verify the configured account and base URL with `vendo whoami --debug` {note}")
+        );
+        assert_eq!(
+            fix(500, Some("beta")),
+            format!("Run `vendo whoami --debug` to inspect the failing request and response {note}")
+        );
+        let net = Err(IdentityError::Transport(ApiError {
+            message: "Request timed out".into(),
+            status: 408,
+            code: None,
+            request_id: None,
+            server_request_id: None,
+            details: None,
+            status_text: None,
+        }));
+        assert_eq!(
+            auth_check(Some(&net), Some("beta")).remediation.unwrap(),
+            format!("Check network access and run `vendo whoami --debug` to inspect the failing request {note}")
+        );
+        // Without VENDO_PROFILE, as before.
+        assert_eq!(fix(403, None), "Run `vendo login` to refresh credentials, then retry `vendo whoami`.");
+        assert_eq!(fix(404, None), "Verify the configured account and base URL with `vendo whoami --debug`.");
     }
 
     #[test]

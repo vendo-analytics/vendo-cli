@@ -2927,7 +2927,9 @@ async fn an_unknown_vendo_profile_is_an_error_that_names_it_and_says_how_to_fix_
     let server = me_stub().await;
     let sandbox = Sandbox::new(&server.uri());
     let unknown = "Profile \"nope\" not found (VENDO_PROFILE selects it).\n  Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.";
-    for args in [&["apps", "list"][..], &["whoami"], &["jobs", "get", "1a2b3c4d"]] {
+    let saved = sandbox.config();
+    // logout too, where it said "Not currently logged in." while the active profile was logged in.
+    for args in [&["apps", "list"][..], &["whoami"], &["jobs", "get", "1a2b3c4d"], &["logout"]] {
         let out = sandbox.command(args).env("VENDO_PROFILE", "nope").output().unwrap();
         assert_eq!(
             (out.status.code(), text(&out.stdout), text(&out.stderr)),
@@ -2935,9 +2937,18 @@ async fn an_unknown_vendo_profile_is_an_error_that_names_it_and_says_how_to_fix_
             "{args:?}"
         );
     }
-    let out = sandbox.command(&["apps", "list", "--json"]).env("VENDO_PROFILE", "nope").output().unwrap();
-    assert_eq!((out.status.code(), text(&out.stdout)), (Some(1), String::new()));
-    assert_eq!(json_error(&out), error_shape(unknown, Value::Null, Value::Null, Value::Null));
+    for args in [&["apps", "list", "--json"][..], &["logout", "--json"]] {
+        let out = sandbox.command(args).env("VENDO_PROFILE", "nope").output().unwrap();
+        assert_eq!((out.status.code(), text(&out.stdout)), (Some(1), String::new()), "{args:?}");
+        assert_eq!(json_error(&out), error_shape(unknown, Value::Null, Value::Null, Value::Null), "{args:?}");
+    }
+    assert_eq!(sandbox.config(), saved);
+    // mcp prints the client config as ever; its hint names VENDO_PROFILE where it said there is no key.
+    let out = sandbox.command(&["mcp"]).env("VENDO_PROFILE", "nope").output().unwrap();
+    let no_key_hint = "  No API key configured — run `vendo login` or set VENDO_API_KEY first.\n";
+    let flag = ok_output(&sandbox.run(&["--profile", "nope", "mcp"]));
+    assert!(flag.contains(no_key_hint), "{flag}");
+    assert_eq!(ok_output(&out), flag.replace(no_key_hint, &format!("  {unknown}\n")));
     // An unknown --profile is as before, also over VENDO_PROFILE.
     let no_key =
         "Error: No API key configured. Run `vendo login` or `vendo profile set --api-key <key>` or set VENDO_API_KEY.";
@@ -2951,6 +2962,16 @@ async fn an_unknown_vendo_profile_is_an_error_that_names_it_and_says_how_to_fix_
         let out = cmd.output().unwrap();
         assert_eq!((out.status.code(), stderr_line(&out)), (Some(1), no_key.to_string()), "{args:?}");
     }
+    let out = sandbox.command(&["--profile", "nope", "logout"]).env("VENDO_PROFILE", "beta").output().unwrap();
+    assert_eq!(
+        (out.status.code(), text(&out.stdout), text(&out.stderr)),
+        (Some(0), String::new(), "Error: Not currently logged in.\n".to_string())
+    );
+    // profile switch needs no key: VENDO_PROFILE=nope is --profile nope there.
+    let flag = sandbox.run(&["--profile", "nope", "profile", "switch"]);
+    let env = sandbox.command(&["profile", "switch"]).env("VENDO_PROFILE", "nope").output().unwrap();
+    assert_eq!((env.status.code(), &env.stdout, &env.stderr), (flag.status.code(), &flag.stdout, &flag.stderr));
+    assert_eq!(sandbox.config(), saved);
     assert_eq!(sent(&server).await, Vec::<String>::new());
 }
 
@@ -3063,6 +3084,65 @@ async fn login_under_vendo_profile_saves_its_profile_without_making_it_active_an
         .unwrap();
     assert_eq!(ok_output(&out), signed_in("demo-account", &stub, "acct-gamma"));
     assert_eq!(sandbox.config()["activeProfile"], "demo-account");
+}
+
+#[tokio::test]
+async fn a_login_under_vendo_profile_to_the_saved_active_profile_does_not_say_it_was_not_made_active() {
+    let server = sign_in_stub(&[GAMMA_KEY], 401).await;
+    let stub = server.uri();
+    let sandbox = Sandbox::new(&stub);
+    let headless = ["login", "--api-key", GAMMA_KEY, "--account", "acct-gamma", "--base-url", stub.as_str()];
+    let summary = signed_in("demo-account", &stub, "acct-gamma");
+    // A plain login makes demo-account the saved active profile.
+    assert_eq!(ok_output(&sandbox.run(&headless)), summary);
+    assert_eq!(sandbox.config()["activeProfile"], "demo-account");
+    // Again while VENDO_PROFILE names another: the profile is the active one, which VENDO_PROFILE overrides here.
+    let note = "Profile demo-account was saved and is the active profile, but VENDO_PROFILE=beta overrides the active profile in this shell: unset VENDO_PROFILE to use demo-account here.\n";
+    let out = sandbox.command(&headless).env("VENDO_PROFILE", "beta").output().unwrap();
+    assert_eq!(
+        (ok_output(&out), text(&out.stderr)),
+        (summary.replace("\n\nNext steps", &format!("\n\n{note}\nNext steps")), String::new())
+    );
+    let out = sandbox.command(&[&headless[..], &["--json"]].concat()).env("VENDO_PROFILE", "beta").output().unwrap();
+    let verified = json!("Demo Account (synthetic)");
+    assert_eq!(
+        (ok_output(&out), text(&out.stderr)),
+        (login_summary("demo-account", &stub, "acct-gamma", "verified", verified), note.to_string())
+    );
+    // VENDO_PROFILE names it too: it is active and in use, so there is nothing to note.
+    for args in [&headless[..], &[&headless[..], &["--json"]].concat()] {
+        let out = sandbox.command(args).env("VENDO_PROFILE", "demo-account").output().unwrap();
+        assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), String::new()), "{args:?}");
+    }
+    let out = sandbox.command(&headless).env("VENDO_PROFILE", "demo-account").output().unwrap();
+    assert_eq!(ok_output(&out), summary);
+    assert_eq!(sandbox.config()["activeProfile"], "demo-account");
+}
+
+#[tokio::test]
+async fn doctors_fixes_for_a_rejected_key_under_vendo_profile_say_it_overrides_the_active_profile() {
+    // Following "run `vendo login`, then retry `vendo whoami`" under VENDO_PROFILE checks the old key again:
+    // login saves the new one in a profile it does not make active (Yalcin, 2026-10-06).
+    let server = MockServer::start().await;
+    serve(&server, "GET", "/api/v1/me", 401, json!({ "error": { "message": "Invalid API key" } })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let auth_fix = |cmd: &mut Command| {
+        let out: Value = serde_json::from_str(&text(&cmd.output().unwrap().stdout)).unwrap();
+        out["checks"].as_array().unwrap().iter().find(|c| c["name"] == "API auth").unwrap()["remediation"].clone()
+    };
+    let fix = "Run `vendo login` to refresh credentials, then retry `vendo --profile <profile> whoami` with the profile it saved (VENDO_PROFILE=beta overrides the active profile in this shell).";
+    assert_eq!(auth_fix(sandbox.command(&["doctor", "--json"]).env("VENDO_PROFILE", "beta")), json!(fix));
+    let out = sandbox.command(&["doctor"]).env("VENDO_PROFILE", "beta").output().unwrap();
+    let printed = text(&out.stdout);
+    assert!(printed.contains(&format!("\n       Fix: {fix}\n")), "{printed}");
+    assert!(printed.contains(&format!("\n  - {fix}\n")), "{printed}");
+    // Without VENDO_PROFILE, or with --profile over it, as before.
+    let plain = json!("Run `vendo login` to refresh credentials, then retry `vendo whoami`.");
+    assert_eq!(auth_fix(&mut sandbox.command(&["doctor", "--json"])), plain);
+    assert_eq!(
+        auth_fix(sandbox.command(&["--profile", "beta", "doctor", "--json"]).env("VENDO_PROFILE", "alpha")),
+        plain
+    );
 }
 
 #[tokio::test]

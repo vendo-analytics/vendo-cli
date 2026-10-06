@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     client::payload,
-    config::{ConfigValueUpdates, vendo_profile_overrides},
+    config::{ConfigValueUpdates, unknown_vendo_profile, vendo_profile_overrides},
     context::Ctx,
     output::{
         bold, confirm, dim, green, js_join, js_nullish, js_string, js_template, message_error_json, print_error,
@@ -52,7 +52,14 @@ pub fn logout(ctx: &Ctx, all: bool, yes: bool, json: bool) -> Result<()> {
         }
         return Ok(());
     }
-    if ctx.effective().api_key.is_none() {
+    let config = ctx.effective();
+    if config.api_key.is_none() {
+        // A VENDO_PROFILE that names no profile is the error that names it (Yalcin, 2026-10-06),
+        // with exit 1 as for every other command: "not logged in" would hide that the profile is
+        // not there while the active one may be logged in. --profile is as before.
+        if let Some(name) = config.unknown_vendo_profile() {
+            bail!(unknown_vendo_profile(name));
+        }
         // With --json the JSON error on stderr and nothing on stdout; exit 0 either way, as the TS
         // CLI's text did (Yalcin, 2026-10-06).
         if json {
@@ -242,7 +249,12 @@ pub fn mcp(ctx: &Ctx, json: bool, show_key: bool) {
     println!();
     println!("{block}");
     println!();
-    if config.api_key.is_none() {
+    if let (None, Some(name)) = (&config.api_key, config.unknown_vendo_profile()) {
+        // Why there is no key: the profile VENDO_PROFILE names is not there (Yalcin, 2026-10-06).
+        for line in unknown_vendo_profile(name).lines() {
+            println!("{}", dim(&format!("  {}", line.trim_start())));
+        }
+    } else if config.api_key.is_none() {
         println!("{}", dim("  No API key configured — run `vendo login` or set VENDO_API_KEY first."));
     } else if !mcp.key_embedded {
         println!(

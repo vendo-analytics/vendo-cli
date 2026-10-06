@@ -66,6 +66,12 @@ pub struct EffectiveConfig {
 }
 
 impl EffectiveConfig {
+    /// The name `VENDO_PROFILE` gave when no profile has it (VE-3831): commands that need its key
+    /// say so with [`unknown_vendo_profile`] instead of "no key" (Yalcin, 2026-10-06).
+    pub fn unknown_vendo_profile(&self) -> Option<&str> {
+        self.selected_profile.as_deref().filter(|_| self.selected_by_vendo_profile && !self.selected_profile_exists)
+    }
+
     pub fn env_override_names(&self) -> Vec<&'static str> {
         let mut names = Vec::new();
         if self.api_key_source == Source::Env {
@@ -176,6 +182,11 @@ impl ConfigStore {
             Some(_) => None,
             None => self.env.profile.as_deref(),
         }
+    }
+
+    /// The saved `activeProfile`, whatever `--profile` or `VENDO_PROFILE` select.
+    pub fn saved_active_profile(&self) -> Option<String> {
+        self.read().get("activeProfile").and_then(Value::as_str).map(str::to_string)
     }
 
     /// The profile commands use: `--profile` wins, then `VENDO_PROFILE` (VE-3831), then
@@ -346,14 +357,20 @@ pub fn require_api_key(effective: &EffectiveConfig) -> Result<String> {
     if let Some(key) = &effective.api_key {
         return Ok(key.clone());
     }
-    match effective.selected_profile.as_deref() {
-        Some(name) if effective.selected_by_vendo_profile && !effective.selected_profile_exists => bail!(
-            "Profile \"{name}\" not found (VENDO_PROFILE selects it).\n  Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile."
-        ),
-        _ => bail!(
+    match effective.unknown_vendo_profile() {
+        Some(name) => bail!(unknown_vendo_profile(name)),
+        None => bail!(
             "No API key configured. Run `vendo login` or `vendo profile set --api-key <key>` or set VENDO_API_KEY."
         ),
     }
+}
+
+/// The error for a `VENDO_PROFILE` that names no profile, wherever the CLI would otherwise say it
+/// has no key: [`require_api_key`], `logout` and `mcp`'s hint (Yalcin, 2026-10-06).
+pub fn unknown_vendo_profile(name: &str) -> String {
+    format!(
+        "Profile \"{name}\" not found (VENDO_PROFILE selects it).\n  Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile."
+    )
 }
 
 /// What hints about switching profiles, or checking one with `vendo whoami`, add while
@@ -680,6 +697,9 @@ mod tests {
         }
         assert_eq!((from_env.selected_by_vendo_profile, from_flag.selected_by_vendo_profile), (true, false));
         assert!(!flag_over_env.selected_by_vendo_profile);
+        let unknown = |e: &EffectiveConfig| e.unknown_vendo_profile().map(str::to_string);
+        assert_eq!([&from_env, &from_flag, &flag_over_env].map(unknown), [Some("missing".to_string()), None, None]);
+        assert_eq!(unknown(&with_env_profile(&f, None, Some("alpha")).effective()), None);
         // Decided by Yalcin, 2026-10-06: the error names the profile and VENDO_PROFILE, and how to fix it.
         assert_eq!(
             require_api_key(&from_env).unwrap_err().to_string(),

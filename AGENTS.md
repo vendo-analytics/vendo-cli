@@ -106,7 +106,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     shapes are the build's choice, for Yalcin's review with CLI 1.1): `profile list`
     (`{"profiles":[{name, active, accountId, baseUrl}]}`), `profile switch` (`{"profile":…}`, null when nothing was
     switched; never opens the picker), `profile set` (`{"profile","configPath"}`), `logout` (`{"removed":[names]}`;
-    not logged in, the JSON error on stderr, nothing on stdout and exit 0 like the text, Yalcin 2026-10-06),
+    not logged in, the JSON error on stderr, nothing on stdout and exit 0 like the text, Yalcin 2026-10-06; an
+    unknown `VENDO_PROFILE` is its error, exit 1, see below),
     `login`/`init` (`{"profile","baseUrl","accountId","auth":"verified"|"unverified"|"incomplete","accountName"}`;
     what it says on the way, the sign-in URL among it, goes to stderr), `jobs tail` (nothing while polling, then the
     last `GET /jobs/<id>` response as `jobs get --json` prints it; a failed job, or a wait that times out, also
@@ -132,15 +133,19 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     unset. `--profile`'s help says "(or set VENDO_PROFILE)". It never changes the saved `activeProfile` (Yalcin,
     2026-10-06; `ConfigStore::vendo_profile`): `profile set` writes to its profile, `logout` removes its profile and
     `login` saves its profile, each leaving `activeProfile` as saved; login then says the profile was not made
-    active and that VENDO_PROFILE overrides the active profile in this shell, on stderr with `--json`. `profile
-    switch` is an explicit request: it changes `activeProfile`, then notes that VENDO_PROFILE still overrides it in
-    this shell (not with `--json`, whose `active` says so). A name no profile has fails with an error that names the
-    profile and VENDO_PROFILE and says to run `vendo profile list` or unset VENDO_PROFILE, where the CLI would
-    otherwise say "No API key configured" (`config::require_api_key`; a key in `VENDO_API_KEY` is still used, as for
-    an unknown `--profile`). Hints about switching profiles or checking with whoami (whoami's profile list, doctor's
-    missing profile, a new login key that cannot be checked) say that VENDO_PROFILE overrides the active profile
-    (`config::vendo_profile_overrides`). whoami and doctor otherwise name the profile as they do for `--profile`.
-    `--profile`, which wins over VENDO_PROFILE, works as before.
+    active and that VENDO_PROFILE overrides the active profile in this shell, on stderr with `--json` (a profile
+    that already is the saved active one: that VENDO_PROFILE overrides it, or nothing when VENDO_PROFILE names it
+    too). `profile switch` is an explicit request: it changes `activeProfile`, then notes that VENDO_PROFILE still
+    overrides it in this shell (not with `--json`, whose `active` says so). A name no profile has fails with an
+    error that names the profile and VENDO_PROFILE and says to run `vendo profile list` or unset VENDO_PROFILE
+    (`config::unknown_vendo_profile`), exit 1, where the CLI would otherwise say "No API key configured"
+    (`config::require_api_key`) and in `logout`, which would say "Not currently logged in."; `mcp`, which prints its
+    config either way, gives it in place of its no-key hint. A key in `VENDO_API_KEY` is still used, as for an
+    unknown `--profile`. Hints about switching profiles or checking with whoami (whoami's profile list, doctor's
+    missing profile and its API-auth fixes, a new login key that cannot be checked) say that VENDO_PROFILE
+    overrides the active profile (`config::vendo_profile_overrides`); doctor's fix for a rejected key (401/403)
+    says to check the profile login saved with `vendo --profile <profile> whoami`. whoami and doctor otherwise name
+    the profile as they do for `--profile`. `--profile`, which wins over VENDO_PROFILE, works as before.
 - Group menus (VE-3826, decided by Yalcin 2026-10-05, CLI 1.1): a group run without its command (`vendo apps`,
   `vendo measurement ltv`, the hidden `config`; bare `vendo` is unchanged) opens an arrow-key menu of its visible
   commands and their descriptions where `output::can_show_menu` holds: `can_prompt` (stdin and stdout terminals and

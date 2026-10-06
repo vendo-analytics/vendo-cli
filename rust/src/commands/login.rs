@@ -134,10 +134,19 @@ pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
 }
 
 /// With `VENDO_PROFILE` in effect, login saves its profile without making it active (Yalcin,
-/// 2026-10-06), and says so.
+/// 2026-10-06), and says so. A profile that already is the saved active one was not left inactive:
+/// the note says VENDO_PROFILE overrides it, and nothing when VENDO_PROFILE names it too.
 fn not_made_active(ctx: &Ctx, saved: &str) -> Option<String> {
     let name = ctx.store.vendo_profile()?;
-    let mut note = format!("Profile {saved} was saved but not made active: {}.", vendo_profile_overrides(name));
+    let overrides = vendo_profile_overrides(name);
+    if ctx.store.saved_active_profile().as_deref() == Some(saved) {
+        return (name != saved).then(|| {
+            format!(
+                "Profile {saved} was saved and is the active profile, but {overrides}: unset VENDO_PROFILE to use {saved} here."
+            )
+        });
+    }
+    let mut note = format!("Profile {saved} was saved but not made active: {overrides}.");
     if name != saved {
         note.push_str(&format!(" Use it with VENDO_PROFILE={saved}."));
     }
