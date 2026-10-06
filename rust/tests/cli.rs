@@ -1614,11 +1614,25 @@ struct OnTerminal {
     /// a `vendo` that wrote and exited before the reader ran went missing.
     terminal: Option<std::os::fd::OwnedFd>,
     child: std::process::Child,
+    /// Set once [`OnTerminal::exit_within`] or [`OnTerminal::stop`] has reaped `vendo` itself, so
+    /// nothing kills or waits for its process ID again.
+    reaped: bool,
     output: std::sync::mpsc::Receiver<Vec<u8>>,
+    /// The thread that reads the controller into `output`; it holds a copy of the controller.
+    reader: Option<std::thread::JoinHandle<()>>,
     /// Everything the terminal showed so far, as `vendo` wrote it.
     screen: String,
     /// The end of what [`OnTerminal::wait_for`] last found.
     seen: usize,
+}
+
+/// How `vendo` ended after [`OnTerminal::hang_up`]: its exit code (`None` when a signal stopped
+/// it) and the processor time it used in all, user and system.
+#[cfg(unix)]
+#[derive(Debug)]
+struct Ended {
+    code: Option<i32>,
+    cpu: std::time::Duration,
 }
 
 #[cfg(unix)]
@@ -1640,14 +1654,28 @@ impl OnTerminal {
         Self::spawn(cmd, (40, 120), "", None, None)
     }
 
+    /// [`OnTerminal::start`] on a terminal that is not `vendo`'s controlling terminal: `vendo` runs
+    /// in a session of its own that has none, as when a program opens a pseudo-terminal for it
+    /// (opened with `O_NOCTTY`, as [`pseudo_terminal_sized`] does). When that terminal hangs up, no
+    /// SIGHUP ends `vendo` ([`OnTerminal::hang_up`]).
+    fn start_detached(sandbox: &Sandbox, args: &[&str]) -> Self {
+        Self::launch(sandbox.command(args), (40, 120), "", None, None, false)
+    }
+
     /// `cmd` on a terminal of `lines` × `columns` that already shows `before`; stdin and stderr
     /// elsewhere than the terminal when given.
-    fn spawn(
+    fn spawn(cmd: Command, size: (u16, u16), before: &str, stdin: Option<Stdio>, stderr: Option<Stdio>) -> Self {
+        Self::launch(cmd, size, before, stdin, stderr, true)
+    }
+
+    /// [`OnTerminal::spawn`], the terminal `vendo`'s controlling terminal when `controlling`.
+    fn launch(
         mut cmd: Command,
         (lines, columns): (u16, u16),
         before: &str,
         stdin: Option<Stdio>,
         stderr: Option<Stdio>,
+        controlling: bool,
     ) -> Self {
         use std::{
             io::{Read, Write},
@@ -1661,11 +1689,13 @@ impl OnTerminal {
             .stdout(terminal.try_clone().unwrap())
             .stderr(stderr.unwrap_or_else(|| terminal.into()));
         // The terminal is `vendo`'s own, as in a terminal window: its session's controlling
-        // terminal, which `/dev/tty` opens, not the one running the tests (or none, in CI).
+        // terminal, which `/dev/tty` opens, not the one running the tests (or none, in CI). Not
+        // `controlling`: a session of its own all the same, with no controlling terminal.
         // SAFETY: setsid and ioctl only, between fork and exec.
         unsafe {
-            cmd.pre_exec(|| {
-                if libc::setsid() < 0 || libc::ioctl(libc::STDOUT_FILENO, libc::TIOCSCTTY as _, 0) < 0 {
+            cmd.pre_exec(move || {
+                if libc::setsid() < 0 || (controlling && libc::ioctl(libc::STDOUT_FILENO, libc::TIOCSCTTY as _, 0) < 0)
+                {
                     return Err(std::io::Error::last_os_error());
                 }
                 Ok(())
@@ -1677,7 +1707,7 @@ impl OnTerminal {
         drop(cmd);
         let (tx, output) = std::sync::mpsc::channel();
         let mut reader = controller.try_clone().unwrap();
-        std::thread::spawn(move || {
+        let reader = std::thread::spawn(move || {
             // Whole characters only: a read can end inside one (the hint's arrows).
             let (mut buf, mut read) = ([0u8; 4096], Vec::new());
             while let Ok(n @ 1..) = reader.read(&mut buf) {
@@ -1691,7 +1721,17 @@ impl OnTerminal {
                 }
             }
         });
-        OnTerminal { controller, name, terminal: Some(kept), child, output, screen: String::new(), seen: 0 }
+        OnTerminal {
+            controller,
+            name,
+            terminal: Some(kept),
+            child,
+            reaped: false,
+            output,
+            reader: Some(reader),
+            screen: String::new(),
+            seen: 0,
+        }
     }
 
     /// Waits until the screen shows `expected` after what the last wait found, and returns what
@@ -1769,15 +1809,87 @@ impl OnTerminal {
         }
         (self.screen[self.seen..].to_string(), code)
     }
+
+    /// Types `bytes` as they are, also ones that are no whole character.
+    fn press_bytes(&mut self, bytes: &[u8]) {
+        use std::io::Write;
+        (&self.controller).write_all(bytes).unwrap();
+    }
+
+    /// Hangs the terminal up, as a terminal window that closes, or a program that drops the
+    /// pseudo-terminal it opened, does: every copy of the controller closes, and the test's copy of
+    /// the terminal end too. `vendo` keeps its own (stdin, stdout and stderr) on a terminal that has
+    /// hung up: reading it gives the end of the input (or an I/O error) at once, every time. What
+    /// `vendo` shows after this is not read.
+    fn hang_up(&mut self) {
+        use std::io::Write;
+        // The reader thread keeps its copy of the controller until what it reads has nowhere to
+        // go: with its receiver dropped, a line written to the terminal end is the last it reads.
+        self.output = std::sync::mpsc::channel().1;
+        let kept = self.terminal.take().expect("the terminal hangs up once");
+        let _ = std::fs::File::from(kept).write_all(b"\n");
+        self.reader.take().expect("read until the terminal hangs up").join().unwrap();
+        // The test's own copy of the controller, the last.
+        self.controller = std::fs::File::open("/dev/null").unwrap();
+    }
+
+    /// After [`OnTerminal::hang_up`]: waits up to `limit` for `vendo` to exit and reaps it, with the
+    /// processor time it used. `None` when it still runs then; [`OnTerminal::stop`] ends it.
+    fn exit_within(&mut self, limit: std::time::Duration) -> Option<Ended> {
+        let asked = std::time::Instant::now();
+        loop {
+            if let Some(ended) = self.reap(libc::WNOHANG) {
+                return Some(ended);
+            }
+            if asked.elapsed() >= limit {
+                return None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    /// Kills `vendo` and reaps it, with the processor time it used.
+    fn stop(&mut self) -> Ended {
+        let _ = self.child.kill();
+        self.reap(0).expect("a killed vendo is reaped")
+    }
+
+    /// `wait4` on `vendo` with `options`: how it ended once it has, and the processor time it used,
+    /// which `Child::wait` does not tell.
+    fn reap(&mut self, options: libc::c_int) -> Option<Ended> {
+        assert!(!self.reaped, "vendo was reaped already");
+        let pid = libc::pid_t::try_from(self.child.id()).unwrap();
+        let mut status = 0;
+        // SAFETY: `usage` is plain data that wait4 fills when it reaps the child.
+        let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+        loop {
+            // SAFETY: wait4 on the test's own child, writing into `status` and `usage`.
+            match unsafe { libc::wait4(pid, &mut status, options, &mut usage) } {
+                0 => return None,
+                -1 if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted => continue,
+                -1 => panic!("wait4: {}", std::io::Error::last_os_error()),
+                _ => break,
+            }
+        }
+        self.reaped = true;
+        let time = |t: libc::timeval| {
+            std::time::Duration::from_secs(t.tv_sec as u64) + std::time::Duration::from_micros(t.tv_usec as u64)
+        };
+        let code = libc::WIFEXITED(status).then(|| libc::WEXITSTATUS(status));
+        Some(Ended { code, cpu: time(usage.ru_utime) + time(usage.ru_stime) })
+    }
 }
 
 #[cfg(unix)]
 impl Drop for OnTerminal {
     /// Stops a `vendo` still running when the test ends early, on a failed assertion, so it reads
-    /// nothing from what the test leaves behind (login opens a browser on a line it reads).
+    /// nothing from what the test leaves behind (login opens a browser on a line it reads). Not one
+    /// the test reaped itself: its process ID may belong to another process by now.
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if !self.reaped {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
     }
 }
 
@@ -4019,6 +4131,111 @@ async fn esc_ctrl_c_or_ctrl_d_leave_the_menu_quietly() {
         assert!(screens.iter().all(|screen| *screen == screens[0]), "{screens:#?}");
     }
     assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+/// How soon a `vendo` whose terminal hung up must exit, and the most processor time it may use in
+/// all, from its start: one that spins on the terminal uses a whole core until it is killed.
+#[cfg(unix)]
+const HUNG_UP_EXIT: std::time::Duration = std::time::Duration::from_secs(5);
+#[cfg(unix)]
+const HUNG_UP_CPU: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// [`OnTerminal::hang_up`], then how `vendo` ended: whether it exited within [`HUNG_UP_EXIT`] (it is
+/// stopped when not), and how.
+#[cfg(unix)]
+fn hang_up(terminal: &mut OnTerminal) -> (bool, Ended) {
+    terminal.hang_up();
+    match terminal.exit_within(HUNG_UP_EXIT) {
+        Some(ended) => (true, ended),
+        None => (false, terminal.stop()),
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_menu_exits_as_ctrl_d_does_when_its_terminal_hangs_up() {
+    // A menu left on a terminal that hung up, with no SIGHUP to end it (the terminal was not its
+    // controlling terminal, and the program that opened it was gone): crossterm, which reads the
+    // keys for inquire, read the end of the input (or an I/O error) at once, again and again, and
+    // the CLI spun at a whole core for hours (2026-10-06). It exits 0 as for Ctrl-D, running
+    // nothing, in every state the menu waits in: just opened, while typing filters it,
+    // with half a key read (the first byte of a two-byte character, which crossterm waits to
+    // complete), and in a chosen group's menu.
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut outcomes = Vec::new();
+    for (case, group, menu, keys, then) in [
+        ("just opened", "apps", "Update an app", &b""[..], None),
+        ("filtering", "apps", "Update an app", b"LIS", Some("vendo apps LIS")),
+        ("half a key", "apps", "Update an app", b"\xc3", None),
+        (
+            "a chosen group's menu",
+            "measurement",
+            "Measurement signal availability",
+            b"ltv\r",
+            Some("Show one customer"),
+        ),
+    ] {
+        let mut terminal = OnTerminal::start_detached(&sandbox, &[group]);
+        terminal.wait_for(menu);
+        terminal.press_bytes(keys);
+        match then {
+            Some(shown) => _ = terminal.wait_for(shown),
+            // Nothing more shows: time for crossterm to read what was typed and wait for more.
+            None => std::thread::sleep(std::time::Duration::from_millis(300)),
+        }
+        let (exited, ended) = hang_up(&mut terminal);
+        outcomes.push((case, exited, ended));
+    }
+    assert!(
+        outcomes.iter().all(|(_, exited, ended)| *exited && ended.code == Some(0) && ended.cpu < HUNG_UP_CPU),
+        "each should exit 0 within {HUNG_UP_EXIT:?}, using under {HUNG_UP_CPU:?} of processor time: {outcomes:#?}"
+    );
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_questions_and_login_do_not_spin_when_their_terminal_hangs_up() {
+    // The y/N question and the profile picker read the terminal with std, line by line: the end of
+    // the input or an error ends the read, as Ctrl-D does, so they exit 0 and change nothing.
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut outcomes = Vec::new();
+    for (args, asked) in
+        [(&["apps", "delete", ID][..], "(y/N) "), (&["profile", "switch"], "Search (ENTER for all, q to cancel) ")]
+    {
+        let mut terminal = OnTerminal::start_detached(&sandbox, args);
+        terminal.wait_for(asked);
+        let (exited, ended) = hang_up(&mut terminal);
+        outcomes.push((args, exited, ended));
+    }
+    assert!(
+        outcomes.iter().all(|(_, exited, ended)| *exited && ended.code == Some(0) && ended.cpu < HUNG_UP_CPU),
+        "each should exit 0 within {HUNG_UP_EXIT:?}, using under {HUNG_UP_CPU:?} of processor time: {outcomes:#?}"
+    );
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
+
+    // Login reads "Press ENTER to open in the browser..." on a thread of its own, once: the end of
+    // the input is no ENTER, so no browser opens, and login waits for the sign-in as it does with
+    // stdin closed, without spinning, until the browser comes back.
+    let server = sign_in_stub(&[NEW_KEY], 401).await;
+    let sandbox = Sandbox::without_api_keys(&server.uri());
+    let mut terminal = OnTerminal::start_detached(&sandbox, &["login"]);
+    let shown = plain(&terminal.wait_for("Waiting for authorization...\r\n"));
+    terminal.hang_up();
+    let waiting = terminal.exit_within(std::time::Duration::from_secs(2));
+    assert!(waiting.is_none(), "login should wait for the sign-in: {waiting:?}");
+    let url = reqwest::Url::parse(shown.lines().find(|line| line.contains("/cli-auth?")).unwrap()).unwrap();
+    assert_eq!(url.host_str(), Some("127.0.0.1"), "tests sign in at their local stub only: {url}");
+    assert_eq!(reqwest::get(url).await.unwrap().status(), 200);
+    let ended = terminal.exit_within(HUNG_UP_EXIT);
+    assert!(
+        ended.as_ref().is_some_and(|ended| ended.code == Some(0) && ended.cpu < HUNG_UP_CPU),
+        "login should sign in and exit 0, using under {HUNG_UP_CPU:?} of processor time: {ended:?}"
+    );
+    assert_eq!(sandbox.config()["profiles"]["demo-account"]["apiKey"], NEW_KEY);
 }
 
 #[cfg(unix)]

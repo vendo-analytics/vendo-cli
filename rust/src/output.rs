@@ -951,7 +951,8 @@ impl std::fmt::Display for MenuRow<'_> {
 /// with its description; ↑↓ move, typing filters by name and description, Enter chooses, and
 /// the chosen name replaces the menu after the title. Esc, Ctrl-C and Ctrl-D leave quietly
 /// ([`quit_quietly`]), like Ctrl-C at a question, the menu replaced by the title and
-/// `<canceled>`. On a screen too short for every command the list scrolls ([`menu_page`]).
+/// `<canceled>`, and so does a terminal that hangs up while the menu is open ([`HangUpWatch`]).
+/// On a screen too short for every command the list scrolls ([`menu_page`]).
 /// `None` when the menu cannot run (no commands, the terminal refused it). Only where
 /// [`can_show_menu`]; inquire reads the keys from stdin and draws on stderr.
 #[cfg(feature = "menu")]
@@ -969,15 +970,160 @@ pub fn choose_command(title: &str, commands: &[MenuCommand]) -> Option<usize> {
     let mut stderr = std::io::stderr();
     let _ = queue!(stderr, Print("\n".repeat(below.into())), cursor::MoveUp(below), cursor::SavePosition)
         .and_then(|()| stderr.flush());
-    match menu.raw_prompt() {
+    let watch = HangUpWatch::start();
+    let answer = menu.raw_prompt();
+    // The menu has closed: a hang-up from here on is the chosen command's to meet.
+    drop(watch);
+    match answer {
         Ok(chosen) => Some(chosen.index),
         Err(InquireError::OperationCanceled) => quit_quietly(),
         Err(InquireError::OperationInterrupted) => {
             let _ = clear_menu(&mut stderr, title, inquire::ui::RenderConfig::default());
             quit_quietly()
         }
+        // inquire could not draw on a terminal that hung up (a key read before the hang-up
+        // redraws the menu): as when the watch sees it first.
+        Err(_) if input_hung_up(Duration::ZERO) == Some(true) => quit_quietly(),
         Err(_) => None,
     }
+}
+
+/// How often [`HangUpWatch`] asks again whether the terminal hung up, at most: on macOS a `poll`
+/// that began while a key waited to be read does not wake for a hang-up.
+#[cfg(all(feature = "menu", unix))]
+const HANG_UP_CHECK: Duration = Duration::from_millis(250);
+
+/// While [`choose_command`]'s menu is open, a thread that watches the terminal its keys come from
+/// (stdin) and, once that terminal hangs up, puts its settings back as far as it still takes them
+/// and ends the CLI as Ctrl-D does ([`quit_quietly`]: exit 0, nothing run).
+///
+/// A terminal hangs up when its window closes or the program that opened the pseudo-terminal
+/// drops it. SIGHUP then ends a process whose controlling terminal it is, as at a shell; nothing
+/// ends one that only has it as stdin (a terminal opened with `O_NOCTTY`, or one whose parent
+/// died). There crossterm, which reads the keys for inquire, spun at a whole core for hours
+/// (2026-10-06): reading a terminal that hung up returns at once, every time, with the end of the
+/// input (or an I/O error while Linux is still hanging it up), and crossterm's read loop
+/// (`UnixInternalEventSource::try_read`) keeps going after either, as it only stops for a key or
+/// `WouldBlock`. inquire loops on crossterm's `event::read` and has no public way to read the keys
+/// otherwise, so the watch runs beside them.
+///
+/// It asks `poll` for POLLHUP alone: reported once the terminal hangs up (with POLLERR on Linux),
+/// it reads nothing, so it takes no key from the menu, and keys waiting to be read do not wake it.
+/// macOS reports POLLHUP only when asked for it (not when `events` is 0) and does not wake a `poll`
+/// that began while a key waited to be read; a new one sees the hang-up at once, so it asks again
+/// every [`HANG_UP_CHECK`]. On Linux the hang-up wakes any `poll` on the terminal.
+#[cfg(all(feature = "menu", unix))]
+struct HangUpWatch {
+    /// Whether the menu is open. The watch ends the CLI only while it is and holding the lock, so a
+    /// command chosen in the menu never runs as the CLI exits.
+    open: std::sync::Arc<std::sync::Mutex<bool>>,
+}
+
+#[cfg(all(feature = "menu", unix))]
+impl HangUpWatch {
+    fn start() -> Self {
+        let open = std::sync::Arc::new(std::sync::Mutex::new(true));
+        let watched = std::sync::Arc::clone(&open);
+        // Before inquire turns raw mode on.
+        let settings = terminal_settings(libc::STDIN_FILENO);
+        let watch = move || {
+            loop {
+                match hung_up(libc::STDIN_FILENO, HANG_UP_CHECK) {
+                    Some(true) => break,
+                    Some(false) if *Self::lock(&watched) => {}
+                    // The menu closed, or poll cannot watch this terminal.
+                    _ => return,
+                }
+            }
+            let open = Self::lock(&watched);
+            if *open {
+                restore_terminal(settings.as_ref());
+                quit_quietly();
+            }
+        };
+        // Without the thread the menu runs as before.
+        let _ = std::thread::Builder::new().name("menu hang-up watch".into()).spawn(watch);
+        HangUpWatch { open }
+    }
+
+    fn lock(open: &std::sync::Mutex<bool>) -> std::sync::MutexGuard<'_, bool> {
+        open.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+#[cfg(all(feature = "menu", unix))]
+impl Drop for HangUpWatch {
+    /// The menu has closed; the thread ends at its next check.
+    fn drop(&mut self) {
+        *Self::lock(&self.open) = false;
+    }
+}
+
+/// Whether stdin's terminal has hung up ([`hung_up`]).
+#[cfg(all(feature = "menu", unix))]
+fn input_hung_up(timeout: Duration) -> Option<bool> {
+    hung_up(libc::STDIN_FILENO, timeout)
+}
+
+/// Whether the terminal `fd` reads has hung up, waiting up to `timeout` for it ([`HangUpWatch`] says
+/// how). `Some(false)` when it has not by then, or a signal cut the wait short; `None` when `poll`
+/// cannot watch it (POLLNVAL) or fails.
+#[cfg(all(feature = "menu", unix))]
+fn hung_up(fd: libc::c_int, timeout: Duration) -> Option<bool> {
+    let mut input = libc::pollfd { fd, events: libc::POLLHUP, revents: 0 };
+    let timeout = libc::c_int::try_from(timeout.as_millis()).unwrap_or(libc::c_int::MAX);
+    // SAFETY: poll on one pollfd, which outlives the call.
+    if unsafe { libc::poll(&mut input, 1, timeout) } < 0 {
+        return (std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted).then_some(false);
+    }
+    if input.revents & libc::POLLNVAL != 0 {
+        return None;
+    }
+    Some(input.revents & (libc::POLLHUP | libc::POLLERR) != 0)
+}
+
+/// `fd`'s terminal settings, `None` when it has none.
+#[cfg(all(feature = "menu", unix))]
+fn terminal_settings(fd: libc::c_int) -> Option<libc::termios> {
+    // SAFETY: tcgetattr fully writes `settings` before it is read, and only when it returns 0.
+    unsafe {
+        let mut settings: libc::termios = std::mem::zeroed();
+        (libc::tcgetattr(fd, &mut settings) == 0).then_some(settings)
+    }
+}
+
+/// What inquire's terminal undoes as the menu ends, done for a terminal that hung up as far as it
+/// still takes it (macOS keeps its settings; Linux refuses everything): the settings from before
+/// raw mode, put back on stdin itself (crossterm's `disable_raw_mode` writes to `/dev/tty` when
+/// stdin no longer counts as a terminal, which on Linux it does not once it hung up), and bracketed
+/// paste off, as crossterm's `DisableBracketedPaste` writes it. The cursor shows already while the
+/// menu waits for a key.
+#[cfg(all(feature = "menu", unix))]
+fn restore_terminal(settings: Option<&libc::termios>) {
+    if let Some(settings) = settings {
+        // SAFETY: puts back settings tcgetattr read from the same descriptor.
+        unsafe {
+            libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, settings);
+        }
+    }
+    let _ = std::io::stderr().write_all(b"\x1b[?2004l");
+}
+
+/// Elsewhere than on Unix the menu has no hang-up watch.
+#[cfg(all(feature = "menu", not(unix)))]
+struct HangUpWatch;
+
+#[cfg(all(feature = "menu", not(unix)))]
+impl HangUpWatch {
+    fn start() -> Self {
+        HangUpWatch
+    }
+}
+
+/// Elsewhere than on Unix, whether the terminal hung up cannot be told.
+#[cfg(all(feature = "menu", not(unix)))]
+fn input_hung_up(_timeout: Duration) -> Option<bool> {
+    None
 }
 
 /// How many commands the menu lists at once, and the most lines it then takes, on a screen of
@@ -1577,6 +1723,31 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "\x1b8\x1b[J\x1b[38;5;10m?\x1b[39m vendo apps \x1b[38;5;1m<canceled>\x1b[39m\n"
         );
+    }
+
+    #[cfg(all(feature = "menu", unix))]
+    #[test]
+    fn a_terminal_hangs_up_when_its_controller_closes_and_a_waiting_key_is_no_hang_up() {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        // SAFETY: posix_openpt, grantpt, unlockpt, ptsname and open on descriptors this test owns.
+        let (controller, terminal) = unsafe {
+            let controller = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
+            assert!(controller >= 0, "posix_openpt failed");
+            assert_eq!((libc::grantpt(controller), libc::unlockpt(controller)), (0, 0));
+            let terminal = libc::open(libc::ptsname(controller), libc::O_RDWR | libc::O_NOCTTY);
+            assert!(terminal >= 0, "open failed");
+            (OwnedFd::from_raw_fd(controller), OwnedFd::from_raw_fd(terminal))
+        };
+        assert_eq!(hung_up(terminal.as_raw_fd(), Duration::ZERO), Some(false));
+        // A key waiting to be read is no hang-up, and does not end the wait: the watch would spin
+        // until the menu read it.
+        std::fs::File::from(controller.try_clone().unwrap()).write_all(b"k").unwrap();
+        let asked = std::time::Instant::now();
+        assert_eq!(hung_up(terminal.as_raw_fd(), Duration::from_millis(200)), Some(false));
+        assert!(asked.elapsed() >= Duration::from_millis(150), "returned after {:?}", asked.elapsed());
+        // The controller closes: the key still waits, and the terminal has hung up.
+        drop(controller);
+        assert_eq!(hung_up(terminal.as_raw_fd(), Duration::ZERO), Some(true));
     }
 
     #[cfg(feature = "menu")]
