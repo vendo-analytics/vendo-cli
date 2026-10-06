@@ -514,9 +514,31 @@ async fn without_a_terminal_a_missing_value_is_the_usage_error() {
         // `usage/apps__get.snap` for `vendo apps get`.
         recorder.check(&path.join("__"), &shown);
     }
+    // VE-3892: `--profile` typed last with no name opens the profile list at a terminal; without one it
+    // is clap's usage error as before, on its own, after global options, and after a command.
+    let mut shown = String::new();
+    for args in PROFILE_WITHOUT_A_NAME {
+        let out = sandbox.run(args);
+        assert_eq!((out.status.code(), text(&out.stdout)), (Some(2), String::new()), "vendo {}", args.join(" "));
+        if !shown.is_empty() {
+            shown.push('\n');
+        }
+        shown.push_str(&format!("$ vendo {}\nexit: 2\n--- stderr ---\n{}", args.join(" "), text(&out.stderr)));
+    }
+    recorder.check("profile_flag", &shown);
     assert_eq!(server.received_requests().await.unwrap().len(), 0, "nothing is sent without a terminal");
+    assert_eq!(sandbox.config()["activeProfile"], "alpha", "no profile is switched without a terminal");
     recorder.finish();
 }
+
+/// `--profile` typed last with no name (VE-3892): on its own, after a global option, and at the end of
+/// a command, as text and with `--json`.
+pub(super) const PROFILE_WITHOUT_A_NAME: [&[&str]; 4] = [
+    &["--profile"],
+    &["--debug", "--profile"],
+    &["apps", "list", "--profile"],
+    &["apps", "list", "--json", "--profile"],
+];
 
 // ── command output ──────────────────────────────────────────────────────────
 

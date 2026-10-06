@@ -145,6 +145,7 @@ pub struct Parsed {
 /// Parse with [`command`]; usage errors and `--help` exit like clap does, a usage error as
 /// JSON when the words include `--json` ([`exit_with`]). A group run without its command opens
 /// its menu on a terminal, and the command chosen there is parsed as if typed ([`chosen_command`]).
+/// `--profile` typed last with no name opens the profile list there ([`chosen_profile`], VE-3892).
 /// A command missing required values asks for them there, once, and runs with them as if they had
 /// been typed ([`asked_values`], VE-3881).
 pub async fn parse(mut args: Vec<OsString>) -> Parsed {
@@ -161,6 +162,10 @@ pub async fn parse(mut args: Vec<OsString>) -> Parsed {
             Err(err) => err,
         };
         if let Some(chosen) = chosen_command(&cmd, &args, &err) {
+            args = chosen;
+            continue;
+        }
+        if let Some(chosen) = chosen_profile(&cmd, &args, &err) {
             args = chosen;
             continue;
         }
@@ -244,6 +249,85 @@ fn menu_choice<'a>(group: &'a clap::Command, title: &str) -> Option<&'a str> {
 /// measure what the menu adds (`scripts/menu-size.sh`).
 #[cfg(not(feature = "menu"))]
 fn menu_choice<'a>(_group: &'a clap::Command, _title: &str) -> Option<&'a str> {
+    None
+}
+
+/// For words that end in `--profile` with no name (clap's "a value is required" usage error), where
+/// someone can answer and see the list ([`crate::output::can_show_menu`], the group menu's rule): the
+/// saved profiles in a list ([`crate::ask::profile`]; VE-3892, decided by Yalcin 2026-10-07), then
+/// `args` with the chosen one ([`with_profile`]), which [`parse`] parses like typed arguments. `None`
+/// keeps the usage error: another error, no terminal, no profile saved, or a list that cannot open.
+fn chosen_profile(root: &clap::Command, args: &[OsString], err: &clap::Error) -> Option<Vec<OsString>> {
+    let (title, alone) = profile_without_name(root, args, err)?;
+    let name = profile_choice(&title)?;
+    Some(with_profile(args, alone, &name))
+}
+
+/// For words that end in `--profile` with no name: the list's title, and whether `--profile` stands
+/// alone (after global options only). The title is `vendo --profile`, or the command so far as the tree
+/// names it (`vendo destinations list --profile` for `vendo int list --profile`, `vendo workspace
+/// --profile` for `vendo profile current --profile`), as the lists for a missing value are titled
+/// (VE-3881). Only the last word can be a `--profile` with no name: clap takes the word after it as
+/// its name, `--` and words starting with `-` too. `None` for any other error.
+fn profile_without_name(root: &clap::Command, args: &[OsString], err: &clap::Error) -> Option<(String, bool)> {
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
+    let (last, before) = args.split_last()?;
+    let context = |kind| match err.get(kind) {
+        Some(ContextValue::String(text)) => Some(text.as_str()),
+        _ => None,
+    };
+    let no_name = err.kind() == ErrorKind::InvalidValue
+        && context(ContextKind::InvalidValue) == Some("")
+        && context(ContextKind::InvalidArg).is_some_and(|arg| arg.starts_with("--profile "));
+    if !no_name || last != "--profile" || before.is_empty() {
+        return None;
+    }
+    let words = command_words(root, &rewrite_hidden_paths(root, before.to_vec()));
+    if words.help {
+        return None;
+    }
+    if words.path.is_empty() {
+        return words.whole.then(|| (format!("{} --profile", root.get_name()), true));
+    }
+    let mut path = vec![root.get_name()];
+    let mut current = root;
+    for word in &words.path {
+        current = current.find_subcommand(word)?;
+        path.push(current.get_name());
+    }
+    Some((format!("{} --profile", path.join(" ")), false))
+}
+
+/// `args`, which end in `--profile`, with the profile `name` chosen for it. On its own (`alone`) the
+/// words become `vendo profile switch <name>` after the global options typed: the chosen profile
+/// becomes the active one, and they print exactly what that prints. After a command, `--profile=<name>`
+/// takes the place of `--profile`, so the command runs as if `--profile <name>` had been typed, with
+/// that profile for it alone; the saved active profile stays.
+fn with_profile(args: &[OsString], alone: bool, name: &str) -> Vec<OsString> {
+    let mut args = args[..args.len().saturating_sub(1)].to_vec();
+    if alone {
+        args.extend(["profile", "switch"].map(OsString::from));
+        // A name that starts with `-` is no flag after `--`.
+        if name.starts_with('-') {
+            args.push("--".into());
+        }
+        args.push(name.into());
+    } else {
+        args.push(format!("--profile={name}").into());
+    }
+    args
+}
+
+/// The profile chosen in the list titled `title`, where it can open.
+#[cfg(feature = "menu")]
+fn profile_choice(title: &str) -> Option<String> {
+    crate::ask::profile(title)
+}
+
+/// A build without the `menu` feature has no list (VE-3892): `--profile` with no name is the usage
+/// error at a terminal too, as a bare group is ([`menu_choice`]).
+#[cfg(not(feature = "menu"))]
+fn profile_choice(_title: &str) -> Option<String> {
     None
 }
 
@@ -2248,6 +2332,75 @@ mod tests {
         args.insert(at, "list");
         let cli = parse(&args).unwrap();
         assert!(cli.debug && matches!(cli.command, Command::Apps { command: AppsCommand::List { .. } }));
+    }
+
+    #[test]
+    fn a_profile_flag_typed_last_with_no_name_is_found_with_its_title() {
+        // VE-3892: the list's title, and whether `--profile` stands alone.
+        let cmd = command();
+        // The error clap gives for the words [`parse`] hands it, the hidden paths rewritten.
+        let without_name = |args: &[&str]| {
+            let err = cmd.clone().try_get_matches_from(rewrite_hidden_paths(&cmd, os(args))).err()?;
+            profile_without_name(&cmd, &os(args), &err)
+        };
+        for (args, title, alone) in [
+            (&["vendo", "--profile"][..], "vendo --profile", true),
+            (&["vendo", "--debug", "--profile"], "vendo --profile", true),
+            (&["vendo", "--profile", "beta", "--profile"], "vendo --profile", true),
+            (&["vendo", "apps", "list", "--profile"], "vendo apps list --profile", false),
+            (&["vendo", "apps", "list", "--json", "--profile"], "vendo apps list --profile", false),
+            (&["vendo", "--debug", "apps", "list", "--profile"], "vendo apps list --profile", false),
+            (&["vendo", "apps", "--profile"], "vendo apps --profile", false),
+            (&["vendo", "apps", "get", "--profile"], "vendo apps get --profile", false),
+            (&["vendo", "dictionary", "search", "orders", "--profile"], "vendo dictionary search --profile", false),
+            // Old names, titled as the tree names the command they run.
+            (&["vendo", "int", "list", "--profile"], "vendo destinations list --profile", false),
+            (&["vendo", "config", "use", "--profile"], "vendo profile switch --profile", false),
+            (&["vendo", "profile", "current", "--profile"], "vendo workspace --profile", false),
+            (&["vendo", "whoami", "--profile"], "vendo workspace --profile", false),
+        ] {
+            assert_eq!(without_name(args), Some((title.to_string(), alone)), "{args:?}");
+        }
+        for args in [
+            // A name, `--` and a word starting with `-` too: clap takes the word after `--profile`.
+            &["vendo", "--profile", "beta", "apps", "list"][..],
+            &["vendo", "apps", "list", "--profile", "--"],
+            &["vendo", "apps", "list", "--profile", "--json"],
+            &["vendo", "--profile", "--"],
+            // Other errors.
+            &["vendo", "help", "--profile"],
+            &["vendo", "apps", "bogus", "--profile"],
+            &["vendo", "--profile", "apps"],
+            &["vendo", "completions", "bogus", "--profile"],
+            &["vendo", "apps", "list", "--limit"],
+        ] {
+            assert_eq!(without_name(args), None, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn the_chosen_profile_goes_where_it_runs_as_typed() {
+        // VE-3892: on its own, `profile switch <name>` after the global options; after a command,
+        // `--profile=<name>` in place of `--profile`.
+        let words = |args: Vec<OsString>| args.into_iter().map(|arg| arg.into_string().unwrap()).collect::<Vec<_>>();
+        assert_eq!(
+            words(with_profile(&os(&["vendo", "--profile"]), true, "beta")),
+            ["vendo", "profile", "switch", "beta"]
+        );
+        assert_eq!(
+            words(with_profile(&os(&["vendo", "--debug", "--profile"]), true, "-x")),
+            ["vendo", "--debug", "profile", "switch", "--", "-x"]
+        );
+        assert_eq!(
+            words(with_profile(&os(&["vendo", "apps", "list", "--json", "--profile"]), false, "-x")),
+            ["vendo", "apps", "list", "--json", "--profile=-x"]
+        );
+        // Each parses as if typed.
+        let cli = parse(&["vendo", "--debug", "profile", "switch", "--", "-x"]).unwrap();
+        let Command::Profile { command: ProfileCommand::Switch { profile, .. } } = cli.command else { panic!() };
+        assert_eq!((cli.debug, cli.profile, profile.as_deref()), (true, None, Some("-x")));
+        let cli = parse(&["vendo", "apps", "list", "--json", "--profile=-x"]).unwrap();
+        assert!(cli.profile.as_deref() == Some("-x") && matches!(cli.command, Command::Apps { .. }));
     }
 
     #[test]

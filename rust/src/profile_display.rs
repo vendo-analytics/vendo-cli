@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use crate::{
     config::{DEFAULT_BASE_URL, ProfileSummary},
     context::Ctx,
-    output::{SelectOption, bold, dim, green, print_json, print_success, search_select_option},
+    output::{bold, dim, green, print_json, print_success},
 };
 
 /// A profile as the `--json` of the profile commands prints it (VE-3831): what `profile list`
@@ -18,6 +18,17 @@ pub fn profile_json(profile: &ProfileSummary) -> Value {
         "accountId": profile.account_id,
         "baseUrl": profile.base_url,
     })
+}
+
+/// The base URL's host as the profile lists show it (the workspace screen's, VE-3891, and the list
+/// `--profile` with no name opens, VE-3892): `stg.vendodata.com` for `https://stg.vendodata.com/`,
+/// nothing for the default one, as `vendo profile list` leaves it out.
+pub fn shown_host(profile: &ProfileSummary) -> &str {
+    if profile.base_url == DEFAULT_BASE_URL {
+        return "";
+    }
+    let url = profile.base_url.as_str();
+    url.split_once("://").map_or(url, |(_, rest)| rest).trim_end_matches('/')
 }
 
 pub fn format_profile_label(profile: &ProfileSummary, annotate_active: bool) -> String {
@@ -61,7 +72,7 @@ pub struct SwitchOptions<'a> {
     pub profile_command: &'a str,
     pub verify_hint: &'a str,
     /// `--json`: print `{ "profile": … }`, the profile now selected or null when nothing was
-    /// switched, and never open the picker, whose questions would share stdout with the JSON.
+    /// switched, and never open the profile list.
     pub json: bool,
 }
 
@@ -72,6 +83,20 @@ fn print_no_switch(json: bool, message: &str) {
     } else {
         println!("{}", dim(message));
     }
+}
+
+/// The profile chosen from `profiles` in the arrow-key list titled `title` (VE-3892, decided by Yalcin
+/// 2026-10-07: it replaced the numbered picker), where the group menu opens
+/// ([`crate::output::can_show_menu`]). `None` elsewhere: nothing is switched, as without a terminal.
+#[cfg(feature = "menu")]
+fn choose_profile(title: &str, profiles: &[ProfileSummary]) -> Option<String> {
+    crate::ask::choose_profile(title, profiles)
+}
+
+/// A build without the `menu` feature has no list: nothing is chosen, as without a terminal.
+#[cfg(not(feature = "menu"))]
+fn choose_profile(_title: &str, _profiles: &[ProfileSummary]) -> Option<String> {
+    None
 }
 
 pub fn switch_profile_selection(ctx: &Ctx, profiles: &[ProfileSummary], opts: SwitchOptions) -> Result<()> {
@@ -103,15 +128,8 @@ pub fn switch_profile_selection(ctx: &Ctx, profiles: &[ProfileSummary], opts: Sw
     }
 
     if profile_name.is_none() && !opts.json {
-        let options: Vec<SelectOption> = profiles
-            .iter()
-            .map(|p| SelectOption {
-                value: p.name.clone(),
-                label: format_profile_label(p, true),
-                search_text: format!("{} {} {}", p.name, p.account_id.clone().unwrap_or_default(), p.base_url),
-            })
-            .collect();
-        profile_name = search_select_option("Search and select a profile", &options);
+        // The profile list `--profile` with no name opens, titled with the command (VE-3892).
+        profile_name = choose_profile(opts.profile_command, profiles);
     }
 
     let Some(profile_name) = profile_name else {

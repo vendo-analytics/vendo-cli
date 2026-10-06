@@ -47,7 +47,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `help/help.snap`; VE-3893), the table, `--json` and confirmation output of each command against
   the stub's synthetic account in `rust/tests/snapshots/output/`, and the usage error of every command that requires
   a value (37 with the hidden `catalog credential-schema`), as text and with `--json`, in
-  `rust/tests/snapshots/usage/` (VE-3881). Any change to them fails `cargo test`. After a deliberate change run
+  `rust/tests/snapshots/usage/` (VE-3881), with that of `--profile` typed last with no name (`usage/profile_flag`,
+  VE-3892). Any change to them fails `cargo test`. After a deliberate change run
   `INSTA_UPDATE=always cargo test --test cli` from `rust/` (it also deletes stale snapshots), review
   `git diff rust/tests/snapshots` and commit the snapshots with the change. Bare `vendo completions` for bash and
   for an unknown shell is recorded per system (VE-3830): `completions__bare_bash_macos`/`_linux` and
@@ -161,7 +162,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   - `--json` on the commands that lacked it, built from what their text shows and never printing the API key (the
     shapes are the build's choice, for Yalcin's review with CLI 1.1): `profile list`
     (`{"profiles":[{name, active, accountId, baseUrl}]}`), `profile switch` (`{"profile":…}`, null when nothing was
-    switched; never opens the picker), `profile set` (`{"profile","configPath"}`), `logout` (`{"removed":[names]}`;
+    switched; never opens the profile list), `profile set` (`{"profile","configPath"}`), `logout` (`{"removed":[names]}`;
     not logged in, the JSON error on stderr, nothing on stdout and exit 0 like the text, Yalcin 2026-10-06; an
     unknown `VENDO_PROFILE` is its error, exit 1, see below),
     `login`/`init` (`{"profile","baseUrl","accountId","auth":"verified"|"unverified"|"incomplete","accountName"}`;
@@ -259,7 +260,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   re-polling every 250 ms because macOS does not wake a poll that began with a key waiting): where it is not
   `vendo`'s controlling terminal no SIGHUP comes, and crossterm's read loop, which gets the end of the input (or an
   I/O error) at once from such a terminal, every time, spun at a whole core for hours (2026-10-06). The y/N
-  questions and the profile picker read that once and exit 0 as for Ctrl-D; login's ENTER read ends with no browser
+  questions read that once and exit 0 as for Ctrl-D; login's ENTER read ends with no browser
   opened, and login waits for the sign-in as with stdin closed
   (`the_questions_and_login_do_not_spin_when_their_terminal_hangs_up`). A menu left in the background of its
   terminal for good ends the CLI the same way, leaving that terminal, the shell's now, as it is
@@ -267,7 +268,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   open, the shell took the terminal back, and each key typed at the shell made the read fail (EIO, the process group
   orphaned) and the loop spin. A menu that job control can bring back (`fg`) stays: `tcdrain`, which tells the two
   apart, stops it with SIGTTOU as a read would. A stdin opened write-only (`vendo apps 0>/dev/ttys004`), which no key
-  can be read from, keeps the usage error (`output::stdin_reads`); the questions and the picker read it once and
+  can be read from, keeps the usage error (`output::stdin_reads`); the y/N questions read it once and
   exit 0 as for Ctrl-D. The menu takes the screen's height less one line at most, and on a short screen its list
   scrolls (`output::menu_page`). Its rows, its hint and the answered line leave the screen's last column free
   (`output::fitted`, VE-3881 review): inquire draws a line that changed again and then erases to the line's end, and
@@ -291,15 +292,15 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
 - Prompts off (VE-3826, decided by Yalcin 2026-10-06, CLI 1.1): `CI` or `VENDO_NO_INPUT` set to anything but empty,
   `0` or `false` (any case) turns every prompt off, also at a terminal; there is no `--no-input` flag.
   `output::prompts_off` owns the rule, and every prompt asks by it: the y/N questions refuse without `--yes`, a bare
-  group and a command missing a value are the usage error (exit 2), and the profile picker does not ask
-  (`profile switch` prints "Cancelled."), each as without a terminal, through `can_prompt`; at a terminal login does
-  not read its "Press ENTER to open in the browser" (`commands/login.rs`), so it does what it does without one, stdin
-  closed on a CI runner: it prints the sign-in URL and that line, opens no browser and waits for the sign-in. A stdin
-  that is not a terminal (a pipe, a file) is no prompt: login reads it as before, so `echo | CI=true vendo login`
-  opens the browser as `echo | vendo login` does. The profile picker (`output::search_select_option`) asks by
-  `can_prompt`, so only when stdin and stdout are terminals (`echo 1 | vendo profile switch` reads no answer from the
-  pipe). On `TERM=dumb` only the group menu and the questions for a missing value are off; the y/N questions and the
-  picker still ask.
+  group, a command missing a value and `--profile` with no name are the usage error (exit 2), and the profile list
+  does not open (`profile switch` prints "Cancelled."), each as without a terminal, through `can_prompt`; at a terminal
+  login does not read its "Press ENTER to open in the browser" (`commands/login.rs`), so it does what it does without
+  one, stdin closed on a CI runner: it prints the sign-in URL and that line, opens no browser and waits for the
+  sign-in. A stdin that is not a terminal (a pipe, a file) is no prompt: login reads it as before, so
+  `echo | CI=true vendo login` opens the browser as `echo | vendo login` does. The profile list opens where the group
+  menu does (`can_show_menu`; VE-3892, below), so `echo 1 | vendo profile switch` reads no answer from the pipe. On
+  `TERM=dumb` the group menu, the questions for a missing value and the profile list are off; the y/N questions still
+  ask.
 - Missing values (VE-3881, decided by Yalcin 2026-10-07, CLI 1.1): a command typed without a value it requires asks for
   it where the group menu opens (`output::can_show_menu`, the same rule, the hang-up watch included) instead of stopping
   with clap's usage error; optional values are not asked. `rust/src/ask.rs` (the `menu` feature) owns it: `VALUES` says
@@ -366,6 +367,34 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   fails when a required value has no row in `VALUES`. An agent that runs `vendo` on a pseudo-terminal without `CI` or
   `VENDO_NO_INPUT` now waits at the question where it got exit 2, as at the group menu and the y/N questions;
   `VENDO_NO_INPUT=1` turns it off.
+- Profile list (VE-3892, decided by Yalcin 2026-10-07, CLI 1.1): `--profile` typed with no name opens an arrow-key list
+  of the saved profiles with type-to-filter where the group menu opens (`output::can_show_menu`, the same rule, the
+  hang-up watch included): `ask::choose_profile`, a `choose_value` list (VE-3881) titled with the command as the tree
+  names it (`vendo --profile`, `vendo apps list --profile`, `vendo destinations list --profile` for `vendo int list
+  --profile`), each row `*` on the profile commands use without the flag (VENDO_PROFILE's, else the active one, as
+  `profile list` marks it), the name, the account ID (`no account` for none) and the base URL's host
+  (`profile_display::shown_host`, which the workspace's profile list uses too; none for the default one), answered as
+  the name (`? vendo --profile beta`). On its own (global options only: `vendo --profile`, `vendo --debug --profile`)
+  the words become `vendo profile switch <name>` (`cli::with_profile`), so the chosen profile becomes the active one
+  and it prints exactly what that prints, VENDO_PROFILE's note included. At the end of a command (`vendo apps list
+  --profile`) `--profile=<name>` takes its place and the words are parsed again (`cli::chosen_profile`): the command
+  runs as if `--profile <name>` had been typed, for that command alone (the saved active profile stays, the flag wins
+  over VENDO_PROFILE, and a group then opens its menu or a missing value is asked for, as typed). Only the last word
+  can be a `--profile` with no name: clap takes the word after it as its name, `--` and words starting with `-` too,
+  so `vendo --profile apps list` still takes `apps` as the name (known limit, unchanged). `vendo profile switch` with
+  no name opens the same list, titled `vendo profile switch`, in place of its numbered picker (decision sheet item
+  71), which is gone (`output::search_select_option`); with `--json` it still opens nothing. With no profile saved,
+  `--profile` with no name says `No profiles to choose from.` and is the usage error (exit 2); `profile switch` says
+  what it said (`No profiles yet. …`). Esc, Ctrl-C, Ctrl-D and a hang-up exit 0 with nothing run or switched. Without a
+  terminal, with prompts off, on `TERM=dumb`, with stdout or stderr elsewhere or a write-only stdin, `--profile` with no
+  name stays clap's usage error byte for byte (`usage/profile_flag`, recorded before the change) and `profile switch`
+  prints `Cancelled.`; built without the `menu` feature there is no list either. ❓ Open for Yalcin, built with
+  cautious defaults: the account ID whole, as `profile list` shows it (the workspace's list shows 8 characters and
+  `…`), no host for the default base URL (as `profile list` and the workspace leave it out), the marker on
+  VENDO_PROFILE's profile when it is set (as `profile list` marks it), the cursor starting on the first row rather
+  than the active one, the empty-list line and exit 2 (VE-3881's Q4), `profile switch` printing `Cancelled.` on
+  `TERM=dumb` and with stderr redirected, where the numbered picker asked, and `--profile`'s help unchanged (it does
+  not say that a bare `--profile` opens the list).
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665; whoami and doctor are `workspace` since VE-3891); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

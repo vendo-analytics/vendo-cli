@@ -16,6 +16,9 @@
 //! Without a terminal or with prompts off nothing here runs, and nothing is read or sent: the usage
 //! error stays, byte for byte (`rust/tests/snapshots/usage/`). A value [`VALUES`] does not name keeps
 //! it at a terminal too.
+//!
+//! `--profile` typed with no name, and `vendo profile switch` with none, open the saved profiles in
+//! the same list, under the same rule ([`choose_profile`]; VE-3892, decided by Yalcin 2026-10-07).
 
 // `ApiError` carries request IDs and error details for the one error a
 // command reports; its size doesn't matter on that path.
@@ -28,11 +31,13 @@ use serde_json::Value;
 use crate::{
     client::{ApiError, Client, payload},
     commands::{apps::role_label, catalog},
+    config::ProfileSummary,
     context::Ctx,
     dictionary::{self, SUBJECT_TYPES},
     jobs::Job,
     js_text::cell,
     output::{self, ValueRow, js_to_locale_string, js_truthy, short_id, time_ago},
+    profile_display::shown_host,
     short_ids::{self, Listing, name_of},
     web_app,
 };
@@ -503,6 +508,36 @@ async fn choose_platform(client: &Client, title: &str, json: bool) -> Option<Str
     };
     let chosen = choose(title, "platforms", &platforms, None, cells, app_type)?;
     Some(app_type(&platforms[chosen]))
+}
+
+/// The profile `--profile` typed with no name stands for (VE-3892): one of the saved profiles, chosen
+/// from [`choose_profile`]'s list titled `title` (`vendo --profile`, `vendo apps list --profile`). The
+/// marker is on the profile the command would use without the flag (`VENDO_PROFILE`'s, else the active
+/// one). `None` where the list cannot open, and with no profile saved, which it says first, as a list
+/// for a missing value with nothing in it says it: the usage error follows.
+pub fn profile(title: &str) -> Option<String> {
+    choose_profile(title, &Ctx::new(None, false).store.profile_summaries())
+}
+
+/// One of `profiles`, chosen from an arrow-key list titled `title` where the group menu opens
+/// ([`output::can_show_menu`]), as a list for a missing value is ([`choose`], [`output::choose_value`]:
+/// type-to-filter, Esc, Ctrl-C, Ctrl-D and a hang-up leaving quietly). Each row: `*` on the active
+/// profile as `vendo profile list` marks it, the name, the account ID (`no account` for none, as the
+/// profile list says) and the base URL's host, left out for the default one ([`shown_host`]).
+/// Answered as the name. `None` where the list cannot open, and with no profiles, which it says
+/// (`No profiles to choose from.`).
+pub fn choose_profile(title: &str, profiles: &[ProfileSummary]) -> Option<String> {
+    if !output::can_show_menu() {
+        return None;
+    }
+    let cells = |profile: &ProfileSummary| {
+        let marker = if profile.active { '*' } else { ' ' };
+        let account = profile.account_id.clone().unwrap_or_else(|| "no account".into());
+        let host = Some(shown_host(profile)).filter(|host| !host.is_empty()).map(str::to_string);
+        [vec![format!("{marker} {}", profile.name), account], host.into_iter().collect()].concat()
+    };
+    let at = choose(title, "profiles", profiles, None, cells, |profile| profile.name.clone())?;
+    Some(profiles[at].name.clone())
 }
 
 /// The index of the one of `items` chosen in the list titled `title`, each shown as its `cells` and

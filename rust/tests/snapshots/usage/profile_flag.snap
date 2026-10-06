@@ -1,0 +1,28 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo --profile
+exit: 2
+--- stderr ---
+error: a value is required for '--profile <name>' but none was supplied
+
+For more information, try '--help'.
+
+$ vendo --debug --profile
+exit: 2
+--- stderr ---
+error: a value is required for '--profile <name>' but none was supplied
+
+For more information, try '--help'.
+
+$ vendo apps list --profile
+exit: 2
+--- stderr ---
+error: a value is required for '--profile <name>' but none was supplied
+
+For more information, try '--help'.
+
+$ vendo apps list --json --profile
+exit: 2
+--- stderr ---
+{"error":{"message":"a value is required for '--profile <name>' but none was supplied","code":null,"status":null,"requestId":null}}

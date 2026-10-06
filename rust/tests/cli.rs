@@ -4341,25 +4341,19 @@ async fn the_menu_exits_as_ctrl_d_does_when_its_terminal_hangs_up() {
 #[cfg(unix)]
 #[tokio::test]
 async fn the_questions_and_login_do_not_spin_when_their_terminal_hangs_up() {
-    // The y/N question and the profile picker read the terminal with std, line by line: the end of
-    // the input or an error ends the read, as Ctrl-D does, so they exit 0 and change nothing.
+    // The y/N question reads the terminal with std, line by line: the end of the input or an error
+    // ends the read, as Ctrl-D does, so it exits 0 and changes nothing. (The profile list is a menu
+    // since VE-3892: `the_profile_list_exits_as_ctrl_d_does_when_its_terminal_hangs_up`.)
     let server = stub_accepting_everything().await;
     let sandbox = Sandbox::new(&server.uri());
-    let mut outcomes = Vec::new();
-    for (args, asked) in
-        [(&["apps", "delete", ID][..], "(y/N) "), (&["profile", "switch"], "Search (ENTER for all, q to cancel) ")]
-    {
-        let mut terminal = OnTerminal::start_detached(&sandbox, args);
-        terminal.wait_for(asked);
-        let (exited, ended) = hang_up(&mut terminal);
-        outcomes.push((args, exited, ended));
-    }
+    let mut terminal = OnTerminal::start_detached(&sandbox, &["apps", "delete", ID]);
+    terminal.wait_for("(y/N) ");
+    let (exited, ended) = hang_up(&mut terminal);
     assert!(
-        outcomes.iter().all(|(_, exited, ended)| *exited && ended.code == Some(0) && ended.cpu < HUNG_UP_CPU),
-        "each should exit 0 within {HUNG_UP_EXIT:?}, using under {HUNG_UP_CPU:?} of processor time: {outcomes:#?}"
+        exited && ended.code == Some(0) && ended.cpu < HUNG_UP_CPU,
+        "it should exit 0 within {HUNG_UP_EXIT:?}, using under {HUNG_UP_CPU:?} of processor time: {ended:?}"
     );
     assert_eq!(sent(&server).await, Vec::<String>::new());
-    assert_eq!(sandbox.config()["activeProfile"], "alpha");
 
     // Login reads "Press ENTER to open in the browser..." on a thread of its own, once: the end of
     // the input is no ENTER, so no browser opens, and login waits for the sign-in as it does with
@@ -7408,10 +7402,10 @@ async fn a_cohort_chosen_from_the_ltv_menu_is_asked_for_as_when_typed() {
 // ── VE-3826: CI and VENDO_NO_INPUT turn prompts off; no menu on TERM=dumb ───
 // Decided by Yalcin, 2026-10-06, CLI 1.1. `CI` or `VENDO_NO_INPUT` set to anything but empty, `0`
 // or `false` (in any case) turns every prompt off, also at a terminal: the y/N questions, the group
-// menu and the profile picker do what they do without a terminal, and login reads no "Press ENTER"
+// menu and the profile list do what they do without a terminal, and login reads no "Press ENTER"
 // at a terminal (a stdin that is no terminal it reads as before). There is no `--no-input` flag. On `TERM=dumb` a bare group is the usage error, as without a
-// terminal; the questions still ask there. The profile picker asks only when stdin and stdout are
-// terminals, the rule the questions ask by.
+// terminal; the questions still ask there. The profile list opens only where the group menu does
+// (VE-3892; before it, the numbered picker asked where the questions ask).
 
 /// Settings that turn prompts off.
 #[cfg(unix)]
@@ -7520,19 +7514,21 @@ async fn on_a_dumb_terminal_a_bare_group_is_the_usage_error_and_the_questions_st
     let terminal = OnTerminal::start_env(&sandbox, &["apps", "delete", ID], &[("TERM", "dumb")]);
     let (screen, code) = answer_question(terminal, "n\n");
     assert_eq!((code, screen.replace("\r\n", "\n")), (Some(0), "Delete app 550e8400...? (y/N) n\n".to_string()));
-    let mut terminal = OnTerminal::start_env(&sandbox, &["profile", "switch"], &[("TERM", "dumb")]);
-    terminal.wait_for("Search (ENTER for all, q to cancel) ");
-    terminal.press("q\r");
-    assert_eq!(terminal.finish().1, Some(0));
+    // The profile list is a menu since VE-3892: off on `TERM=dumb`, so `profile switch` with no name
+    // prints "Cancelled.", as without a terminal.
+    let (screen, code) = OnTerminal::start_env(&sandbox, &["profile", "switch"], &[("TERM", "dumb")]).finish();
+    assert_eq!((code, plain(&screen)), (Some(0), "Cancelled.\n".to_string()));
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
     assert_eq!(sent(&server).await, Vec::<String>::new());
 }
 
 #[cfg(unix)]
 #[test]
-fn the_profile_picker_asks_only_when_stdin_and_stdout_are_terminals() {
+fn the_profile_list_opens_only_where_the_group_menu_does() {
     use std::io::Write;
     // `echo 1 | vendo profile switch` on a terminal: what the pipe holds is no answer. As without a
-    // terminal, "Cancelled." and nothing switched. ("\n2\n" would list every profile and pick beta.)
+    // terminal, "Cancelled." and nothing switched. (Before VE-3892's list, the numbered picker read
+    // "\n2\n" as every profile listed and beta picked.)
     for input in ["1\n", "\n2\n"] {
         let sandbox = Sandbox::new(CLOSED);
         let (reader, mut writer) = std::io::pipe().unwrap();
@@ -7550,14 +7546,12 @@ fn the_profile_picker_asks_only_when_stdin_and_stdout_are_terminals() {
         assert_eq!((code, plain(&screen)), (Some(0), "Cancelled.\n".to_string()), "{setting:?}");
         assert_eq!(sandbox.config()["activeProfile"], "alpha", "{setting:?}");
     }
-    // Prompts on, at a terminal it asks: ENTER lists every profile, and 2 picks beta.
+    // Prompts on, at a terminal the list opens (VE-3892): down to beta, which Enter chooses.
     for setting in PROMPTS_ON {
         let sandbox = Sandbox::new(CLOSED);
         let mut terminal = OnTerminal::start_env(&sandbox, &["profile", "switch"], &[setting]);
-        terminal.wait_for("Search (ENTER for all, q to cancel) ");
-        terminal.press("\r");
-        terminal.wait_for("Choose an option (ENTER to search again) ");
-        terminal.press("2\r");
+        terminal.wait_for("type to filter]");
+        terminal.press("\u{1b}[B\r");
         let (screen, code) = terminal.finish();
         assert_eq!(code, Some(0), "{setting:?} {screen:?}");
         assert!(plain(&screen).contains("Switched to profile beta."), "{setting:?} {screen:?}");
@@ -7990,4 +7984,309 @@ async fn whoami_doctor_and_their_old_paths_print_exactly_what_workspace_prints()
         assert!(shown.contains("\n  workspace ") || shown.contains("\nworkspace "), "{shown}");
         assert!(!shown.contains("whoami") && !shown.contains("doctor"), "{shown}");
     }
+}
+
+// ── VE-3892: `--profile` with no name, and `profile switch` with none, open the profile list ──────
+// Decided by Yalcin 2026-10-07. Where the group menu opens (`output::can_show_menu`: stdin, stdout and
+// stderr terminals, prompts on, `TERM` not `dumb`, the hang-up watch), the saved profiles show in an
+// arrow-key list with type-to-filter, each row the active marker, the name, the account ID and the base
+// URL's host. On its own (`vendo --profile`) the chosen profile becomes the active one exactly as
+// `vendo profile switch <name>` makes it; at the end of a command (`vendo apps list --profile`) it is
+// that command's alone, as if `--profile <name>` had been typed. `vendo profile switch` with no name
+// opens the same list in place of its numbered picker. Without a terminal `--profile` with no name is
+// clap's usage error as before (`usage/profile_flag`), and `profile switch` prints "Cancelled.".
+
+/// The profile list's rows for `profiles` (named as [`Sandbox::new`] names them, `acct-<name>`) on
+/// `base_url`, `*` on `active`: the name and account ID padded to the widest, then the host.
+fn profile_rows(base_url: &str, profiles: &[&str], active: &str) -> Vec<String> {
+    let host = base_url.split_once("://").map_or(base_url, |(_, rest)| rest);
+    let row = |name: &&str| {
+        let marker = if *name == active { '*' } else { ' ' };
+        format!("{marker} {name:<5}  {:<10}  {host}", format!("acct-{name}"))
+    };
+    profiles.iter().map(row).collect()
+}
+
+/// What an open profile list titled `title` shows: the title, `rows` with the first marked, the hint.
+fn profile_list(title: &str, rows: &[String]) -> Vec<String> {
+    let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+    [vec![format!("? {title}")], marked(&rows), vec![HINT.to_string()]].concat()
+}
+
+/// [`Sandbox::new`] with a third profile, `gamma`, after the other two.
+fn with_gamma(sandbox: &Sandbox) {
+    let mut config = sandbox.config();
+    let alpha = config["profiles"]["alpha"].clone();
+    let gamma = json!({ "apiKey": GAMMA_KEY, "accountId": "acct-gamma", "baseUrl": alpha["baseUrl"] });
+    config["profiles"].as_object_mut().unwrap().insert("gamma".into(), gamma);
+    std::fs::write(sandbox.home.path().join(".config/vendo/config.json"), config.to_string()).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn profile_switch_without_a_name_chooses_from_the_profile_list() {
+    // Arrow keys, or typing to filter (any case); `config use`, its old name (VE-3827), is titled as the
+    // tree names it. What follows the answer is what `vendo profile switch beta` prints.
+    for (args, keys) in [(&["profile", "switch"][..], "\u{1b}[B\r"), (&["config", "use"], "BET\r")] {
+        let sandbox = Sandbox::new(CLOSED);
+        let case = args.join(" ");
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        let rows = profile_rows(CLOSED, &["alpha", "beta"], "alpha");
+        assert_eq!(shown_lines(&terminal, (40, 120)), profile_list("vendo profile switch", &rows), "{case}");
+        terminal.press(keys);
+        terminal.wait_for("vendo profile switch beta");
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{case}: {rest:?}");
+        let typed = Sandbox::new(CLOSED).run(&["profile", "switch", "beta"]);
+        assert_eq!(after_answer(&terminal, "? vendo profile switch beta"), printed_lines(&typed), "{case}");
+        assert_eq!(sandbox.config()["activeProfile"], "beta", "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn profile_with_no_name_on_its_own_makes_the_chosen_profile_active_as_profile_switch_does() {
+    for args in [&["--profile"][..], &["--debug", "--profile"]] {
+        let sandbox = Sandbox::new(CLOSED);
+        let case = args.join(" ");
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        let rows = profile_rows(CLOSED, &["alpha", "beta"], "alpha");
+        assert_eq!(shown_lines(&terminal, (40, 120)), profile_list("vendo --profile", &rows), "{case}");
+        terminal.press("\u{1b}[B\r");
+        terminal.wait_for("vendo --profile beta");
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{case}: {rest:?}");
+        let typed = Sandbox::new(CLOSED).run(&["profile", "switch", "beta"]);
+        assert_eq!(after_answer(&terminal, "? vendo --profile beta"), printed_lines(&typed), "{case}");
+        assert_eq!(sandbox.config()["activeProfile"], "beta", "{case}");
+    }
+    // Under VENDO_PROFILE the list marks the profile it selects, as `profile list` does; the chosen one
+    // becomes the saved active profile, and what follows says VENDO_PROFILE still overrides it in this
+    // shell, as `profile switch` says.
+    let sandbox = Sandbox::new(CLOSED);
+    with_gamma(&sandbox);
+    let mut terminal = OnTerminal::start_env(&sandbox, &["--profile"], &[("VENDO_PROFILE", "beta")]);
+    terminal.wait_for("type to filter]");
+    let rows = profile_rows(CLOSED, &["alpha", "beta", "gamma"], "beta");
+    assert_eq!(shown_lines(&terminal, (40, 120)), profile_list("vendo --profile", &rows));
+    terminal.press("gam\r");
+    terminal.wait_for("vendo --profile gamma");
+    let (rest, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{rest:?}");
+    let twin = Sandbox::new(CLOSED);
+    with_gamma(&twin);
+    let typed = twin.command(&["profile", "switch", "gamma"]).env("VENDO_PROFILE", "beta").output().unwrap();
+    let printed = printed_lines(&typed);
+    assert!(printed.iter().any(|line| line.contains("VENDO_PROFILE=beta still overrides it")), "{printed:#?}");
+    assert_eq!(after_answer(&terminal, "? vendo --profile gamma"), printed);
+    assert_eq!(sandbox.config()["activeProfile"], "gamma");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_command_ending_in_profile_with_no_name_runs_with_the_chosen_profile_for_that_command_alone() {
+    let server = MockServer::start().await;
+    let app = |name: &str| {
+        json!({
+            "id": MENU_APP, "appType": "shopify", "displayName": name, "permissions": ["performance_data"],
+            "roles": ["source"], "state": "active", "accessStatus": "connected", "lastSyncAt": null,
+        })
+    };
+    serve(&server, "GET", "/api/v1/accounts/acct-alpha/apps", 200, json!({ "data": [app("Alpha Shop")] })).await;
+    serve(&server, "GET", "/api/v1/accounts/acct-beta/apps", 200, json!({ "data": [app("Beta Shop")] })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let rows = |active: &str| profile_rows(&server.uri(), &["alpha", "beta"], active);
+    /// The words, VENDO_PROFILE, the list's title, the profile its marker is on, the keys typed and the
+    /// profile they choose.
+    struct Case<'a>(&'a [&'a str], Option<&'a str>, &'a str, &'a str, &'a str, &'a str);
+    // `config list` is `profile list`'s old name (VE-3827): titled as the tree names it.
+    let cases = [
+        Case(&["apps", "list", "--profile"], None, "vendo apps list --profile", "alpha", "\u{1b}[B\r", "beta"),
+        Case(&["apps", "list", "--json", "--profile"], None, "vendo apps list --profile", "alpha", "BETA\r", "beta"),
+        Case(&["config", "list", "--profile"], None, "vendo profile list --profile", "alpha", "\u{1b}[B\r", "beta"),
+        // The flag, as typed, wins over VENDO_PROFILE, whose profile the list marks.
+        Case(&["apps", "list", "--profile"], Some("beta"), "vendo apps list --profile", "beta", "\r", "alpha"),
+    ];
+    for Case(args, vendo_profile, title, active, keys, chosen) in cases {
+        let case = format!("{vendo_profile:?} {}", args.join(" "));
+        let env: Vec<(&str, &str)> = vendo_profile.map(|name| ("VENDO_PROFILE", name)).into_iter().collect();
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start_env(&sandbox, args, &env);
+        terminal.wait_for("type to filter]");
+        assert_eq!(shown_lines(&terminal, (40, 120)), profile_list(title, &rows(active)), "{case}");
+        terminal.press(keys);
+        let answer = format!("? {title} {chosen}");
+        terminal.wait_for(&answer[2..]);
+        let (rest, code) = terminal.finish();
+        let asked = sent(&server).await[before..].to_vec();
+        // The same words with the profile typed after `--profile`, on a pipe.
+        let typed_args: Vec<&str> = args.iter().copied().chain([chosen]).collect();
+        let typed = sandbox.command(&typed_args).envs(env.iter().copied()).output().unwrap();
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!(code, typed.status.code(), "{case}: {rest:?}");
+        assert_eq!((code, &asked), (Some(0), &typed_sent), "{case}");
+        // What it showed after the answer is what the typed command printed (a table has borders only
+        // at a terminal).
+        assert_eq!(table_cells(&after_answer(&terminal, &answer)), table_cells(&printed_lines(&typed)), "{case}");
+        // For that command alone: the saved active profile stays.
+        assert_eq!(sandbox.config()["activeProfile"], "alpha", "{case}");
+    }
+    let listed = |account: &str| format!("GET /api/v1/accounts/{account}/apps?limit=20&offset=0");
+    // Each list run, at the terminal and then typed on a pipe.
+    let (beta, alpha) = (listed("acct-beta"), listed("acct-alpha"));
+    assert_eq!(sent(&server).await, [&beta, &beta, &beta, &beta, &alpha, &alpha].map(String::as_str));
+
+    // After a group, as if typed: `vendo apps --profile beta` then opens the group's menu, whose first
+    // command, `list`, runs with beta.
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "--profile"]);
+    terminal.wait_for("type to filter]");
+    assert_eq!(shown_lines(&terminal, (40, 120)), profile_list("vendo apps --profile", &rows("alpha")));
+    terminal.press("\u{1b}[B\r");
+    terminal.wait_for("vendo apps --profile beta");
+    terminal.wait_for("Update an app");
+    terminal.press("\r");
+    terminal.wait_for("vendo apps list");
+    let (rest, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{rest:?}");
+    assert!(plain(&rest).contains("Beta Shop"), "{rest:?}");
+    assert_eq!(sent(&server).await[6..], [beta]);
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
+}
+
+/// The three ways to open the profile list, each with its title.
+#[cfg(unix)]
+const PROFILE_LISTS: [(&[&str], &str); 3] = [
+    (&["--profile"], "vendo --profile"),
+    (&["apps", "list", "--profile"], "vendo apps list --profile"),
+    (&["profile", "switch"], "vendo profile switch"),
+];
+
+#[cfg(unix)]
+#[tokio::test]
+async fn esc_ctrl_c_or_ctrl_d_at_the_profile_list_leave_quietly() {
+    // As at the group menu (VE-3826) and the lists for a missing value (VE-3881): exit 0, nothing run
+    // or switched, the title and `<canceled>` where the list was, and the cursor on the next line.
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, title) in PROFILE_LISTS {
+        let mut screens = Vec::new();
+        for (key, name) in [("\u{1b}", "Esc"), ("\u{3}", "Ctrl-C"), ("\u{4}", "Ctrl-D")] {
+            let case = format!("{name} {}", args.join(" "));
+            let mut terminal = OnTerminal::start(&sandbox, args);
+            terminal.wait_for("type to filter]");
+            terminal.press(key);
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            let (shown, cursor) = screen(&terminal.screen, 40, 120);
+            let last = shown.iter().rposition(|line| !line.is_empty()).unwrap();
+            assert_eq!((shown[last].clone(), cursor), (format!("? {title} <canceled>"), (last + 1, 0)), "{case}");
+            screens.push((shown, cursor));
+        }
+        assert!(screens.iter().all(|screen| *screen == screens[0]), "{screens:#?}");
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_profile_list_exits_as_ctrl_d_does_when_its_terminal_hangs_up() {
+    // The list runs as the group menu runs, with its hang-up watch: on a terminal that hangs up it
+    // exits 0 at once, running and switching nothing, and does not spin.
+    let server = stub_accepting_everything().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut outcomes = Vec::new();
+    for (args, _) in PROFILE_LISTS {
+        let mut terminal = OnTerminal::start_detached(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        let (exited, ended) = hang_up(&mut terminal);
+        outcomes.push((args, exited, ended));
+    }
+    assert!(
+        outcomes.iter().all(|(_, exited, ended)| *exited && ended.code == Some(0) && ended.cpu < HUNG_UP_CPU),
+        "each should exit 0 within {HUNG_UP_EXIT:?}, using under {HUNG_UP_CPU:?} of processor time: {outcomes:#?}"
+    );
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn where_the_list_cannot_open_profile_with_no_name_is_the_usage_error_and_profile_switch_says_cancelled() {
+    // Byte for byte what a pipe gets (`usage/profile_flag` records it), exit 2, nothing sent or switched:
+    // with prompts off, on `TERM=dumb`, with stdout or stderr elsewhere, or a stdin no key can be read from.
+    let server = MockServer::start().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let write_only_terminal = || {
+        use std::os::unix::{ffi::OsStrExt, fs::OpenOptionsExt};
+        let pseudo_terminal = pseudo_terminal_sized(40, 120);
+        let name = std::ffi::OsStr::from_bytes(pseudo_terminal.2.as_bytes());
+        let write_only = std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOCTTY).open(name).unwrap();
+        (pseudo_terminal, write_only)
+    };
+    for args in snapshots::PROFILE_WITHOUT_A_NAME {
+        let case = args.join(" ");
+        let piped = sandbox.run(args);
+        assert_eq!((piped.status.code(), text(&piped.stdout)), (Some(2), String::new()), "{case}");
+        let expected = text(&piped.stderr);
+        for setting in [("CI", "1"), ("VENDO_NO_INPUT", "1"), ("TERM", "dumb")] {
+            let (screen, code) = OnTerminal::start_env(&sandbox, args, &[setting]).finish();
+            assert_eq!((code, plain(&screen)), (Some(2), expected.clone()), "{setting:?} vendo {case}");
+        }
+        let (_controller, terminal) = pseudo_terminal();
+        let out = sandbox.command(args).stdin(terminal).output().unwrap();
+        let shown = (out.status.code(), text(&out.stdout), text(&out.stderr));
+        assert_eq!(shown, (Some(2), String::new(), expected.clone()), "| vendo {case}");
+        let log = tempfile::NamedTempFile::new().unwrap();
+        let mut terminal = OnTerminal::start_with(&sandbox, args, (40, 120), "", Some(log.reopen().unwrap().into()));
+        assert_eq!(terminal.finish(), (String::new(), Some(2)), "2>file vendo {case}");
+        assert_eq!(std::fs::read_to_string(log.path()).unwrap(), expected, "2>file vendo {case}");
+        let (pseudo_terminal, write_only) = write_only_terminal();
+        let cmd = sandbox.command(args);
+        let mut terminal = OnTerminal::launch_on(pseudo_terminal, cmd, "", Some(write_only.into()), None, true);
+        let (screen, code) = terminal.finish();
+        assert_eq!((code, plain(&screen)), (Some(2), expected), "0>write-only vendo {case}");
+    }
+    // `profile switch` with no name prints "Cancelled." and switches nothing, as without a terminal (a
+    // pipe and prompts off: `the_profile_list_opens_only_where_the_group_menu_does`).
+    let cancelled = (Some(0), "Cancelled.\n".to_string());
+    let (screen, code) = OnTerminal::start_env(&sandbox, &["profile", "switch"], &[("TERM", "dumb")]).finish();
+    assert_eq!((code, plain(&screen)), cancelled, "TERM=dumb");
+    let log = tempfile::NamedTempFile::new().unwrap();
+    let stderr = Some(log.reopen().unwrap().into());
+    let (screen, code) = OnTerminal::start_with(&sandbox, &["profile", "switch"], (40, 120), "", stderr).finish();
+    assert_eq!(
+        (code, plain(&screen), std::fs::read_to_string(log.path()).unwrap()),
+        (cancelled.0, cancelled.1.clone(), String::new())
+    );
+    let (pseudo_terminal, write_only) = write_only_terminal();
+    let cmd = sandbox.command(&["profile", "switch"]);
+    let (screen, code) = OnTerminal::launch_on(pseudo_terminal, cmd, "", Some(write_only.into()), None, true).finish();
+    assert_eq!((code, plain(&screen)), cancelled, "0>write-only");
+    assert_eq!(server.received_requests().await.unwrap().len(), 0);
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
+}
+
+#[cfg(unix)]
+#[test]
+fn with_no_saved_profile_profile_with_no_name_says_so_and_is_the_usage_error() {
+    // As a list for a missing value with nothing in it (VE-3881): it says so, then the usage error.
+    // `profile switch` says what it said before.
+    let sandbox = Sandbox::new(CLOSED);
+    let empty = tempfile::tempdir().unwrap();
+    for args in [&["--profile"][..], &["apps", "list", "--profile"]] {
+        let piped = sandbox.command(args).env("HOME", empty.path()).output().unwrap();
+        let mut cmd = sandbox.command(args);
+        cmd.env("HOME", empty.path());
+        let (screen, code) = OnTerminal::spawn(cmd, (40, 120), "", None, None).finish();
+        let expected = format!("No profiles to choose from.\n{}", text(&piped.stderr));
+        assert_eq!((code, plain(&screen)), (Some(2), expected), "{args:?}");
+    }
+    let mut cmd = sandbox.command(&["profile", "switch"]);
+    cmd.env("HOME", empty.path());
+    let (screen, code) = OnTerminal::spawn(cmd, (40, 120), "", None, None).finish();
+    assert_eq!((code, plain(&screen)), (Some(0), "No profiles yet. Run `vendo login` to create one.\n".to_string()));
+    assert!(!empty.path().join(".config").exists(), "nothing is saved");
 }

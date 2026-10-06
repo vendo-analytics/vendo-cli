@@ -69,7 +69,9 @@ This checks the key and saves the same profile the browser sign-in does. To save
 ```bash
 vendo profile list                  # saved profiles, the active one marked
 vendo profile switch <profile>      # make another profile active (no name: pick from a list)
+vendo --profile                     # pick a profile from a list and make it active
 vendo --profile <profile> status    # use a profile for one command
+vendo status --profile              # pick a profile from a list for this one command
 vendo profile set --account <id>    # change a value on the active profile
 ```
 
@@ -107,7 +109,8 @@ on one line each. `--profile <name>` and `--debug` work with every command. At a
 command (`vendo apps`) opens a menu of its commands: arrow keys move, typing filters, Enter runs, Esc leaves. The menu
 needs stdin, stdout and stderr to be terminals, `TERM` not `dumb` and prompts on (see
 [Non-interactive runs](#non-interactive-runs-ci-and-vendo_no_input)); otherwise the group prints its help and
-exits 2.
+exits 2. Under the same rule, `--profile` typed last with no name, and `vendo profile switch` with none, open a list
+of your saved profiles; otherwise `--profile` with no name is a usage error (exit 2).
 
 ### Apps, sources and destinations
 
@@ -385,11 +388,12 @@ empty, `0` or `false` and it asks none, at a terminal too:
 - `delete`, `jobs cancel` and `logout --all` need `--yes`. Without it they stop with exit 1 before they send
   anything. `--json` does not imply `--yes`.
 - A group run without its command (`vendo apps`) prints its help and exits 2 instead of opening the menu.
-- `vendo profile switch` without a profile name prints `Cancelled.` instead of a list to pick from.
+- `vendo profile switch` without a profile name prints `Cancelled.` instead of a list to pick from, and `--profile`
+  without a name exits 2 with its usage error.
 - `vendo login` without a key prints the sign-in link and waits; it opens no browser. In CI, use
   `vendo login --api-key ... --account ...` or the environment variables below.
 
-`TERM=dumb` turns off only the group menu; the y/N questions and the profile picker still ask.
+`TERM=dumb` turns off the group menu and the profile list; the y/N questions still ask.
 
 ### Environment variables
 

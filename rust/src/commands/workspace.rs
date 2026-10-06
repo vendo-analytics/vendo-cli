@@ -18,10 +18,11 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     commands::health::{self, CheckStatus, DoctorCheck, DoctorEnv, Listed},
-    config::{DEFAULT_BASE_URL, EffectiveConfig, ProfileSummary, mask_api_key, vendo_profile_overrides},
+    config::{EffectiveConfig, ProfileSummary, mask_api_key, vendo_profile_overrides},
     context::Ctx,
     identity::{Identity, Me, fetch_identity},
     output::{bold, dim, green, print_json, red, run_action, yellow},
+    profile_display::shown_host,
     update_check,
 };
 
@@ -189,7 +190,7 @@ fn profile_rows(profiles: &[ProfileSummary]) -> Vec<String> {
         .iter()
         .map(|profile| {
             let marker = if profile.active { green("*") } else { " ".to_string() };
-            let host = if profile.base_url == DEFAULT_BASE_URL { "" } else { without_scheme(&profile.base_url) };
+            let host = shown_host(profile);
             let row = format!("  {marker} {:<names$}  {:<accounts$}  {host}", profile.name, account(profile));
             row.trim_end().to_string()
         })
@@ -199,11 +200,6 @@ fn profile_rows(profiles: &[ProfileSummary]) -> Vec<String> {
 /// `28bb9a3b…` for `28bb9a3b-1c2d-…`; an ID of 8 characters or fewer whole.
 fn short_id(id: &str) -> String {
     if id.chars().count() <= 8 { id.to_string() } else { format!("{}…", id.chars().take(8).collect::<String>()) }
-}
-
-/// `stg.vendodata.com` for `https://stg.vendodata.com/`.
-fn without_scheme(url: &str) -> &str {
-    url.split_once("://").map_or(url, |(_, rest)| rest).trim_end_matches('/')
 }
 
 /// The Checks section: each check in its few words after `[ok]`, `[warn]` or `[fail]`, with the
@@ -248,7 +244,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::config::{STAGING_BASE_URL, Source};
+    use crate::config::{DEFAULT_BASE_URL, STAGING_BASE_URL, Source};
 
     fn profile(name: &str, active: bool, account: Option<&str>, base_url: &str) -> ProfileSummary {
         ProfileSummary { name: name.into(), active, account_id: account.map(Into::into), base_url: base_url.into() }

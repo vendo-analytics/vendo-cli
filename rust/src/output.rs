@@ -842,8 +842,8 @@ fn prompt(question: &str) -> Answer {
 
 /// Ctrl-C or Ctrl-D at a prompt: Node's readline closed and the question
 /// never resolved, so the TS CLI exited 0 with nothing printed or changed.
-/// Leaving a menu ([`choose_command`]) or a list or question for a missing value ([`choose_value`],
-/// [`ask_text`]) ends the same way.
+/// Leaving a menu ([`choose_command`]), a list or question for a missing value ([`choose_value`],
+/// [`ask_text`]) or the profile list (`ask::choose_profile`, a [`choose_value`] list) ends the same way.
 pub fn quit_quietly() -> ! {
     std::process::exit(0)
 }
@@ -851,9 +851,9 @@ pub fn quit_quietly() -> ! {
 /// Whether `CI` or `VENDO_NO_INPUT` turns every prompt off, also at a terminal (VE-3826,
 /// decided by Yalcin 2026-10-06): CI runners can give a job a terminal, where a question or a
 /// menu would wait for no one. There is no `--no-input` flag. Every prompt asks by it: the
-/// questions, the group menu and the profile picker through [`can_prompt`], and login's
-/// "Press ENTER to open in the browser" read at a terminal (a stdin that is no terminal it reads
-/// as before).
+/// questions through [`can_prompt`], the group menu, the lists and questions for a missing value
+/// and the profile list through [`can_show_menu`], and login's "Press ENTER to open in the browser"
+/// read at a terminal (a stdin that is no terminal it reads as before).
 pub fn prompts_off() -> bool {
     turns_prompts_off(std::env::var_os("CI").as_deref())
         || turns_prompts_off(std::env::var_os("VENDO_NO_INPUT").as_deref())
@@ -868,8 +868,8 @@ fn turns_prompts_off(value: Option<&std::ffi::OsStr>) -> bool {
 /// Whether someone can answer a question: it is shown on stdout and read from
 /// stdin, so both must be terminals, and [`prompts_off`] must not hold. Never in
 /// unit tests, for the same reason as [`stdout_is_tty`]. [`confirm`] asks by it
-/// (VE-3823), the profile picker ([`search_select_option`]) too, and the menu of
-/// a group run without its command by it and more ([`can_show_menu`], VE-3826).
+/// (VE-3823), and the menu of a group run without its command by it and more
+/// ([`can_show_menu`], VE-3826).
 pub fn can_prompt() -> bool {
     !cfg!(test) && !prompts_off() && std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
@@ -880,7 +880,8 @@ pub fn can_prompt() -> bool {
 /// 2>err.log`) the menu would wait for keys with nothing on the screen, and
 /// `TERM=dumb` says the terminal moves no cursor (decided by Yalcin 2026-10-06),
 /// so the usage error stays. The questions still ask on `TERM=dumb`. A stdin that is a terminal
-/// opened for writing only ([`stdin_reads`]) gives no keys either.
+/// opened for writing only ([`stdin_reads`]) gives no keys either. The lists and questions for a
+/// missing value (VE-3881) and the profile list (VE-3892) open by the same rule.
 #[cfg(feature = "menu")]
 pub fn can_show_menu() -> bool {
     can_prompt()
@@ -891,8 +892,8 @@ pub fn can_show_menu() -> bool {
 
 /// Whether stdin was opened for reading. A terminal opened write-only (`vendo apps
 /// 0>/dev/ttys004`) is a terminal all the same, but reading it fails at once, every time (EBADF):
-/// crossterm's read loop spun on that from the first key on (2026-10-06). The y/N questions and the
-/// profile picker read it once and end as for Ctrl-D.
+/// crossterm's read loop spun on that from the first key on (2026-10-06). The y/N questions read it
+/// once and end as for Ctrl-D.
 #[cfg(feature = "menu")]
 fn stdin_reads() -> bool {
     #[cfg(unix)]
@@ -999,8 +1000,8 @@ impl std::fmt::Display for ValueRow {
     }
 }
 
-/// The arrow-key list a command missing a value opens (VE-3881), drawn and left as the group menu
-/// is ([`choose_command`]): `title` (the command, `vendo apps get`), then `rows`; ↑↓ move, typing
+/// The arrow-key list a command missing a value opens (VE-3881), and the profile list (VE-3892),
+/// drawn and left as the group menu is ([`choose_command`]): `title` (the command, `vendo apps get`), then `rows`; ↑↓ move, typing
 /// filters (by substring, in any case), Enter chooses, and the chosen row's answer replaces the
 /// list after the title. `note` follows the menu's hint (`… type to filter · newest 500 shown`).
 /// Keys typed before the list opened, while it loaded, are thrown away ([`discard_typed_ahead`]):
@@ -1581,67 +1582,6 @@ impl Drop for InterruptAsInput {
     }
 }
 
-/// A picker answer as a 0-based index: `Number(answer)` must be an integer
-/// from 1 to `count`, so `2.0` and `0x2` pick the second option, as in TS.
-fn selection_index(answer: &str, count: usize) -> Option<usize> {
-    let n = js_number(answer);
-    (n.fract() == 0.0 && n >= 1.0 && n <= count as f64).then(|| n as usize - 1)
-}
-
-pub struct SelectOption {
-    pub value: String,
-    pub label: String,
-    pub search_text: String,
-}
-
-/// Search-then-pick prompt (the TS `searchSelectOption`). `None` when no one can
-/// answer ([`can_prompt`]: the TS CLI asked whenever stdout was a terminal, so
-/// `echo 1 | vendo profile switch` read its answers from the pipe; decided by
-/// Yalcin 2026-10-06, VE-3826), there are no options, or the user types `q`;
-/// Ctrl-C and Ctrl-D end the command quietly.
-pub fn search_select_option(message: &str, options: &[SelectOption]) -> Option<String> {
-    if !can_prompt() || options.is_empty() {
-        return None;
-    }
-    let ask = |question: String| match prompt(&question) {
-        Answer::Line(line) => line,
-        Answer::Closed => quit_quietly(),
-    };
-    println!("{message}");
-    loop {
-        let query = ask(format!("Search {} ", dim("(ENTER for all, q to cancel)"))).trim().to_lowercase();
-        if query == "q" {
-            return None;
-        }
-        let filtered: Vec<&SelectOption> = options
-            .iter()
-            .filter(|o| query.is_empty() || format!("{} {}", o.label, o.search_text).to_lowercase().contains(&query))
-            .collect();
-        if filtered.is_empty() {
-            println!("{}", dim("No matching profiles. Try a different search."));
-            continue;
-        }
-        let displayed = &filtered[..filtered.len().min(10)];
-        for (index, option) in displayed.iter().enumerate() {
-            println!("  {}. {}", index + 1, option.label);
-        }
-        if filtered.len() > displayed.len() {
-            println!("{}", dim(&format!("  … {} more matches", filtered.len() - displayed.len())));
-        }
-        let selection = ask(format!("Choose an option {} ", dim("(ENTER to search again)"))).trim().to_string();
-        if selection.is_empty() {
-            continue;
-        }
-        if let Some(index) = selection_index(&selection, displayed.len()) {
-            return Some(displayed[index].value.clone());
-        }
-        if let Some(matched) = filtered.iter().find(|o| o.value == selection || o.label == selection) {
-            return Some(matched.value.clone());
-        }
-        println!("{}", dim("Invalid selection. Search again or choose a listed number."));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2154,25 +2094,6 @@ mod tests {
         }
         for answer in ["\n", "n\n", "N\n", "yes\n", "yy\n"] {
             assert!(!accepts(answer), "{answer:?}");
-        }
-    }
-
-    #[test]
-    fn picker_numbers_are_read_with_javascript_number() {
-        for (answer, expected) in [
-            ("2", Some(1)),
-            ("2.0", Some(1)),
-            ("0x2", Some(1)),
-            ("+2", Some(1)),
-            ("2e0", Some(1)),
-            ("1", Some(0)),
-            ("3", None),
-            ("0", None),
-            ("1.5", None),
-            ("abc", None),
-            ("Infinity", None),
-        ] {
-            assert_eq!(selection_index(answer, 2), expected, "{answer:?}");
         }
     }
 
