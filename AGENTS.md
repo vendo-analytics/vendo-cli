@@ -215,7 +215,10 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   apart, stops it with SIGTTOU as a read would. A stdin opened write-only (`vendo apps 0>/dev/ttys004`), which no key
   can be read from, keeps the usage error (`output::stdin_reads`); the questions and the picker read it once and
   exit 0 as for Ctrl-D. The menu takes the screen's height less one line at most, and on a short screen its list
-  scrolls (`output::menu_page`). Without a terminal the usage error stays: the group's help on stderr, exit 2.
+  scrolls (`output::menu_page`). Its rows, its hint and the answered line leave the screen's last column free
+  (`output::fitted`, VE-3881 review): inquire draws a line that changed again and then erases to the line's end, and
+  where the terminal follows xterm (xterm, Ghostty, `screen` in the tests) that erase took off a character drawn in
+  the last column, from the first key on. Without a terminal the usage error stays: the group's help on stderr, exit 2.
   The menu is inquire with its crossterm backend and no fuzzy matching (`output::choose_command`); crossterm,
   inquire's version, is a direct dependency for the screen size and the Ctrl-C redraw. Both are the default-on
   `menu` cargo feature: built with `--no-default-features` the CLI has no menu (`cli::menu_choice`), so a bare group
@@ -270,11 +273,13 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `measurement ltv customer`, `dictionary search`, an answer starting with `-` going in after `--` and `help` staying
   the query), a date (`measurement rules preview --from` and `--to`, not checked: the API decides) and a file's path
   (`destinations create --config-file`, `metrics create --definition`, taken as typed, relative to the current
-  directory, `~` not expanded) are a one-line question (`output::ask_text`, refusing an empty answer). Keys typed before
-  a list or question opens (while the list loads, or with the Enter that answered the menu or the list before) are
-  thrown away (`output::discard_typed_ahead`), so a stray Enter chooses nothing unseen. Each is titled with the command
-  as the tree names it (`vendo apps get`, `vendo apps create --type`, `vendo destinations get` for `vendo int get`), and
-  the answered line reads like the command so far, `vendo apps get a1b2c3d4... (Menu Shop)`,
+  directory, `~` not expanded) are a one-line question (`output::ask_text`): the answer is taken without the spaces and
+  line ends around it, as a shell takes a word (a pasted line brought its line end to the API), and one that is empty
+  without them is refused. Keys typed before a list or question opens (while the list loads, or with the Enter that
+  answered the menu or the list before) are thrown away (`output::discard_typed_ahead`), so a stray Enter chooses
+  nothing unseen. Each is titled with the command as the tree names it (`vendo apps get`, `vendo apps create --type`,
+  `vendo destinations get` for `vendo int get`), and the answered line reads like the command so far,
+  `vendo apps get a1b2c3d4... (Menu Shop)`,
   `vendo destinations get 9c0d1e2f... (Analytics BQ → Demo Pixel)`, a job, which has no name, by its short ID alone
   (`vendo jobs cancel 1f2e3d4c...`), a cohort by its period, a dictionary entry by its whole subject ID and name (the
   dictionary's IDs are no short IDs), after inquire's mark for an answer: a green `>`, or `?` with `NO_COLOR` (as the

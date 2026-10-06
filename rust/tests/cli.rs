@@ -5181,8 +5181,9 @@ async fn names_in_wide_characters_keep_the_columns_in_line_and_the_list_on_a_sho
     terminal.wait_for("type to filter]");
     // The end of that frame: inquire shows the cursor again.
     terminal.wait_for("\u{1b}[?25h");
-    // As many as fit between the title and the hint, with a line to spare, and the list scrolls.
-    let row = |mark: char, n: u64| [format!("{mark} b000000{n}...  {}  shopify  source", name(n)), " active".into()];
+    // As many as fit between the title and the hint, with a line to spare, and the list scrolls. A
+    // row's first line ends at `source`, in the 79th column: the 80th, the screen's last, stays free.
+    let row = |mark: char, n: u64| [format!("{mark} b000000{n}...  {}  shopify  source", name(n)), "  active".into()];
     let mut expected = vec!["? vendo apps get".to_string()];
     expected.extend([row('>', 0), row(' ', 1), row('v', 2)].concat());
     expected.extend(["[↑↓ to move, enter to select, type to filter]".to_string(), String::new(), String::new()]);
@@ -5197,6 +5198,74 @@ async fn names_in_wide_characters_keep_the_columns_in_line_and_the_list_on_a_sho
     terminal.wait_for(&format!("vendo apps get b0000001... ({})", name(1)));
     assert_eq!(terminal.finish().1, Some(0));
     assert_eq!(sent(&server).await, [format!("GET {V1}/apps?limit=100&offset=0"), format!("GET {V1}/apps/{}", id(1))]);
+}
+
+/// `line` as a list draws it on a screen `columns` wide, each line leaving the last column free:
+/// broken every `columns - 1` characters (characters one column wide), without trailing spaces.
+fn broken(line: &str, columns: usize) -> Vec<String> {
+    let chars: Vec<char> = line.chars().collect();
+    chars.chunks(columns - 1).map(|chunk| chunk.iter().collect::<String>().trim_end().to_string()).collect()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn rows_that_wrap_stay_whole_when_the_list_or_menu_is_drawn_again() {
+    // inquire draws again each line that changed, then erases to the end of the line. After a
+    // character in the screen's last column the cursor waits there, and where the terminal follows
+    // xterm (`screen` here) the erase took that character off the screen: from the first key on, a
+    // row that filled a line lost a character there, a subject ID one at each place it wrapped. The
+    // rows, the hint and the answered line leave the last column free.
+    let (lines, columns) = (60, 40);
+    let server = measurement_and_dictionary_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    // The menu of `vendo destinations` (VE-3826), whose rows take up to three lines on 40 columns:
+    // down twice and up twice shows what it showed first, every line short of the last column.
+    let mut terminal = OnTerminal::start_with(&sandbox, &["destinations"], (lines, columns), "", None);
+    terminal.wait_for("\u{1b}[?25h");
+    let first = screen(&terminal.screen, lines.into(), columns.into()).0;
+    assert!(first.iter().all(|line| line.chars().count() < columns.into()), "{first:#?}");
+    assert!(first.iter().filter(|line| !line.is_empty()).count() > 12, "no row wraps: {first:#?}");
+    for key in ["\u{1b}[B", "\u{1b}[B", "\u{1b}[A", "\u{1b}[A"] {
+        terminal.press(key);
+        terminal.wait_for("\u{1b}[?25h");
+    }
+    assert_eq!(screen(&terminal.screen, lines.into(), columns.into()).0, first);
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+
+    // `dictionary get`: an event's row takes two lines; down twice and up once marks the second.
+    let mut terminal = OnTerminal::start_with(&sandbox, &["dictionary", "get"], (lines, columns), "", None);
+    terminal.wait_for("> event");
+    terminal.wait_for("\u{1b}[?25h");
+    terminal.press("\r");
+    terminal.wait_for("> Checkout Completed");
+    terminal.wait_for("\u{1b}[?25h");
+    for key in ["\u{1b}[B", "\u{1b}[B", "\u{1b}[A"] {
+        terminal.press(key);
+        terminal.wait_for("\u{1b}[?25h");
+    }
+    let (shown, _) = screen(&terminal.screen, lines.into(), columns.into());
+    let mut expected = broken("? vendo dictionary get · subject type event", columns.into());
+    expected.push("? vendo dictionary get".to_string());
+    for (i, row) in EVENT_ROWS.iter().enumerate() {
+        expected.extend(broken(&format!("{} {row}", if i == 1 { '>' } else { ' ' }), columns.into()));
+    }
+    expected.extend(broken(HINT, columns.into()));
+    assert_eq!(shown[..expected.len()], expected[..], "{shown:#?}");
+    assert!(shown[expected.len()..].iter().all(String::is_empty), "{shown:#?}");
+    // The answered line, whole: the title, then the subject ID and the name.
+    terminal.press("\r");
+    terminal.wait_for("(Page Viewed)");
+    terminal.wait_for("\u{1b}[?25h");
+    let seen = terminal.seen;
+    let (shown, _) = screen(&terminal.screen[..seen], lines.into(), columns.into());
+    let answered = broken(&format!("? vendo dictionary get {EVENT_PAGE} (Page Viewed)"), columns.into());
+    let at = expected.len() - EVENT_ROWS.len() * 2 - 3;
+    assert_eq!(shown[at..at + 2], answered[..], "{shown:#?}");
+    assert!(shown[at + 2..].iter().all(String::is_empty), "{shown:#?}");
+    assert_eq!(terminal.finish().1, Some(0));
+    let looked_up = sent(&server).await.last().cloned().unwrap();
+    assert!(looked_up.contains(EVENT_PAGE), "{looked_up}");
 }
 
 // ── VE-3881, sources and destinations ────────────────────────────────────────
@@ -6819,6 +6888,57 @@ async fn rules_preview_ltv_customer_and_dictionary_search_ask_a_question_and_run
     terminal.wait_for("vendo measurement ltv customer cust_abc123");
     assert_eq!(terminal.finish().1, Some(0));
     assert_eq!(sent(&server).await[before..], ["GET /api/measurement/ltv/customer/cust_abc123"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_one_line_answer_is_taken_without_the_spaces_and_line_ends_around_it() {
+    // A shell takes a word without the spaces and the line end around it; the question took them
+    // too. A line copied whole, or a spreadsheet's cell, brought its line end: the screen showed
+    // `2025-01-01`, the API got `2025-01-01\n` and refused it, and a customer ID with it found no
+    // cohort. A paste comes in brackets (`ESC[200~`…`ESC[201~`), as a terminal sends it.
+    let server = measurement_and_dictionary_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let paste = |text: &str| format!("\u{1b}[200~{text}\u{1b}[201~");
+    let customer = "vendo measurement ltv customer";
+    for keys in [paste(" cust_abc123\n"), paste("cust_abc123\r"), "  cust_abc123  ".to_string()] {
+        let case = format!("{keys:?}");
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, &["measurement", "ltv", "customer"]);
+        terminal.wait_for(customer);
+        terminal.press(&keys);
+        terminal.press("\r");
+        let (_, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{case}");
+        assert_eq!(sent(&server).await[before..], ["GET /api/measurement/ltv/customer/cust_abc123"], "{case}");
+        // The answered line shows the answer as it is taken.
+        assert_eq!(shown_lines(&terminal, (40, 120))[0], format!("? {customer} cust_abc123"), "{case}");
+    }
+    // Only spaces and line ends: refused as an empty answer, nothing sent.
+    let before = sent(&server).await.len();
+    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "ltv", "customer"]);
+    terminal.wait_for(customer);
+    terminal.press(&paste("   \n"));
+    terminal.press("\r");
+    terminal.wait_for("A response is required.");
+    assert_eq!(sent(&server).await.len(), before);
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+    assert_eq!(sent(&server).await.len(), before);
+    // Dates pasted with their line end, or typed with a space: the dates alone, as typed in a shell.
+    let before = sent(&server).await.len();
+    let preview = "vendo measurement rules preview";
+    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "rules", "preview"]);
+    terminal.wait_for(&format!("{preview} --from"));
+    terminal.press(&paste("2025-01-01\n"));
+    terminal.press("\r");
+    terminal.wait_for(&format!("{preview} --to"));
+    terminal.press("2025-01-31 \r");
+    let (_, code) = terminal.finish();
+    let asked = sent(&server).await[before..].to_vec();
+    let typed = sandbox.run(&["measurement", "rules", "preview", "--from", "2025-01-01", "--to", "2025-01-31"]);
+    assert_eq!((code, typed.status.code()), (Some(0), Some(0)), "{}", text(&typed.stderr));
+    assert_eq!(asked, sent(&server).await[before + asked.len()..], "{asked:?}");
 }
 
 #[cfg(unix)]

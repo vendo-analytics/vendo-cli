@@ -978,13 +978,10 @@ impl std::fmt::Display for MenuRow<'_> {
 /// [`can_show_menu`]; inquire reads the keys from stdin and draws on stderr.
 #[cfg(feature = "menu")]
 pub fn choose_command(title: &str, commands: &[MenuCommand]) -> Option<usize> {
-    use inquire::Select;
     let width = commands.iter().map(|command| command.name.chars().count()).max()?;
-    let rows: Vec<MenuRow> = commands.iter().map(|command| MenuRow { command, width }).collect();
-    let shown: Vec<String> = rows.iter().map(MenuRow::to_string).collect();
-    let (page, height) = menu_page(title, &shown, Select::<MenuRow>::DEFAULT_HELP_MESSAGE, screen_size());
-    let menu = Select::new(title, rows).with_page_size(page).with_formatter(&|row| row.value.command.name.clone());
-    run_prompt(title, height, || menu.raw_prompt()).map(|chosen| chosen.index)
+    let rows: Vec<String> = commands.iter().map(|command| MenuRow { command, width }.to_string()).collect();
+    let hint = inquire::Select::<&str>::DEFAULT_HELP_MESSAGE?;
+    select(title, &rows, hint, &|at| commands[at].name.clone(), false)
 }
 
 /// A row of [`choose_value`]'s list: what the list shows (typing filters by it), and what the
@@ -1012,39 +1009,89 @@ impl std::fmt::Display for ValueRow {
 /// refused it). Only where [`can_show_menu`].
 #[cfg(feature = "menu")]
 pub fn choose_value(title: &str, rows: &[ValueRow], note: Option<&str>) -> Option<usize> {
-    use inquire::Select;
-    let hint = Select::<&ValueRow>::DEFAULT_HELP_MESSAGE?;
+    let hint = inquire::Select::<&str>::DEFAULT_HELP_MESSAGE?;
     let hint = match note {
         Some(note) => format!("{hint} · {note}"),
         None => hint.to_string(),
     };
-    let shown: Vec<&str> = rows.iter().map(|row| row.shown.as_str()).collect();
-    let (page, height) = menu_page(title, &shown, Some(&hint), screen_size());
-    let list = Select::new(title, rows.iter().collect())
+    let shown: Vec<String> = rows.iter().map(|row| row.shown.clone()).collect();
+    select(title, &shown, &hint, &|at| rows[at].answer.clone(), true)
+}
+
+/// A row of [`select`]'s list as inquire draws it: `shown`, the row broken into lines that leave the
+/// screen's last column free ([`fitted`]); typing filters by `text`, the row as it is.
+#[cfg(feature = "menu")]
+struct Fitted {
+    text: String,
+    shown: String,
+}
+
+#[cfg(feature = "menu")]
+impl std::fmt::Display for Fitted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.shown)
+    }
+}
+
+/// The list [`choose_command`] and [`choose_value`] open: `title`, then `rows`, as many as the
+/// screen holds ([`menu_page`]), and `hint` in brackets, each line leaving the screen's last column
+/// free ([`fitted`]); ↑↓ move, typing filters by substring in any case, as inquire's own filter
+/// does, over the row as it is, so text the screen breaks still matches; Enter chooses, and
+/// `answer` of the chosen row's index replaces the list after the title ([`fitted_answer`]).
+/// `discard` throws away the keys typed before it opened ([`discard_typed_ahead`]).
+#[cfg(feature = "menu")]
+fn select(title: &str, rows: &[String], hint: &str, answer: &dyn Fn(usize) -> String, discard: bool) -> Option<usize> {
+    use inquire::{Select, list_option::ListOption};
+    let (columns, lines) = screen_size();
+    let (page, height) = menu_page(title, rows, Some(hint), (columns, lines));
+    // A row after its mark and a space (`> `, `^ `, `v `).
+    let fitted_rows: Vec<Fitted> =
+        rows.iter().map(|text| Fitted { text: text.clone(), shown: fitted(text, 2, columns) }).collect();
+    // The brackets broken with the hint, as inquire writes them around it.
+    let bracketed = fitted(&format!("[{hint}]"), 0, columns);
+    let hint = &bracketed[1..bracketed.len() - 1];
+    let filter = |typed: &str, row: &Fitted, _: &str, _: usize| {
+        row.text.to_lowercase().contains(&typed.to_lowercase()).then_some(0)
+    };
+    let answered = |row: ListOption<&Fitted>| fitted_answer(title, &answer(row.index));
+    let list = Select::new(title, fitted_rows)
         .with_page_size(page)
-        .with_help_message(&hint)
-        .with_formatter(&|row| row.value.answer.clone());
+        .with_help_message(hint)
+        .with_scorer(&filter)
+        .with_formatter(&answered);
     run_prompt(title, height, || {
-        discard_typed_ahead();
+        if discard {
+            discard_typed_ahead();
+        }
         list.raw_prompt()
     })
     .map(|chosen| chosen.index)
 }
 
 /// The one-line question a command missing a value with no list asks (VE-3881): `title` (the
-/// command and the option, `vendo apps create --name`), then what is typed; Enter answers, and an
-/// empty answer is refused with inquire's "A response is required." line above the question. Keys
-/// typed before it opened are thrown away ([`discard_typed_ahead`]). Esc, Ctrl-C, Ctrl-D and a
-/// terminal that hangs up leave quietly, as at the group menu. `None` when the question cannot run.
-/// Only where [`can_show_menu`].
+/// command and the option, `vendo apps create --name`), then what is typed; Enter answers. The answer
+/// is taken without the spaces and line ends around it, as a shell takes a word: a line copied whole
+/// or a cell from a spreadsheet brought its line end, so a date the screen showed as `2025-01-01`
+/// went out as `2025-01-01\n` and the API refused it, and a customer ID went out with it and
+/// `measurement ltv customer` said the customer had no cohort. An answer that is empty without them
+/// is refused with inquire's "A response is required." line above the question. Keys typed before
+/// it opened are thrown away ([`discard_typed_ahead`]). Esc, Ctrl-C, Ctrl-D and a terminal that
+/// hangs up leave quietly, as at the group menu. `None` when the question cannot run. Only where
+/// [`can_show_menu`].
 #[cfg(feature = "menu")]
 pub fn ask_text(title: &str) -> Option<String> {
-    let question = inquire::Text::new(title).with_validator(inquire::validator::ValueRequiredValidator::default());
+    use inquire::validator::{StringValidator, ValueRequiredValidator};
+    let required = ValueRequiredValidator::default();
+    let answered = |answer: &str| fitted_answer(title, answer.trim());
+    let question = inquire::Text::new(title)
+        .with_validator(move |answer: &str| required.validate(answer.trim()))
+        .with_formatter(&answered);
     // The question, and the refusal above it.
     run_prompt(title, 2, || {
         discard_typed_ahead();
         question.prompt()
     })
+    .map(|answer| answer.trim().to_string())
 }
 
 /// Throws away the keys typed before a list or question for a missing value opened (VE-3881): those
@@ -1310,7 +1357,8 @@ fn menu_lost() -> bool {
 /// `columns` × `lines`; `rows` are the commands as the menu shows them. inquire wraps a
 /// line wider than the screen but does not fit the menu to the screen's height, and a menu
 /// taller than the screen drew over itself. So the list holds as many commands as fit between
-/// the title and the hint, counting the ones that take the most lines ([`lines_taken`]), and
+/// the title and the hint, counting the ones that take the most lines (the title as inquire breaks
+/// it, [`lines_taken`]; the rows and the hint as [`select`] breaks them, [`fitted_lines`]), and
 /// scrolls (`^`, `v`); at least one. The screen's last line stays free for the line after the
 /// menu: Enter or Esc there scrolled the answer off a full screen. The lists for a missing value
 /// (VE-3881) fit the same way.
@@ -1321,11 +1369,11 @@ fn menu_page(
     hint: Option<&str>,
     (columns, lines): (usize, usize),
 ) -> (usize, usize) {
-    let height = |text: &str| lines_taken(text, columns);
     let lines = lines.saturating_sub(1);
     // `? <title> ` and the cursor's space; the hint in brackets; a row after `> ` (or `^ `, `v `).
-    let mut used = height(&format!("? {title}  ")) + hint.map_or(0, |hint| height(&format!("[{hint}]")));
-    let mut tallest: Vec<usize> = rows.iter().map(|row| height(&format!("> {}", row.as_ref()))).collect();
+    let mut used = lines_taken(&format!("? {title}  "), columns)
+        + hint.map_or(0, |hint| fitted_lines(&format!("[{hint}]"), 0, columns));
+    let mut tallest: Vec<usize> = rows.iter().map(|row| fitted_lines(row.as_ref(), 2, columns)).collect();
     tallest.sort_unstable_by(|a, b| b.cmp(a));
     let mut page = 0;
     for row in tallest {
@@ -1345,17 +1393,70 @@ fn menu_page(
 /// off the top of a short screen, the title and the row marked `>` with it (VE-3881).
 #[cfg(feature = "menu")]
 fn lines_taken(text: &str, columns: usize) -> usize {
+    line_breaks(text, 0, columns).len() + 1
+}
+
+/// Where `text` breaks into lines of at most `limit` columns, its first line starting `used` columns
+/// in: the byte offsets its next lines start at. By the columns each character takes
+/// (`unicode-width`), a character that does not fit on the line going to the next, as inquire
+/// breaks a line wider than the screen.
+#[cfg(feature = "menu")]
+fn line_breaks(text: &str, mut used: usize, limit: usize) -> Vec<usize> {
     use unicode_width::UnicodeWidthChar;
-    let (mut lines, mut used) = (1, 0);
-    for c in text.chars() {
+    let mut breaks = Vec::new();
+    for (at, c) in text.char_indices() {
         let width = c.width().unwrap_or(0);
-        if used > 0 && width > columns.saturating_sub(used) {
-            lines += 1;
+        if used > 0 && width > limit.saturating_sub(used) {
+            breaks.push(at);
             used = 0;
         }
         used += width;
     }
-    lines
+    breaks
+}
+
+/// The columns [`fitted`] fills on a screen `columns` wide: all but the last.
+#[cfg(feature = "menu")]
+fn fitted_width(columns: usize) -> usize {
+    columns.saturating_sub(1).max(1)
+}
+
+/// `text`, after `used` columns of its first line, broken into lines that leave the screen's last
+/// column free, as [`select`] hands inquire a list's rows, hint and answered line. inquire redraws a
+/// line that changed as its text, then an erase to the end of the line (`ESC[K`); after a character
+/// in the last column the cursor waits there for the next one, and where the terminal follows xterm
+/// (xterm, Ghostty, the tests' `screen`) that erase took the character off the screen: from the
+/// first key on, a row that filled a line showed with a character missing there, a dictionary
+/// entry's subject ID at each place it wrapped (VE-3881).
+#[cfg(feature = "menu")]
+fn fitted(text: &str, used: usize, columns: usize) -> String {
+    let mut shown = String::with_capacity(text.len() + 4);
+    let mut from = 0;
+    for at in line_breaks(text, used, fitted_width(columns)) {
+        shown.push_str(&text[from..at]);
+        shown.push('\n');
+        from = at;
+    }
+    shown.push_str(&text[from..]);
+    shown
+}
+
+/// How many lines [`fitted`] breaks `text` into.
+#[cfg(feature = "menu")]
+fn fitted_lines(text: &str, used: usize, columns: usize) -> usize {
+    line_breaks(text, used, fitted_width(columns)).len() + 1
+}
+
+/// `answer` as the answered line shows it after `? <title> ` ([`select`], [`ask_text`]), broken as
+/// [`fitted`] breaks a row, after the columns the title's last line takes as inquire breaks it.
+#[cfg(feature = "menu")]
+fn fitted_answer(title: &str, answer: &str) -> String {
+    use unicode_width::UnicodeWidthChar;
+    let (columns, _) = screen_size();
+    let before = format!("? {title} ");
+    let last_line = line_breaks(&before, 0, columns).last().map_or(0, |at| *at);
+    let used = before[last_line..].chars().map(|c| c.width().unwrap_or(0)).sum();
+    fitted(answer, used, columns)
 }
 
 /// The terminal's columns and lines as inquire reads them, and 80 × 24 when they are unknown,
@@ -1918,6 +2019,27 @@ mod tests {
         assert_eq!(lines_taken(&"東".repeat(41), 80), 2);
         // One that does not fit in the last column goes to the next line: 160 columns, three lines.
         assert_eq!(lines_taken(&format!("x{}x", "東".repeat(79)), 80), 3);
+    }
+
+    #[cfg(feature = "menu")]
+    #[test]
+    fn a_list_line_leaves_the_screen_s_last_column_free() {
+        // 79 columns a line on 80, the first after what it follows (a row's `> `).
+        assert_eq!(fitted(&"x".repeat(79), 0, 80), "x".repeat(79));
+        assert_eq!(fitted(&"x".repeat(80), 0, 80), format!("{}\n{}", "x".repeat(79), "x"));
+        assert_eq!(fitted(&"x".repeat(80), 2, 80), format!("{}\n{}", "x".repeat(77), "xxx"));
+        assert_eq!(fitted(&"x".repeat(160), 0, 80), ["x".repeat(79), "x".repeat(79), "xx".into()].join("\n"));
+        // A wide character that would take the last column goes to the next line.
+        assert_eq!(fitted(&format!("{}東", "x".repeat(78)), 0, 80), format!("{}\n東", "x".repeat(78)));
+        // Nothing to break: an answer after a title that leaves room.
+        assert_eq!(fitted("a1b2c3d4... (Menu Shop)", 17, 80), "a1b2c3d4... (Menu Shop)");
+        // After a title that fills the line, the answer starts on the next.
+        assert_eq!(fitted("shopify", 79, 80), "\nshopify");
+        // As many lines as it breaks into, which is what the list counts.
+        assert_eq!(fitted_lines(&"x".repeat(80), 0, 80), 2);
+        assert_eq!(fitted_lines(&"x".repeat(77), 2, 80), 1);
+        assert_eq!(fitted_lines(&"x".repeat(78), 2, 80), 2);
+        assert_eq!(fitted_lines("[↑↓ to move, enter to select, type to filter]", 0, 40), 2);
     }
 
     #[cfg(feature = "menu")]
