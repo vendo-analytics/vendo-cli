@@ -236,13 +236,13 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
             "Selected profile",
             Warn,
             format!("{name} (not found in config)"),
-            Some("Run `vendo config use` to switch profiles, or `vendo init` to create one."),
+            Some("Run `vendo profile switch` to switch profiles, or `vendo init` to create one."),
         ),
         None => check(
             "Selected profile",
             Warn,
             "No active profile selected".into(),
-            Some("Run `vendo init` or `vendo config use <profile>`."),
+            Some("Run `vendo init` or `vendo profile switch <profile>`."),
         ),
     });
 
@@ -251,7 +251,7 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
             check("API key", Ok, format!("{} ({})", mask_api_key(key), format_source(config.api_key_source)), None)
         }
         None => {
-            check("API key", Fail, "Missing".into(), Some("Run `vendo login` or `vendo config set --api-key <key>`."))
+            check("API key", Fail, "Missing".into(), Some("Run `vendo login` or `vendo profile set --api-key <key>`."))
         }
     });
 
@@ -268,7 +268,7 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
             "Account ID",
             Fail,
             "Missing".into(),
-            Some("Run `vendo config set --account <account-id>` or set `VENDO_ACCOUNT_ID`."),
+            Some("Run `vendo profile set --account <account-id>` or set `VENDO_ACCOUNT_ID`."),
         ),
     });
 

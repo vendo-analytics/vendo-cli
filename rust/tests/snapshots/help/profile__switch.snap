@@ -10,9 +10,11 @@ Arguments:
 
 Options:
       --account <accountId>  Switch by account ID instead of profile name
-      --profile <name>       Use a specific account profile
-      --debug                Enable verbose request diagnostics
   -h, --help                 Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo profile switch

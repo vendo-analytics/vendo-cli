@@ -9,12 +9,14 @@ Arguments:
   <destinationId>  
 
 Options:
-      --from <date>     Window start — ISO datetime or YYYY-MM-DD (default: 7 days before --to)
+      --from <date>  Window start — ISO datetime or YYYY-MM-DD (default: 7 days before --to)
+      --to <date>    Window end — ISO datetime or YYYY-MM-DD (default: now)
+      --json         Output raw JSON
+  -h, --help         Print help
+
+Global options:
       --profile <name>  Use a specific account profile
       --debug           Enable verbose request diagnostics
-      --to <date>       Window end — ISO datetime or YYYY-MM-DD (default: now)
-      --json            Output raw JSON
-  -h, --help            Print help
 
 Examples:
   $ vendo destinations refresh-source <destinationId>

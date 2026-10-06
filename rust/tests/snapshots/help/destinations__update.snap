@@ -10,14 +10,16 @@ Arguments:
 
 Options:
       --config-file <path>    Replace config from a JSON file
-      --profile <name>        Use a specific account profile
-      --debug                 Enable verbose request diagnostics
       --schedule-file <path>  Replace schedule from a JSON file
       --frequency <value>     Sync frequency value
       --unit <unit>           Sync frequency unit
       --json                  Output raw JSON
       --output <field>        Print a single field (e.g. id)
   -h, --help                  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo destinations update <destinationId> --frequency 6 --unit hours

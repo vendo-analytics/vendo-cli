@@ -321,7 +321,7 @@ impl Client {
         let account = if scoped || header_scoped {
             Some(self.account_id.clone().ok_or_else(|| {
                 client_error(
-                    "No account configured. Run `vendo config set --account <account-id>` or set VENDO_ACCOUNT_ID."
+                    "No account configured. Run `vendo profile set --account <account-id>` or set VENDO_ACCOUNT_ID."
                         .to_string(),
                     0,
                     None,

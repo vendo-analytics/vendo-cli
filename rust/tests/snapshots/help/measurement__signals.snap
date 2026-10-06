@@ -8,9 +8,10 @@ Usage: vendo measurement signals [OPTIONS] <COMMAND>
 Commands:
   list        Per-signal availability summary
   click-path  Click-path signal status — readiness, last-computed, recent SignalEstimates
-  help        Print this message or the help of the given subcommand(s)
 
 Options:
+  -h, --help  Print help
+
+Global options:
       --profile <name>  Use a specific account profile
       --debug           Enable verbose request diagnostics
-  -h, --help            Print help

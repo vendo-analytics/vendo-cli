@@ -10,14 +10,16 @@ Arguments:
 
 Options:
       --import-tasks <tasks>  Comma-separated import task IDs
-      --profile <name>        Use a specific account profile
-      --debug                 Enable verbose request diagnostics
       --frequency <value>     Sync frequency value
       --unit <unit>           Sync frequency unit (hours, days)
       --config-file <path>    Replace config from a JSON file
       --json                  Output raw JSON
       --output <field>        Print a single field (e.g. id)
   -h, --help                  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo sources update <sourceId> --frequency 6 --unit hours

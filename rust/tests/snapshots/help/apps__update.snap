@@ -10,8 +10,6 @@ Arguments:
 
 Options:
       --name <displayName>         New display name
-      --profile <name>             Use a specific account profile
-      --debug                      Enable verbose request diagnostics
       --role <role>                Comma-separated capability: source, destination (derives permissions)
       --permissions <permissions>  Comma-separated granular permissions. Overrides --role.
       --credentials-file <path>    Replace credentials from a JSON file
@@ -19,6 +17,10 @@ Options:
       --json                       Output raw JSON
       --output <field>             Print a single field (e.g. id)
   -h, --help                       Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo apps update <appId> --name "New name"

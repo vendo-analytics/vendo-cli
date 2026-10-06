@@ -3,7 +3,7 @@
 use anyhow::{Result, bail};
 
 use crate::{
-    config::{DEFAULT_BASE_URL, EffectiveConfig, ProfileSummary},
+    config::{DEFAULT_BASE_URL, ProfileSummary},
     context::Ctx,
     output::{SelectOption, bold, dim, green, print_success, search_select_option},
 };
@@ -39,25 +39,6 @@ pub fn print_profile_list(
         println!("{}", format_profile_list_line(profile, annotate_active, indent));
     }
     true
-}
-
-pub fn print_current_profile_summary(config: &EffectiveConfig, current: Option<&ProfileSummary>) {
-    println!("{}", bold("Current Profile"));
-    println!();
-    println!("  Profile:     {}", config.selected_profile.clone().unwrap_or_else(|| dim("none selected")));
-    println!("  Account ID:  {}", config.account_id.clone().unwrap_or_else(|| dim("not set")));
-    println!("  Base URL:    {}", config.base_url);
-
-    let overrides = config.env_override_names();
-    if !overrides.is_empty() {
-        println!();
-        println!("{}", dim(&format!("  Env overrides active: {}", overrides.join(", "))));
-    }
-
-    if let Some(profile) = current {
-        println!();
-        println!("{}", dim(&format!("  Saved profile: {}", format_profile_label(profile, true))));
-    }
 }
 
 pub struct SwitchOptions<'a> {

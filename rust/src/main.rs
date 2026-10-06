@@ -41,9 +41,9 @@ use std::process::ExitCode;
 
 use crate::{
     cli::{
-        AppsCommand, CatalogCommand, Command, ConfigCommand, DictionaryCommand, IntegrationsCommand, Invocation,
-        JobsCommand, LtvCommand, MeasurementCommand, MethodologiesCommand, MetricsCommand, ModelsCommand,
-        ProfileCommand, RulesCommand, SignalsCommand, SourcesCommand,
+        AppsCommand, CatalogCommand, Command, DictionaryCommand, IntegrationsCommand, Invocation, JobsCommand,
+        LtvCommand, MeasurementCommand, MethodologiesCommand, MetricsCommand, ModelsCommand, ProfileCommand,
+        RulesCommand, SignalsCommand, SourcesCommand,
     },
     commands::{
         account, apps, catalog, dictionary as dictionary_cmd, health, integrations, jobs as jobs_cmd, login,
@@ -93,31 +93,15 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
         }
         Command::Init { env, base_url } => account::init(ctx, env, base_url).await.map(|_| ok),
         Command::Logout { all, yes } => account::logout(ctx, all, yes).map(|_| ok),
-        Command::Config { command } => match command {
-            ConfigCommand::Set { api_key, base_url, account } => {
-                account::config_set(ctx, api_key, base_url, account).map(|_| ok)
-            }
-            ConfigCommand::Show => {
-                account::config_show(ctx);
-                Ok(ok)
-            }
-            ConfigCommand::Use { profile, account } => account::config_use(ctx, profile, account).map(|_| ok),
-            ConfigCommand::List => {
-                account::config_list(ctx);
-                Ok(ok)
-            }
-            ConfigCommand::Reset { yes } => account::config_reset(ctx, yes).map(|_| ok),
-        },
         Command::Profile { command } => match command {
             ProfileCommand::List => {
                 account::profile_list(ctx);
                 Ok(ok)
             }
-            ProfileCommand::Current => {
-                account::profile_current(ctx);
-                Ok(ok)
-            }
             ProfileCommand::Switch { profile, account } => account::profile_switch(ctx, profile, account).map(|_| ok),
+            ProfileCommand::Set { api_key, base_url, account } => {
+                account::profile_set(ctx, api_key, base_url, account).map(|_| ok)
+            }
         },
         Command::Status { json } => health::status(ctx, json).await.map(|_| ok),
         Command::Whoami { json } => account::whoami(ctx, json).await.map(|_| ok),

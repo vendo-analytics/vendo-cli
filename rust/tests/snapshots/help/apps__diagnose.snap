@@ -6,10 +6,12 @@ Show apps that need attention
 Usage: vendo apps diagnose [OPTIONS]
 
 Options:
-      --json            Output raw JSON
+      --json  Output raw JSON
+  -h, --help  Print help
+
+Global options:
       --profile <name>  Use a specific account profile
       --debug           Enable verbose request diagnostics
-  -h, --help            Print help
 
 Examples:
   $ vendo apps diagnose

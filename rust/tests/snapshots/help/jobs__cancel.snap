@@ -10,12 +10,14 @@ Arguments:
 
 Options:
       --json            Output raw JSON
-      --profile <name>  Use a specific account profile
-      --debug           Enable verbose request diagnostics
   -y, --yes             Skip confirmation prompt
       --dry-run         Preview the action without executing
       --output <field>  Print a single field (e.g. id)
   -h, --help            Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo jobs cancel <jobId>

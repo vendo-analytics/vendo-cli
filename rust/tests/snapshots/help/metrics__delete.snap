@@ -9,11 +9,13 @@ Arguments:
   <metricId>  
 
 Options:
+  -y, --yes   Skip confirmation
+      --json  Output raw JSON
+  -h, --help  Print help
+
+Global options:
       --profile <name>  Use a specific account profile
-  -y, --yes             Skip confirmation
       --debug           Enable verbose request diagnostics
-      --json            Output raw JSON
-  -h, --help            Print help
 
 Examples:
   $ vendo metrics delete <metricId>

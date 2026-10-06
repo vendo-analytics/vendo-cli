@@ -18,4 +18,4 @@ Demo Account (synthetic)
     * alpha  acct-alpha  [stub]
       beta  acct-beta  [stub]
 
-  Switch with `vendo profile switch`, target one command with `vendo --profile <name> ...`, or use `vendo config use` as a compatibility alias.
+  Switch with `vendo profile switch` or target one command with `vendo --profile <name> ...`.

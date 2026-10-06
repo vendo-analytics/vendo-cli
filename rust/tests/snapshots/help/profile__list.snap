@@ -6,9 +6,11 @@ List all configured profiles
 Usage: vendo profile list [OPTIONS]
 
 Options:
+  -h, --help  Print help
+
+Global options:
       --profile <name>  Use a specific account profile
       --debug           Enable verbose request diagnostics
-  -h, --help            Print help
 
 Examples:
   $ vendo profile list

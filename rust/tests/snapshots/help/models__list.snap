@@ -6,9 +6,7 @@ List all data models
 Usage: vendo models list [OPTIONS]
 
 Options:
-      --profile <name>  Use a specific account profile
       --type <type>     Filter by data type
-      --debug           Enable verbose request diagnostics
       --valid           Only show valid models
       --invalid         Only show invalid models
       --limit <n>       Number of results [default: 20]
@@ -16,6 +14,10 @@ Options:
       --json            Output raw JSON
       --output <field>  Print a single field per row (e.g. id, name)
   -h, --help            Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo models list

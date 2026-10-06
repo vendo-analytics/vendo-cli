@@ -164,7 +164,7 @@ fn empty_profile_names_and_accounts_are_unset() {
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     assert_eq!(sandbox.config()["activeProfile"], "beta");
 
-    let out = sandbox.run(&["--profile", "", "config", "set", "--account", "acct-x"]);
+    let out = sandbox.run(&["--profile", "", "profile", "set", "--account", "acct-x"]);
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     let config = sandbox.config();
     assert_eq!(
@@ -249,7 +249,7 @@ async fn apps_report_the_first_bad_input_the_ts_cli_did() {
         (&["apps", "update", "app-1"], "Error: Nothing to update — pass at least one flag."),
         (
             &["apps", "update", "app-1", "--role", "source"],
-            "Error: No API key configured. Run `vendo login` or `vendo config set --api-key <key>` or set VENDO_API_KEY.",
+            "Error: No API key configured. Run `vendo login` or `vendo profile set --api-key <key>` or set VENDO_API_KEY.",
         ),
     ] {
         let out = keyless.run(args);
@@ -1160,7 +1160,7 @@ fn data_commands_need_an_api_key_like_ts() {
             (out.status.code(), stderr_line(&out)),
             (
                 Some(1),
-                "Error: No API key configured. Run `vendo login` or `vendo config set --api-key <key>` or set VENDO_API_KEY."
+                "Error: No API key configured. Run `vendo login` or `vendo profile set --api-key <key>` or set VENDO_API_KEY."
                     .to_string()
             ),
             "{args:?}"
@@ -1516,11 +1516,12 @@ async fn a_dry_run_needs_no_yes() {
 
 #[test]
 fn without_a_terminal_config_reset_needs_yes() {
+    // `config reset` runs `logout --all` since CLI 1.1 (VE-3827): its question, refusal and message.
     let sandbox = Sandbox::new(CLOSED);
     let file = sandbox.home.path().join(".config/vendo/config.json");
-    assert_needs_yes(&sandbox.run(&["config", "reset"]), "This deletes all CLI configuration.");
+    assert_needs_yes(&sandbox.run(&["config", "reset"]), "This removes every saved profile and its API key.");
     assert!(file.exists(), "the refusal kept the configuration");
-    assert_eq!(ok_output(&sandbox.run(&["config", "reset", "--yes"])), "Done: Configuration deleted.\n");
+    assert_eq!(ok_output(&sandbox.run(&["config", "reset", "--yes"])), "Done: Logged out. All profiles removed.\n");
     assert!(!file.exists());
 }
 
@@ -1604,7 +1605,8 @@ fn answer_on_terminal(sandbox: &Sandbox, args: &[&str], answer: &str) -> (String
 async fn on_a_terminal_the_question_is_unchanged() {
     let server = stub_accepting_everything().await;
     let sandbox = Sandbox::new(&server.uri());
-    // "n" changes nothing; the questions and "Cancelled" lines are the TS CLI's.
+    // "n" changes nothing; the questions and "Cancelled" lines are the TS CLI's. `config reset` asks
+    // what `logout --all`, which it runs since CLI 1.1 (VE-3827), asks.
     for (args, question, after) in [
         (&["apps", "delete", ID][..], "Delete app 550e8400...? (y/N) ", ""),
         (&["sources", "delete", ID, "--json"], "Delete source 550e8400...? (y/N) ", ""),
@@ -1615,7 +1617,7 @@ async fn on_a_terminal_the_question_is_unchanged() {
             "Delete metric 550e8400...? This cannot be undone. (y/N) ",
             "Cancelled\n",
         ),
-        (&["config", "reset"], "Delete all CLI configuration? (y/N) ", "Cancelled.\n"),
+        (&["config", "reset"], "Remove every saved profile? (y/N) ", "Cancelled.\n"),
         (&["logout", "--all"], "Remove every saved profile? (y/N) ", "Cancelled.\n"),
     ] {
         let (screen, code) = answer_on_terminal(&sandbox, args, "n\n");

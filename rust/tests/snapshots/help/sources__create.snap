@@ -7,8 +7,6 @@ Usage: vendo sources create [OPTIONS] --app <appId> --sync-type <syncType>
 
 Options:
       --app <appId>           App ID (must have source role)
-      --profile <name>        Use a specific account profile
-      --debug                 Enable verbose request diagnostics
       --sync-type <syncType>  Connector type (e.g. google_ads)
       --import-tasks <tasks>  Comma-separated import task IDs (streams to pull)
       --frequency <value>     Sync frequency value [default: 24]
@@ -18,6 +16,10 @@ Options:
       --json                  Output raw JSON
       --output <field>        Print a single field (e.g. id)
   -h, --help                  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo sources create --app <appId> --sync-type google_ads

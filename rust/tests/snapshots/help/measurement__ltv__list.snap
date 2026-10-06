@@ -7,8 +7,6 @@ Usage: vendo measurement ltv list [OPTIONS]
 
 Options:
       --granularity <value>  daily | weekly | monthly [default: monthly]
-      --profile <name>       Use a specific account profile
-      --debug                Enable verbose request diagnostics
       --segment <key>        Segment key (e.g. "all", "channel:meta") [default: all]
       --from <period>        Inclusive ISO cohort period (YYYY-MM-DD)
       --to <period>          Inclusive ISO cohort period (YYYY-MM-DD)
@@ -17,6 +15,10 @@ Options:
       --json                 Output raw JSON
       --output <field>       Print one field per row
   -h, --help                 Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo measurement ltv list

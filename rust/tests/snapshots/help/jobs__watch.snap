@@ -7,11 +7,13 @@ Usage: vendo jobs watch [OPTIONS]
 
 Options:
       --interval <seconds>           Polling interval in seconds [default: 5]
-      --profile <name>               Use a specific account profile
-      --debug                        Enable verbose request diagnostics
       --source <sourceId>            Filter by source ID
       --integration <integrationId>  Filter by destination ID
   -h, --help                         Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo jobs watch

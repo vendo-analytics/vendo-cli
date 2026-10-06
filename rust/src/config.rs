@@ -46,17 +46,6 @@ pub enum Source {
     Missing,
 }
 
-impl Source {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Source::Env => "env",
-            Source::Profile => "profile",
-            Source::Default => "default",
-            Source::Missing => "missing",
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct EffectiveConfig {
     pub config_exists: bool,
@@ -95,7 +84,7 @@ pub struct ProfileSummary {
     pub base_url: String,
 }
 
-/// Values `vendo config set` writes into the selected profile.
+/// Values `vendo profile set` writes into the selected profile.
 #[derive(Debug, Default)]
 pub struct ConfigValueUpdates {
     pub api_key: Option<String>,
@@ -237,7 +226,7 @@ impl ConfigStore {
         ])
     }
 
-    /// `vendo config set`: write the given values into the selected profile,
+    /// `vendo profile set`: write the given values into the selected profile,
     /// creating `default` when none is selected. Returns the profile name.
     pub fn save_resolved_values(&self, updates: ConfigValueUpdates) -> Result<String> {
         let config = self.read();
@@ -322,7 +311,7 @@ pub fn mask_api_key(key: &str) -> String {
 pub fn require_api_key(effective: &EffectiveConfig) -> Result<String> {
     effective.api_key.clone().ok_or_else(|| {
         anyhow::anyhow!(
-            "No API key configured. Run `vendo login` or `vendo config set --api-key <key>` or set VENDO_API_KEY."
+            "No API key configured. Run `vendo login` or `vendo profile set --api-key <key>` or set VENDO_API_KEY."
         )
     })
 }

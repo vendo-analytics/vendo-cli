@@ -6,9 +6,7 @@ List sync jobs
 Usage: vendo jobs list [OPTIONS]
 
 Options:
-      --profile <name>               Use a specific account profile
       --status <status>              Filter by status (pending, running, completed, failed, cancelled)
-      --debug                        Enable verbose request diagnostics
       --type <type>                  Filter by job type (import, export)
       --source <sourceId>            Filter by source ID
       --integration <integrationId>  Filter by destination ID
@@ -17,6 +15,10 @@ Options:
       --json                         Output raw JSON
       --output <field>               Print a single field per row (e.g. id)
   -h, --help                         Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo jobs list

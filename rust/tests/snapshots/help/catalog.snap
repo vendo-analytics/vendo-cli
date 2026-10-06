@@ -6,12 +6,12 @@ Browse available platforms
 Usage: vendo catalog [OPTIONS] <COMMAND>
 
 Commands:
-  list               List all available platforms
-  get                Get details for a specific platform
-  credential-schema  Print the credential fields required to create an app of this type
-  help               Print this message or the help of the given subcommand(s)
+  list  List all available platforms
+  get   Get details for a specific platform
 
 Options:
+  -h, --help  Print help
+
+Global options:
       --profile <name>  Use a specific account profile
       --debug           Enable verbose request diagnostics
-  -h, --help            Print help

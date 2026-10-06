@@ -46,6 +46,13 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   (hidden aliases `integrations`, `int`), "app" not "app connection", "platform" not "integration type". Flag names
   (`jobs … --integration <integrationId>`), API paths, JSON fields, `--json` output and code identifiers keep the
   API's "integration"; renaming a flag needs Yalcin's approval.
+- Help layout (VE-3827, CLI 1.1): `vendo --help` is one sectioned list built at runtime from the command tree;
+  `HELP_SECTIONS` in `rust/src/cli.rs` places each command, and a test fails when a visible command is in none.
+  Group screens have no `help` row; `--profile`/`--debug` sit under "Global options". `whoami` is the one identity
+  command and `config` moved under `profile`. Old paths keep working, hidden, printing exactly what their command
+  prints: clap hidden aliases where clap allows (`config` = `profile`, `use` = `profile switch`), `MOVED` in `cli.rs`
+  where it does not (`profile current`/`config show` → `whoami`, `config reset` → `logout --all`). Give a new
+  hidden path a byte-identity test.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

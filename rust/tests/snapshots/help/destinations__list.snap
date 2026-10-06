@@ -6,9 +6,7 @@ List all destinations
 Usage: vendo destinations list [OPTIONS]
 
 Options:
-      --profile <name>   Use a specific account profile
       --state <state>    Filter by state (active, inactive)
-      --debug            Enable verbose request diagnostics
       --status <status>  Filter by status
       --type <type>      Filter by data type
       --limit <n>        Number of results [default: 20]
@@ -16,6 +14,10 @@ Options:
       --json             Output raw JSON
       --output <field>   Print a single field per row (e.g. id)
   -h, --help             Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo destinations list

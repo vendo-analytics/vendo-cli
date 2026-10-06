@@ -6,11 +6,13 @@ Click-path signal status — readiness, last-computed, recent SignalEstimates
 Usage: vendo measurement signals click-path [OPTIONS]
 
 Options:
-      --profile <name>    Use a specific account profile
       --sample-limit <n>  Number of recent SignalEstimates to fetch (1..500)
-      --debug             Enable verbose request diagnostics
       --json              Output raw JSON
   -h, --help              Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo measurement signals click-path

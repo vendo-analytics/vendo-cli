@@ -7,12 +7,14 @@ Usage: vendo login [OPTIONS]
 
 Options:
       --api-key <key>      API key for headless/CI login (requires --account)
-      --profile <name>     Use a specific account profile
       --account <id>       Account ID for headless/CI login (requires --api-key)
-      --debug              Enable verbose request diagnostics
       --env <environment>  Target instance: "staging" or "prod" (default: VENDO_API_URL/profile, else prod)
       --base-url <url>     Explicit API base URL (overrides --env)
   -h, --help               Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo login

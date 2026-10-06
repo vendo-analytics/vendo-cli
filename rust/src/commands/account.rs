@@ -1,5 +1,6 @@
-//! Account and profile commands: `init`, `logout`, `whoami`, `config *` and
-//! `profile *` (ports of the matching files in `src/commands/`).
+//! Account and profile commands: `init`, `logout`, `whoami` and `profile *`
+//! (ports of the matching files in `src/commands/`; `config *` moved under
+//! `profile`, `whoami` and `logout --all` in CLI 1.1, VE-3827).
 
 use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
@@ -14,10 +15,7 @@ use crate::{
         bold, confirm, dim, green, js_join, js_nullish, js_string, js_template, print_error, print_json, print_success,
         run_action, yellow,
     },
-    profile_display::{
-        SwitchOptions, format_profile_list_line, print_current_profile_summary, print_profile_list,
-        switch_profile_selection,
-    },
+    profile_display::{SwitchOptions, format_profile_list_line, print_profile_list, switch_profile_selection},
     update_check,
 };
 
@@ -74,7 +72,7 @@ pub async fn init(ctx: &Ctx, env: Option<String>, base_url: Option<String>) -> R
         println!(
             "{}",
             dim(
-                "Set an account explicitly with `vendo config set --account <account-id>` if your login flow did not provide one."
+                "Set an account explicitly with `vendo profile set --account <account-id>` if your login flow did not provide one."
             )
         );
     }
@@ -167,15 +165,18 @@ pub async fn whoami(ctx: &Ctx, json: bool) -> Result<()> {
         println!();
         println!(
             "{}",
-            dim(
-                "  Switch with `vendo profile switch`, target one command with `vendo --profile <name> ...`, or use `vendo config use` as a compatibility alias."
-            )
+            dim("  Switch with `vendo profile switch` or target one command with `vendo --profile <name> ...`.")
         );
     }
     Ok(())
 }
 
-pub fn config_set(ctx: &Ctx, api_key: Option<String>, base_url: Option<String>, account: Option<String>) -> Result<()> {
+pub fn profile_set(
+    ctx: &Ctx,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    account: Option<String>,
+) -> Result<()> {
     let given = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.is_empty());
     if !given(&api_key) && !given(&base_url) && !given(&account) {
         bail!("Provide at least one option: --api-key <key>, --base-url <url>, or --account <id>");
@@ -185,77 +186,8 @@ pub fn config_set(ctx: &Ctx, api_key: Option<String>, base_url: Option<String>, 
     Ok(())
 }
 
-pub fn config_show(ctx: &Ctx) {
-    let effective = ctx.effective();
-    println!("{}", bold("Vendo CLI Config Inspect"));
-    println!();
-    println!("{}", dim("  Use `vendo profile current` for the day-to-day effective account view."));
-    println!();
-    println!("{}", bold("Effective Values"));
-    println!();
-    println!(
-        "  API Key:        {} {}",
-        effective.api_key.as_deref().map(crate::config::mask_api_key).unwrap_or_else(|| dim("not set")),
-        dim(&format!("({})", effective.api_key_source.as_str()))
-    );
-    println!("  Base URL:       {} {}", effective.base_url, dim(&format!("({})", effective.base_url_source.as_str())));
-    println!(
-        "  Account ID:     {} {}",
-        effective.account_id.clone().unwrap_or_else(|| dim("not set")),
-        dim(&format!("({})", effective.account_id_source.as_str()))
-    );
-    println!("  Active Profile: {}", effective.selected_profile.clone().unwrap_or_else(|| dim("none selected")));
-    println!("  Config Path:    {}", dim(&ctx.store.path().display().to_string()));
-    println!();
-    println!("{}", bold("Saved Profiles"));
-    println!();
-    print_profile_list(&ctx.store.profile_summaries(), true, "  ", NO_PROFILES);
-}
-
-pub fn config_use(ctx: &Ctx, profile: Option<String>, account: Option<String>) -> Result<()> {
-    println!("{}", dim("Tip: prefer `vendo profile switch` for interactive profile changes."));
-    println!();
-    switch_profile_selection(
-        ctx,
-        &ctx.store.profile_summaries(),
-        SwitchOptions {
-            profile_name: profile,
-            account_id: account,
-            empty_message: NO_PROFILES_YET,
-            list_command: "vendo profile list",
-            profile_command: "vendo profile switch",
-            verify_hint: "`vendo whoami`",
-        },
-    )
-}
-
-pub fn config_list(ctx: &Ctx) {
-    println!("{}", dim("Tip: prefer `vendo profile list` for saved profile management."));
-    println!();
-    print_profile_list(&ctx.store.profile_summaries(), false, "", NO_PROFILES);
-}
-
-pub fn config_reset(ctx: &Ctx, yes: bool) -> Result<()> {
-    if !confirm(yes, "Delete all CLI configuration?", "This deletes all CLI configuration.")? {
-        println!("{}", dim("Cancelled."));
-        return Ok(());
-    }
-    if ctx.store.delete() {
-        print_success("Configuration deleted.");
-    } else {
-        println!("{}", dim("No configuration file found."));
-    }
-    Ok(())
-}
-
 pub fn profile_list(ctx: &Ctx) {
     print_profile_list(&ctx.store.profile_summaries(), true, "", NO_PROFILES);
-}
-
-pub fn profile_current(ctx: &Ctx) {
-    let config = ctx.effective();
-    let profiles = ctx.store.profile_summaries();
-    print_current_profile_summary(&config, profiles.iter().find(|p| p.active));
 }
 
 pub fn profile_switch(ctx: &Ctx, profile: Option<String>, account: Option<String>) -> Result<()> {
@@ -268,7 +200,7 @@ pub fn profile_switch(ctx: &Ctx, profile: Option<String>, account: Option<String
             empty_message: NO_PROFILES_YET,
             list_command: "vendo profile list",
             profile_command: "vendo profile switch",
-            verify_hint: "`vendo profile current` or `vendo whoami`",
+            verify_hint: "`vendo whoami`",
         },
     )
 }

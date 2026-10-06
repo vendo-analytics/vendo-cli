@@ -10,11 +10,13 @@ Arguments:
 
 Options:
       --granularity <value>  daily | weekly | monthly [default: monthly]
-      --profile <name>       Use a specific account profile
-      --debug                Enable verbose request diagnostics
       --segment <key>        Segment key [default: all]
       --json                 Output raw JSON
   -h, --help                 Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo measurement ltv cohort 2025-01-01

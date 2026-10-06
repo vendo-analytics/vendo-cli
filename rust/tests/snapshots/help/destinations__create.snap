@@ -7,8 +7,6 @@ Usage: vendo destinations create [OPTIONS] --dest-app <appId> --data-type <type>
 
 Options:
       --dest-app <appId>      Destination app ID (must have destination role)
-      --profile <name>        Use a specific account profile
-      --debug                 Enable verbose request diagnostics
       --source-app <appId>    Source app ID (optional for some data types)
       --data-type <type>      Data type (e.g. events, user_properties, conversions)
       --config-file <path>    Path to JSON with { global?, tasks: [...] }
@@ -19,6 +17,10 @@ Options:
       --json                  Output raw JSON
       --output <field>        Print a single field (e.g. id)
   -h, --help                  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo destinations create --dest-app <onesignal-app-id> --data-type events --config-file tasks.json

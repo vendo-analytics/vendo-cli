@@ -10,8 +10,6 @@ Arguments:
 
 Options:
       --name <name>         New name
-      --profile <name>      Use a specific account profile
-      --debug               Enable verbose request diagnostics
       --description <desc>  New description
       --definition <file>   New QuerySpec v2 definition JSON file
       --format <format>     New format
@@ -19,6 +17,10 @@ Options:
       --status <status>     New status
       --json                Output raw JSON
   -h, --help                Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo metrics update <metricId> --name "New Name"

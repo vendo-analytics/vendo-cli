@@ -6,13 +6,15 @@ Preview which segmentation rule fires for recent rows
 Usage: vendo measurement rules preview [OPTIONS] --from <date> --to <date>
 
 Options:
-      --from <date>     Inclusive ISO date (YYYY-MM-DD)
+      --from <date>  Inclusive ISO date (YYYY-MM-DD)
+      --to <date>    Inclusive ISO date (YYYY-MM-DD)
+      --limit <n>    Max distinct contexts to return [default: 50]
+      --json         Output raw JSON
+  -h, --help         Print help
+
+Global options:
       --profile <name>  Use a specific account profile
       --debug           Enable verbose request diagnostics
-      --to <date>       Inclusive ISO date (YYYY-MM-DD)
-      --limit <n>       Max distinct contexts to return [default: 50]
-      --json            Output raw JSON
-  -h, --help            Print help
 
 Examples:
   $ vendo measurement rules preview --from 2025-01-01 --to 2025-01-31

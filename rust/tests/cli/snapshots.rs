@@ -3,9 +3,9 @@
 //! is recorded here with insta, under `rust/tests/snapshots/`:
 //!
 //! - `help/`: every `vendo … --help` screen, exactly as printed. The list
-//!   comes from walking the `Commands:` sections of the real help output, so a
-//!   new command is recorded automatically and a removed one leaves a stale
-//!   snapshot that fails the run.
+//!   comes from walking the command lists of the real help output (the root's
+//!   sections, each group's `Commands:`), so a new command is recorded
+//!   automatically and a removed one leaves a stale snapshot that fails the run.
 //! - `output/`: the table and `--json` output of every command that prints
 //!   data, and the confirmation of write commands, run against the local stub
 //!   with the synthetic account below.
@@ -98,19 +98,25 @@ impl Recorder {
 
 // ── help screens ────────────────────────────────────────────────────────────
 
-/// The names under `Commands:` in a help screen, without clap's `help`.
-/// Entries sit two spaces in; anything indented further continues a description.
+/// The headings that list commands: a group's `Commands:`, and the four sections of the root
+/// help (VE-3827), which name every command with the commands under it.
+const COMMAND_LISTS: [&str; 5] = ["Commands:", "Getting started:", "Data pipeline:", "Data catalog:", "Account:"];
+
+/// The names in a help screen's command lists. Entries sit two spaces in; anything indented
+/// further continues a description, or lists the commands under a group in the root help.
 fn subcommands(screen: &str) -> Vec<String> {
-    screen
-        .lines()
-        .skip_while(|line| *line != "Commands:")
-        .skip(1)
-        .take_while(|line| !line.is_empty())
-        .filter_map(|line| line.strip_prefix("  ").filter(|rest| !rest.starts_with(' ')))
-        .filter_map(|entry| entry.split_whitespace().next())
-        .filter(|name| *name != "help")
-        .map(str::to_string)
-        .collect()
+    let mut names = Vec::new();
+    let mut listing = false;
+    for line in screen.lines() {
+        if COMMAND_LISTS.contains(&line) {
+            listing = true;
+        } else if line.is_empty() {
+            listing = false;
+        } else if let Some(entry) = line.strip_prefix("  ").filter(|rest| listing && !rest.starts_with(' ')) {
+            names.extend(entry.split_whitespace().next().map(str::to_string));
+        }
+    }
+    names
 }
 
 /// The first word the CLI no longer uses for its own objects, if `screen` has one. The customer
@@ -137,19 +143,34 @@ fn record_help(sandbox: &Sandbox, recorder: &mut Recorder, path: &[String]) -> u
     assert_eq!(retired_word(&screen), None, "vendo {} uses a retired word", args.join(" "));
     // `help/vendo.snap` for the root, `help/measurement__ltv__list.snap` for `vendo measurement ltv list`.
     recorder.check(&if path.is_empty() { "vendo".to_string() } else { path.join("__") }, &screen);
+    let names = subcommands(&screen);
+    // `vendo help <command>` stays, but no screen lists clap's `help` (VE-3827).
+    assert!(!names.contains(&"help".to_string()), "vendo {} lists a help command", args.join(" "));
     let mut count = 1;
-    for name in subcommands(&screen) {
+    for name in names {
         let child: Vec<String> = path.iter().cloned().chain([name]).collect();
         count += record_help(sandbox, recorder, &child);
     }
     count
 }
 
+/// Commands hidden from the help screens that still run as themselves (not aliases), so the
+/// walk does not find them (VE-3827).
+const HIDDEN_COMMANDS: [&[&str]; 1] = [&["catalog", "credential-schema"]];
+
 #[test]
 fn every_help_screen_matches_its_snapshot() {
     let sandbox = Sandbox::new(CLOSED);
     let mut recorder = Recorder::new("help", "");
-    let count = record_help(&sandbox, &mut recorder, &[]);
+    let mut count = record_help(&sandbox, &mut recorder, &[]);
+    for path in HIDDEN_COMMANDS {
+        let path: Vec<String> = path.iter().map(|word| word.to_string()).collect();
+        let (parent, name) = path.split_at(path.len() - 1);
+        let args: Vec<&str> = parent.iter().map(String::as_str).chain(["--help"]).collect();
+        let siblings = subcommands(&text(&sandbox.run(&args).stdout));
+        assert!(!siblings.contains(&name[0]), "vendo {} is listed: not hidden", path.join(" "));
+        count += record_help(&sandbox, &mut recorder, &path);
+    }
     eprintln!("checked {count} help screens");
     recorder.finish();
 }
@@ -188,9 +209,118 @@ fn retired_words_are_found_in_help_text() {
 
 #[test]
 fn the_help_walk_reads_clap_command_lists() {
-    let screen = "About\n\nUsage: vendo x <COMMAND>\n\nCommands:\n  list          List things [alias: ls]\n  get-one       Get one\n                that wraps\n  help          Print this message\n\nOptions:\n  -h, --help  Print help\n";
+    let screen = "About\n\nUsage: vendo x <COMMAND>\n\nCommands:\n  list          List things [alias: ls]\n  get-one       Get one\n                that wraps\n\nOptions:\n  -h, --help  Print help\n";
     assert_eq!(subcommands(screen), ["list", "get-one"]);
     assert!(subcommands("Usage: vendo x\n\nOptions:\n  -h, --help  Print help\n").is_empty());
+    let root = "About\n\nUsage: vendo <COMMAND>\n\nGetting started:\n  login  Log in\n\nData pipeline:\n  apps   Manage apps\n         list, get\n\nOptions:\n  -h, --help  Print help\n";
+    assert_eq!(subcommands(root), ["login", "apps"]);
+}
+
+/// The commands under `path` as its help screens list them, as typed after it: `list`, `ltv cohort`.
+fn listed_paths(sandbox: &Sandbox, path: &[&str]) -> Vec<String> {
+    let screen = text(&sandbox.run(&[path, &["--help"]].concat()).stdout);
+    let mut paths = Vec::new();
+    for name in subcommands(&screen) {
+        let below = listed_paths(sandbox, &[path, &[name.as_str()]].concat());
+        if below.is_empty() {
+            paths.push(name);
+        } else {
+            paths.extend(below.into_iter().map(|p| format!("{name} {p}")));
+        }
+    }
+    paths
+}
+
+#[test]
+fn the_root_help_names_every_command_and_the_commands_under_it() {
+    // One sectioned root help (VE-3827): every command, each group followed by the commands its
+    // own screens list (the walk above records those screens), so nothing is only one level down.
+    let sandbox = Sandbox::new(CLOSED);
+    let root = text(&sandbox.run(&["--help"]).stdout);
+    let lines: Vec<&str> = root.lines().collect();
+    let sections: Vec<&str> = lines.iter().copied().filter(|line| COMMAND_LISTS.contains(line)).collect();
+    assert_eq!(sections, COMMAND_LISTS[1..], "the root help's sections, in order");
+    let names = subcommands(&root);
+    for name in ["login", "destinations", "measurement", "profile"] {
+        assert!(names.contains(&name.to_string()), "{name}: {names:?}");
+    }
+    assert!(!names.contains(&"config".to_string()), "{names:?}");
+    for name in &names {
+        let row = lines.iter().position(|line| line.starts_with(&format!("  {name} "))).unwrap();
+        let below = lines[row + 1..].iter().take_while(|line| line.starts_with("     ")).copied();
+        let joined = below.collect::<Vec<_>>().join(" ");
+        let listed: Vec<&str> = joined.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+        assert_eq!(listed, listed_paths(&sandbox, &[name]), "vendo {name}");
+    }
+}
+
+#[test]
+fn bare_vendo_prints_the_root_help_and_exits_2() {
+    let sandbox = Sandbox::new(CLOSED);
+    let help = sandbox.run(&["--help"]);
+    let bare = sandbox.run(&[]);
+    assert_eq!((bare.status.code(), text(&bare.stdout)), (Some(2), String::new()));
+    assert_eq!(text(&bare.stderr), text(&help.stdout));
+}
+
+#[test]
+fn moved_commands_print_their_targets_help() {
+    // `config` moved under `profile`, `profile current` and `config show` became `whoami`, and
+    // `config reset` `logout --all` (VE-3827): the old paths print exactly what the new ones do.
+    let sandbox = Sandbox::new(CLOSED);
+    let run = |args: &[&str]| {
+        let out = sandbox.run(args);
+        (out.status.code(), out.stdout, out.stderr)
+    };
+    for (old, new) in [
+        // No command: the group's usage error, with its help.
+        (&["config"][..], &["profile"][..]),
+        (&["config", "--help"], &["profile", "--help"]),
+        (&["config", "set", "--help"], &["profile", "set", "--help"]),
+        (&["config", "use", "--help"], &["profile", "switch", "--help"]),
+        (&["config", "list", "--help"], &["profile", "list", "--help"]),
+        (&["config", "show", "--help"], &["whoami", "--help"]),
+        (&["config", "reset", "--help"], &["logout", "--help"]),
+        (&["profile", "current", "--help"], &["whoami", "--help"]),
+        (&["help", "config", "set"], &["help", "profile", "set"]),
+        (&["help", "profile", "current"], &["help", "whoami"]),
+        (&["help", "config", "reset"], &["help", "logout"]),
+        // Usage errors name the command that runs.
+        (&["config", "set", "--bogus"], &["profile", "set", "--bogus"]),
+        (&["profile", "current", "--bogus"], &["whoami", "--bogus"]),
+        (&["config", "show", "--all"], &["whoami", "--all"]),
+        (&["config", "reset", "--bogus"], &["logout", "--all", "--bogus"]),
+        // A group's `help` command, no longer listed, is the root's.
+        (&["apps", "help"], &["apps", "--help"]),
+        (&["apps", "help", "list"], &["apps", "list", "--help"]),
+        (&["measurement", "ltv", "help", "cohort"], &["measurement", "ltv", "cohort", "--help"]),
+        (&["help", "apps", "list"], &["apps", "list", "--help"]),
+    ] {
+        let expected = run(new);
+        assert!(run(old) == expected, "vendo {} differs from vendo {}", old.join(" "), new.join(" "));
+    }
+    assert_eq!(run(&["config", "set", "--help"]).0, Some(0));
+    // Not old paths: they stay unknown.
+    for args in [&["profile", "show"][..], &["profile", "reset"], &["config", "current"]] {
+        assert_eq!(run(args).0, Some(2), "vendo {}", args.join(" "));
+    }
+}
+
+#[test]
+fn completions_offer_no_moved_command_and_no_group_help() {
+    // Hidden aliases (`config`, `use`) and the rewritten paths (`current`, `show`, `reset`) are
+    // not commands in the tree's lists, so no completion script offers them. A command hidden
+    // with `hide` still is (clap_complete lists it): `catalog credential-schema`.
+    let sandbox = Sandbox::new(CLOSED);
+    let bash = text(&sandbox.run(&["completions", "bash"]).stdout);
+    let offered = |opts: &str| bash.lines().any(|line| line.trim() == format!("opts=\"{opts}\""));
+    assert!(offered("-h --profile --debug --help list switch set"), "vendo profile");
+    assert!(offered("-h --profile --debug --help list get credential-schema"), "vendo catalog");
+    assert!(offered("-h --profile --debug --help list diagnose get pause resume delete create update"), "vendo apps");
+    let root = bash.lines().find(|line| line.trim().starts_with("opts=\"-V -h")).unwrap();
+    for word in ["config", "integrations", "int"] {
+        assert!(!root.split(['"', ' ']).any(|w| w == word), "vendo {word}: {root}");
+    }
 }
 
 // ── command output ──────────────────────────────────────────────────────────
@@ -788,9 +918,18 @@ async fn account_and_profile_output() {
     s.record_with("doctor", &["doctor"], machine);
     s.record_with("doctor_json", &["doctor", "--json"], machine);
     s.record("profile_list", &["profile", "list"]);
-    s.record("profile_current", &["profile", "current"]);
-    s.record("config_show", &["config", "show"]);
-    s.record("config_list", &["config", "list"]);
+    // Moved commands (VE-3827) print exactly what the command they moved to prints.
+    for (old, new) in [
+        (&["profile", "current"][..], &["whoami"][..]),
+        (&["profile", "current", "--json"], &["whoami", "--json"]),
+        (&["config", "show"], &["whoami"]),
+        (&["config", "show", "--json"], &["whoami", "--json"]),
+        (&["config", "list"], &["profile", "list"]),
+    ] {
+        let expected = s.output(new);
+        assert_eq!(expected.0, Some(0), "vendo {}", new.join(" "));
+        assert!(s.output(old) == expected, "vendo {} differs from vendo {}", old.join(" "), new.join(" "));
+    }
     s.record("mcp", &["mcp"]);
     s.record("mcp_json", &["mcp", "--json"]);
     s.record("init", &["init"]);
@@ -801,17 +940,39 @@ async fn account_and_profile_output() {
         "login",
         &["login", "--api-key", "vendo_sk_fake_gamma_0000", "--account", "acct-gamma", "--base-url", stub.as_str()],
     );
-    s.record("config_set", &["config", "set", "--account", "acct-alpha"]);
-    s.record("config_use", &["config", "use", "beta"]);
+    s.record("profile_set", &["profile", "set", "--account", "acct-alpha"]);
+    // Run twice, a write that leaves nothing to differ: the second run prints what the first did.
+    let same_twice = |s: &Session, old: &[&str], new: &[&str]| {
+        let expected = s.output(new);
+        assert_eq!(expected.0, Some(0), "vendo {}", new.join(" "));
+        assert!(s.output(old) == expected, "vendo {} differs from vendo {}", old.join(" "), new.join(" "));
+    };
+    same_twice(&s, &["config", "set", "--account", "acct-alpha"], &["profile", "set", "--account", "acct-alpha"]);
+    same_twice(&s, &["config", "use", "beta"], &["profile", "switch", "beta"]);
     s.record("profile_switch", &["profile", "switch", "alpha"]);
     s.record("logout", &["logout"]);
-    // Without a terminal, `logout --all` needs --yes (VE-3823).
+    // Without a terminal, `logout --all` needs --yes (VE-3823), and so does `config reset`, its old name.
     s.record("logout_all", &["logout", "--all"]);
-    s.record("config_reset", &["config", "reset", "--yes"]);
+    assert!(s.output(&["config", "reset"]) == s.output(&["logout", "--all"]), "vendo config reset differs");
+    s.record("logout_all_yes", &["logout", "--all", "--yes"]);
     let login =
         ["login", "--api-key", "vendo_sk_fake_gamma_0000", "--account", "acct-gamma", "--base-url", stub.as_str()];
     s.record("login_after_reset", &login);
-    s.record("logout_all_yes", &["logout", "--all", "--yes"]);
+    // `config reset --yes` removes every profile like `logout --all --yes`, from the same start.
+    for (old, new) in [
+        (&["config", "reset", "--yes"][..], &["logout", "--all", "--yes"][..]),
+        (&["config", "reset", "-y"], &["logout", "--all", "-y"]),
+    ] {
+        let removed = s.output(old);
+        assert_eq!(s.output(&login).0, Some(0));
+        assert!(s.output(new) == removed, "vendo {} differs from vendo {}", old.join(" "), new.join(" "));
+        assert_eq!(s.output(&login).0, Some(0));
+    }
+    // With nothing saved, both say so.
+    assert_eq!(s.output(&["logout", "--all", "--yes"]).0, Some(0));
+    let nothing = s.output(&["logout", "--all", "--yes"]);
+    assert_eq!(text(&nothing.1), "No configuration file found.\n");
+    assert!(s.output(&["config", "reset", "--yes"]) == nothing, "vendo config reset --yes differs");
     s.finish();
 }
 

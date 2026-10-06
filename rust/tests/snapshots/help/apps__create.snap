@@ -6,9 +6,7 @@ Create a new app
 Usage: vendo apps create [OPTIONS] --type <appType> --name <displayName>
 
 Options:
-      --profile <name>             Use a specific account profile
       --type <appType>             App type (e.g. google_ads, onesignal). See: vendo catalog list
-      --debug                      Enable verbose request diagnostics
       --name <displayName>         Human-readable name for this app
       --role <role>                Comma-separated capability: source, destination (derives default permissions) [default: source]
       --permissions <permissions>  Comma-separated granular permissions (e.g. performance_data,send_conversions). Overrides --role.
@@ -17,6 +15,10 @@ Options:
       --json                       Output raw JSON
       --output <field>             Print a single field (e.g. id)
   -h, --help                       Print help
+
+Global options:
+      --profile <name>  Use a specific account profile
+      --debug           Enable verbose request diagnostics
 
 Examples:
   $ vendo apps create --type onesignal --name "OneSignal Prod" --role destination --credentials-file onesignal.json

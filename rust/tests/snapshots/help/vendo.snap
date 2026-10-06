@@ -5,31 +5,48 @@ Vendo CLI — manage your data pipeline from the terminal
 
 Usage: vendo [OPTIONS] <COMMAND>
 
-Commands:
+Getting started:
   login         Authenticate with your Vendo account
   init          Guide first-time Vendo CLI setup
   logout        Remove stored credentials
-  config        Manage CLI configuration
-  profile       Manage account profiles
-  status        Account health overview
   whoami        Show the current authenticated account
+  status        Account health overview
+  doctor        Run local configuration and connectivity checks
+
+Data pipeline:
   apps          Manage apps
+                list, diagnose, get, pause, resume, delete, create, update
   sources       Manage data sources
+                list, get, sync, pause, resume, delete, create, update
   destinations  Manage data export destinations
+                list, get, sync, refresh-source, pause, resume, delete, create, update
   jobs          Monitor sync jobs
+                list, get, cancel, watch, tail
+
+Data catalog:
   catalog       Browse available platforms
+                list, get
   dictionary    Browse the data dictionary catalog
+                list, search, get
   metrics       Manage custom metrics in the Metrics Library
+                list, get, create, update, activate, delete
   models        Manage data models
+                list, get
   measurement   Inspect Marketing Measurement methodologies, LTV, and signals
+                methodologies list, methodologies get, rules preview, ltv list, ltv cohort,
+                ltv customer, signals list, signals click-path
+
+Account:
+  profile       Manage account profiles
+                list, switch, set
   mcp           Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo
   completions   Generate shell completion script (bash, zsh, fish)
-  doctor        Run local configuration and connectivity checks
   self-update   Update the Vendo CLI using the hosted installer
-  help          Print this message or the help of the given subcommand(s)
 
 Options:
       --profile <name>  Use a specific account profile
       --debug           Enable verbose request diagnostics
   -V, --version         Print version
   -h, --help            Print help
+
+See `vendo <command> --help` for flags and examples.

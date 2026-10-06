@@ -1,7 +1,0 @@
----
-source: tests/cli/snapshots.rs
----
-$ vendo config reset --yes
-exit: 0
---- stdout ---
-Done: Configuration deleted.

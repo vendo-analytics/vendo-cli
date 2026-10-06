@@ -12,21 +12,27 @@ use clap::{Arg, ArgAction, CommandFactory, FromArgMatches, Parser, Subcommand, V
 #[command(name = "vendo", about = "Vendo CLI — manage your data pipeline from the terminal", args_override_self = true)]
 pub struct Cli {
     /// Use a specific account profile
-    #[arg(long, global = true, value_name = "name")]
+    #[arg(long, global = true, value_name = "name", help_heading = GLOBAL_OPTIONS)]
     pub profile: Option<String>,
     /// Enable verbose request diagnostics
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = GLOBAL_OPTIONS)]
     pub debug: bool,
     #[command(subcommand)]
     pub command: Command,
 }
 
+/// Every screen but the root's lists `--profile` and `--debug` apart from the command's own options (VE-3827).
+const GLOBAL_OPTIONS: &str = "Global options";
+
 /// The clap command: [`Cli`] plus what commander did implicitly. Every
 /// option value may start with `-` (`--frequency -5`, `--name -Prod`), and the
 /// root lists `-V, --version`, which [`preprocess`] handles before clap runs.
+/// The root help is sectioned ([`HELP_SECTIONS`]) and group screens have no `help` row (VE-3827).
 pub fn command() -> clap::Command {
-    allow_hyphen_values(Cli::command())
-        .arg(Arg::new("version").short('V').long("version").action(ArgAction::SetTrue).help("Print version"))
+    let cmd = no_help_rows(allow_hyphen_values(Cli::command()))
+        .arg(Arg::new("version").short('V').long("version").action(ArgAction::SetTrue).help("Print version"));
+    let template = root_help_template(&cmd);
+    cmd.help_template(template)
 }
 
 fn allow_hyphen_values(cmd: clap::Command) -> clap::Command {
@@ -36,10 +42,149 @@ fn allow_hyphen_values(cmd: clap::Command) -> clap::Command {
     .mut_subcommands(allow_hyphen_values)
 }
 
+/// Group screens list their commands without clap's `help` row. The root keeps its `help`
+/// command, so `vendo help <group> <command>` works, and [`rewrite_hidden_paths`] turns
+/// `vendo <group> help <command>` into it.
+fn no_help_rows(cmd: clap::Command) -> clap::Command {
+    cmd.mut_subcommands(|sub| {
+        let sub = if sub.has_subcommands() { sub.disable_help_subcommand(true) } else { sub };
+        no_help_rows(sub)
+    })
+}
+
+/// The sections of `vendo --help`, in order. Every visible command sits in exactly one: a test
+/// fails when one is missing, so a new command cannot drop out of the root help. Move a command
+/// by moving its name.
+const HELP_SECTIONS: [(&str, &[&str]); 4] = [
+    ("Getting started", &["login", "init", "logout", "whoami", "status", "doctor"]),
+    ("Data pipeline", &["apps", "sources", "destinations", "jobs"]),
+    ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement"]),
+    ("Account", &["profile", "mcp", "completions", "self-update"]),
+];
+
+/// Where the root help wraps a group's list of commands (clap's own width when it wraps).
+const HELP_WIDTH: usize = 100;
+
+/// The root help: [`HELP_SECTIONS`], each group followed by the commands under it, read from
+/// the command tree so the list cannot drift from what the CLI runs. `vendo <command> --help`
+/// keeps the flags and examples. Styled like clap's own lists; clap drops the styles without colour.
+fn root_help_template(root: &clap::Command) -> String {
+    let styles = root.get_styles();
+    let (header, literal) = (styles.get_header(), styles.get_literal());
+    let width = root.get_subcommands().filter(|c| !c.is_hide_set()).map(|c| c.get_name().len()).max().unwrap_or(0);
+    let indent = " ".repeat(2 + width + 2);
+    let mut sections = String::new();
+    for (title, names) in HELP_SECTIONS {
+        sections.push_str(&format!("{header}{title}:{header:#}\n"));
+        for command in names.iter().filter_map(|name| root.find_subcommand(name)) {
+            let (name, pad) = (command.get_name(), width - command.get_name().len());
+            let about = command.get_about().map(ToString::to_string).unwrap_or_default();
+            sections.push_str(&format!("  {literal}{name}{literal:#}{:pad$}  {about}\n", ""));
+            // The commands under a group, comma-separated, wrapped below its description.
+            let paths = command_paths(command);
+            let mut line = Vec::new();
+            for (i, path) in paths.iter().enumerate() {
+                let item = if i + 1 < paths.len() { format!("{path},") } else { path.clone() };
+                let used = indent.len() + line.iter().map(|item: &String| item.len() + 1).sum::<usize>();
+                if !line.is_empty() && used + item.len() > HELP_WIDTH {
+                    sections.push_str(&format!("{indent}{}\n", styled(&line, literal)));
+                    line.clear();
+                }
+                line.push(item);
+            }
+            if !line.is_empty() {
+                sections.push_str(&format!("{indent}{}\n", styled(&line, literal)));
+            }
+        }
+        sections.push('\n');
+    }
+    format!(
+        "{{about-with-newline}}\n{{usage-heading}} {{usage}}\n\n{sections}{header}Options:{header:#}\n{{options}}\n\nSee `vendo <command> --help` for flags and examples."
+    )
+}
+
+/// `list,` `get` → the command names in `style`, the commas and spaces plain.
+fn styled(items: &[String], style: &clap::builder::styling::Style) -> String {
+    let item = |item: &String| match item.strip_suffix(',') {
+        Some(path) => format!("{style}{path}{style:#},"),
+        None => format!("{style}{item}{style:#}"),
+    };
+    items.iter().map(item).collect::<Vec<_>>().join(" ")
+}
+
+/// The visible commands under `group`, as typed after its name: `list`, `ltv cohort`.
+fn command_paths(group: &clap::Command) -> Vec<String> {
+    let mut paths = Vec::new();
+    for command in group.get_subcommands().filter(|c| !c.is_hide_set()) {
+        let name = command.get_name();
+        if command.has_subcommands() {
+            paths.extend(command_paths(command).into_iter().map(|path| format!("{name} {path}")));
+        } else {
+            paths.push(name.to_string());
+        }
+    }
+    paths
+}
+
 /// Parse with [`command`]; usage errors and `--help` exit like clap does.
 pub fn parse(args: Vec<OsString>) -> Cli {
-    let matches = command().get_matches_from(args);
+    let cmd = command();
+    let args = rewrite_hidden_paths(&cmd, args);
+    let matches = cmd.get_matches_from(args);
     Cli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
+}
+
+/// Commands that moved to a command elsewhere in the tree in CLI 1.1 (VE-3827), where clap's
+/// aliases cannot point: `vendo <group> <name> …` runs `vendo <target> …`. The moves within
+/// `profile` are clap's hidden aliases: `config` for `profile` (so `config set` and `config list`
+/// run `profile set` and `profile list`) and `use` for `profile switch`. Either way the old path
+/// prints exactly what its target prints, `--help` and usage errors included, and no help screen
+/// or completion script shows it.
+const MOVED: [(&str, &str, &[&str]); 3] =
+    [("profile", "current", &["whoami"]), ("config", "show", &["whoami"]), ("config", "reset", &["logout", "--all"])];
+
+/// What the CLI still runs but no longer shows, rewritten before clap parses: a [`MOVED`]
+/// command, and `vendo <group> help [<command>…]` (the `help` row the group screens dropped),
+/// which runs `vendo help <group> [<command>…]`. A `help` after a command that is not a group is
+/// that command's argument (`vendo dictionary search help`) and stays.
+fn rewrite_hidden_paths(root: &clap::Command, mut args: Vec<OsString>) -> Vec<OsString> {
+    // The command words, each naming a command of the group before it, and where they are.
+    // Global options may sit between them.
+    let (mut at, mut path, mut help) = (Vec::new(), Vec::new(), false);
+    let mut group = Some(root);
+    let mut i = 1;
+    while let (Some(current), Some(word)) = (group, args.get(i).and_then(|arg| arg.to_str())) {
+        match word {
+            "--debug" => {}
+            "--profile" => i += 1,
+            _ if word.starts_with("--profile=") => {}
+            _ if word.starts_with('-') => break,
+            "help" if !help => {
+                at.push(i);
+                help = true;
+            }
+            _ => {
+                at.push(i);
+                path.push(word.to_string());
+                group = current.find_subcommand(word).filter(|command| command.has_subcommands());
+            }
+        }
+        i += 1;
+    }
+    let moved = MOVED.iter().find(|(from, name, _)| path.len() >= 2 && path[0] == *from && path[1] == *name);
+    if let Some((_, _, target)) = moved {
+        // `vendo help config reset` shows `vendo help logout`: a flag is not a command.
+        let target = target.iter().filter(|word| !help || !word.starts_with('-')).map(|word| word.to_string());
+        path.splice(..2, target);
+    } else if !help || at.first().is_some_and(|&first| args[first] == "help") {
+        return args;
+    }
+    let words = help.then(|| "help".to_string()).into_iter().chain(path).map(OsString::from);
+    for &i in at.iter().rev() {
+        args.remove(i);
+    }
+    args.splice(at[0]..at[0], words);
+    args
 }
 
 #[derive(Debug, PartialEq)]
@@ -126,12 +271,9 @@ pub enum Command {
         #[arg(short, long)]
         yes: bool,
     },
-    /// Manage CLI configuration
-    Config {
-        #[command(subcommand)]
-        command: ConfigCommand,
-    },
     /// Manage account profiles
+    // `config` was a group of its own until CLI 1.1; its commands moved here (VE-3827, see `MOVED`).
+    #[command(alias = "config")]
     Profile {
         #[command(subcommand)]
         command: ProfileCommand,
@@ -233,10 +375,26 @@ pub enum Command {
 }
 
 #[derive(Subcommand)]
-pub enum ConfigCommand {
+pub enum ProfileCommand {
+    /// List all configured profiles
+    #[command(after_help = "Examples:\n  $ vendo profile list")]
+    List,
+    /// Switch to a different profile
+    #[command(
+        alias = "use",
+        after_help = "Examples:\n  $ vendo profile switch\n  $ vendo profile switch myprofile\n  $ vendo profile switch --account <accountId>"
+    )]
+    Switch {
+        // Its own id: `profile` is the global `--profile` (VE-3727).
+        #[arg(id = "profile_name", value_name = "profile")]
+        profile: Option<String>,
+        /// Switch by account ID instead of profile name
+        #[arg(long, value_name = "accountId")]
+        account: Option<String>,
+    },
     /// Set configuration values
     #[command(
-        after_help = "Examples:\n  $ vendo config set --api-key <key>\n  $ vendo config set --account <id>\n  $ vendo config set --api-key <key> --account <id>"
+        after_help = "Examples:\n  $ vendo profile set --api-key <key>\n  $ vendo profile set --account <id>\n  $ vendo profile set --api-key <key> --account <id>"
     )]
     Set {
         /// API key for authentication
@@ -247,51 +405,6 @@ pub enum ConfigCommand {
         base_url: Option<String>,
         /// Account ID to operate on
         #[arg(long, value_name = "id")]
-        account: Option<String>,
-    },
-    /// Inspect low-level CLI configuration
-    #[command(after_help = "Examples:\n  $ vendo config show")]
-    Show,
-    /// Alias for `vendo profile switch`
-    #[command(after_help = "Examples:\n  $ vendo config use <profile>\n  $ vendo config use --account <accountId>")]
-    Use {
-        // Its own id: `profile` is the global `--profile` (VE-3727).
-        #[arg(id = "profile_name", value_name = "profile")]
-        profile: Option<String>,
-        /// Switch by account ID instead of profile name
-        #[arg(long, value_name = "accountId")]
-        account: Option<String>,
-    },
-    /// Alias for `vendo profile list`
-    #[command(after_help = "Examples:\n  $ vendo config list")]
-    List,
-    /// Delete all CLI configuration
-    #[command(after_help = "Examples:\n  $ vendo config reset\n  $ vendo config reset --yes")]
-    Reset {
-        /// Skip confirmation prompt
-        #[arg(short, long)]
-        yes: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum ProfileCommand {
-    /// List all configured profiles
-    #[command(after_help = "Examples:\n  $ vendo profile list")]
-    List,
-    /// Show the current effective profile
-    #[command(after_help = "Examples:\n  $ vendo profile current")]
-    Current,
-    /// Switch to a different profile
-    #[command(
-        after_help = "Examples:\n  $ vendo profile switch\n  $ vendo profile switch myprofile\n  $ vendo profile switch --account <accountId>"
-    )]
-    Switch {
-        // Its own id: `profile` is the global `--profile` (VE-3727).
-        #[arg(id = "profile_name", value_name = "profile")]
-        profile: Option<String>,
-        /// Switch by account ID instead of profile name
-        #[arg(long, value_name = "accountId")]
         account: Option<String>,
     },
 }
@@ -853,7 +966,10 @@ pub enum CatalogCommand {
         json: bool,
     },
     /// Print the credential fields required to create an app of this type
+    // Hidden (VE-3827): `catalog get` shows the same fields. Not an alias of it: scripts may parse
+    // this command's own output, which stays.
     #[command(
+        hide = true,
         after_help = "Examples:\n  $ vendo catalog credential-schema onesignal\n  $ vendo catalog credential-schema bigquery --json"
     )]
     CredentialSchema {
@@ -1359,14 +1475,15 @@ mod tests {
     }
 
     fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
-        let matches = command().try_get_matches_from(os(args))?;
+        let cmd = command();
+        let args = rewrite_hidden_paths(&cmd, os(args));
+        let matches = cmd.try_get_matches_from(args)?;
         Cli::from_arg_matches(&matches)
     }
 
     fn switch_args(cli: Cli) -> (Option<String>, Option<String>) {
         match cli.command {
             Command::Profile { command: ProfileCommand::Switch { profile, account } } => (profile, account),
-            Command::Config { command: ConfigCommand::Use { profile, account } } => (profile, account),
             _ => panic!("not a switch"),
         }
     }
@@ -1565,5 +1682,149 @@ mod tests {
             panic!()
         };
         assert_eq!(id, "-5");
+    }
+
+    #[test]
+    fn every_visible_command_is_in_exactly_one_help_section() {
+        let cmd = command();
+        let mut listed: Vec<&str> = HELP_SECTIONS.iter().flat_map(|(_, names)| names.iter().copied()).collect();
+        listed.sort_unstable();
+        let mut commands: Vec<&str> =
+            cmd.get_subcommands().filter(|c| !c.is_hide_set()).map(|c| c.get_name()).collect();
+        commands.sort_unstable();
+        // A command missing here is missing from `vendo --help`: add it to a section of HELP_SECTIONS.
+        assert_eq!(listed, commands, "HELP_SECTIONS must name every visible command once");
+    }
+
+    #[test]
+    fn the_root_help_lists_every_visible_command_and_subcommand_in_its_section() {
+        let cmd = command();
+        let help = cmd.clone().render_help().to_string();
+        let lines: Vec<&str> = help.lines().collect();
+        let mut at = 0;
+        for (title, names) in HELP_SECTIONS {
+            at += lines[at..].iter().position(|line| *line == format!("{title}:")).expect(title) + 1;
+            let end = at + lines[at..].iter().position(|line| line.is_empty()).unwrap();
+            let section = &lines[at..end];
+            for name in names {
+                let command = cmd.find_subcommand(name).unwrap();
+                // `  <name>  <about>`, then the commands under it, comma-separated, on indented lines.
+                let row = section.iter().position(|line| line.split_whitespace().next() == Some(name)).expect(name);
+                let about = command.get_about().unwrap().to_string();
+                assert!(section[row].starts_with(&format!("  {name} ")) && section[row].ends_with(&about), "{name}");
+                let below: Vec<&str> =
+                    section[row + 1..].iter().take_while(|line| line.starts_with("     ")).copied().collect();
+                let joined = below.join(" ");
+                let listed: Vec<&str> = joined.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+                assert_eq!(listed, command_paths(command), "vendo {name}");
+                assert!(below.iter().all(|line| line.len() <= HELP_WIDTH), "{name}: {below:?}");
+            }
+            at = end;
+        }
+        // The section rows are the visible commands, in order: nothing hidden, no clap `help` row.
+        let options = lines.iter().position(|line| *line == "Options:").unwrap();
+        let rows: Vec<&str> = lines[..options]
+            .iter()
+            .filter(|line| line.starts_with("  ") && !line.starts_with("   "))
+            .filter_map(|line| line.split_whitespace().next())
+            .collect();
+        let names: Vec<&str> = HELP_SECTIONS.iter().flat_map(|(_, names)| names.iter().copied()).collect();
+        assert_eq!(rows, names);
+        assert!(!lines.contains(&"Commands:"), "the sections replace the Commands: list");
+        // What the groups list leaves out: hidden commands and aliases.
+        assert_eq!(command_paths(cmd.find_subcommand("catalog").unwrap()), ["list", "get"]);
+        assert_eq!(command_paths(cmd.find_subcommand("profile").unwrap()), ["list", "switch", "set"]);
+        assert_eq!(
+            command_paths(cmd.find_subcommand("measurement").unwrap())[..3],
+            ["methodologies list", "methodologies get", "rules preview"]
+        );
+    }
+
+    #[test]
+    fn no_group_has_a_help_command_but_the_root() {
+        fn check(cmd: &clap::Command, path: &str) {
+            for sub in cmd.get_subcommands().filter(|sub| sub.has_subcommands()) {
+                let path = format!("{path} {}", sub.get_name());
+                assert!(sub.is_disable_help_subcommand_set(), "{path} lists a help command");
+                check(sub, &path);
+            }
+        }
+        let cmd = command();
+        assert!(!cmd.is_disable_help_subcommand_set(), "`vendo help <command>` stays");
+        check(&cmd, "vendo");
+    }
+
+    #[test]
+    fn hidden_paths_run_their_target() {
+        let rewrite = |args: &[&str]| -> Vec<String> {
+            rewrite_hidden_paths(&command(), os(args)).iter().map(|a| a.to_string_lossy().into_owned()).collect()
+        };
+        for (from, to) in [
+            // Moved to a command in another group.
+            (&["vendo", "profile", "current"][..], &["vendo", "whoami"][..]),
+            (&["vendo", "profile", "current", "--json"], &["vendo", "whoami", "--json"]),
+            (&["vendo", "config", "show", "--json"], &["vendo", "whoami", "--json"]),
+            (&["vendo", "config", "reset"], &["vendo", "logout", "--all"]),
+            (&["vendo", "config", "reset", "-y"], &["vendo", "logout", "--all", "-y"]),
+            // Global options before and between the words stay.
+            (&["vendo", "--profile", "beta", "profile", "current"], &["vendo", "--profile", "beta", "whoami"]),
+            (&["vendo", "config", "--debug", "reset", "--yes"], &["vendo", "logout", "--all", "--debug", "--yes"]),
+            (&["vendo", "--profile=beta", "config", "show"], &["vendo", "--profile=beta", "whoami"]),
+            // A group's `help` command is the root's.
+            (&["vendo", "apps", "help", "list"], &["vendo", "help", "apps", "list"]),
+            (&["vendo", "apps", "help"], &["vendo", "help", "apps"]),
+            (&["vendo", "measurement", "ltv", "help", "cohort"], &["vendo", "help", "measurement", "ltv", "cohort"]),
+            (&["vendo", "help", "profile", "current"], &["vendo", "help", "whoami"]),
+            (&["vendo", "help", "config", "reset"], &["vendo", "help", "logout"]),
+            (&["vendo", "config", "help", "show"], &["vendo", "help", "whoami"]),
+        ] {
+            assert_eq!(rewrite(from), to, "{from:?}");
+        }
+        for unchanged in [
+            &["vendo", "whoami"][..],
+            &["vendo", "help"],
+            &["vendo", "help", "apps", "list"],
+            &["vendo", "config", "set", "--account", "a"],
+            &["vendo", "profile"],
+            &["vendo", "profile", "show"],
+            &["vendo", "config", "current"],
+            // `help` as a command's argument, after an option, or after `--`.
+            &["vendo", "dictionary", "search", "help"],
+            &["vendo", "apps", "get", "help"],
+            &["vendo", "apps", "--help", "help"],
+            &["vendo", "profile", "--", "current"],
+        ] {
+            assert_eq!(rewrite(unchanged), unchanged, "{unchanged:?}");
+        }
+    }
+
+    #[test]
+    fn the_config_commands_parse_as_their_profile_commands() {
+        let cli = parse(&["vendo", "config", "set", "--account", "acct-x"]).unwrap();
+        let Command::Profile { command: ProfileCommand::Set { account, api_key, base_url } } = cli.command else {
+            panic!()
+        };
+        assert_eq!((account.as_deref(), api_key, base_url), (Some("acct-x"), None, None));
+        assert!(matches!(
+            parse(&["vendo", "config", "list"]).unwrap().command,
+            Command::Profile { command: ProfileCommand::List }
+        ));
+        assert_eq!(switch_args(parse(&["vendo", "config", "use", "beta"]).unwrap()), (Some("beta".into()), None));
+        let Command::Whoami { json } = parse(&["vendo", "profile", "current", "--json"]).unwrap().command else {
+            panic!()
+        };
+        assert!(json);
+        assert!(matches!(parse(&["vendo", "config", "show"]).unwrap().command, Command::Whoami { json: false }));
+        let Command::Logout { all, yes } = parse(&["vendo", "config", "reset", "--yes"]).unwrap().command else {
+            panic!()
+        };
+        assert!(all && yes);
+        assert!(parse(&["vendo", "profile", "current", "--all"]).is_err(), "whoami's flags only");
+        let Command::Catalog { command: CatalogCommand::CredentialSchema { app_type, json } } =
+            parse(&["vendo", "catalog", "credential-schema", "shopify", "--json"]).unwrap().command
+        else {
+            panic!()
+        };
+        assert_eq!((app_type.as_str(), json), ("shopify", true));
     }
 }
