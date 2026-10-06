@@ -611,6 +611,10 @@ mod tests {
         };
         env.os = Os::MacOs;
         assert_eq!(check(&env), (CheckStatus::Ok, "Bash completions are installed in ~/.profile".into()));
+        // A ~/.bash_profile beside it is what bash reads, so the block in ~/.profile loads nothing.
+        std::fs::write(h.join(".bash_profile"), "export EDITOR=vi\n").unwrap();
+        assert_eq!(check(&env), (CheckStatus::Warn, "Bash completions are not installed yet".into()));
+        std::fs::remove_file(h.join(".bash_profile")).unwrap();
         std::fs::write(h.join(".bashrc"), "# >>> vendo completions >>>\n").unwrap();
         assert_eq!(check(&env), (CheckStatus::Ok, "Bash completions are installed in ~/.bashrc and ~/.profile".into()));
         // Elsewhere bash reads ~/.bashrc only.

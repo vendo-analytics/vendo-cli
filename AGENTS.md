@@ -46,7 +46,17 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   table, `--json` and confirmation output of each command against the stub's synthetic account in
   `rust/tests/snapshots/output/`. Any change to them fails `cargo test`. After a deliberate change run
   `INSTA_UPDATE=always cargo test --test cli` from `rust/` (it also deletes stale snapshots), review
-  `git diff rust/tests/snapshots` and commit the snapshots with the change.
+  `git diff rust/tests/snapshots` and commit the snapshots with the change. Bare `vendo completions` for bash and
+  for an unknown shell is recorded per system (VE-3830): `completions__bare_bash_macos`/`_linux` and
+  `completions__bare_unknown_shell_macos`/`_linux`. The update command rewrites only this system's two, and CI,
+  which tests on Linux only, checks only the `_linux` ones. So after a change to what they show, on a Mac also force
+  the Linux rules and run the update command again, from `rust/`:
+  `sed -i '' 's/cfg!(target_os = "macos")/cfg!(any())/' src/commands/completions.rs tests/cli.rs tests/cli/snapshots.rs`
+  (`cfg!(any())` is false; the three places are `Os::current`, `Session::record_per_system` and
+  `the_installer_adds_bash_completions_where_bash_reads_them`), then
+  `INSTA_UPDATE=always cargo test --locked --test cli`, then undo with the same `sed` the other way round
+  (`s/cfg!(any())/cfg!(target_os = "macos")/`), check that `grep -rnF 'cfg!(any())' src tests` finds nothing, and
+  review the `_linux` diff. Editing both systems' files by hand the same way also works.
 - Customer words follow vendo-web-v2's glossary (`apps/web/CONTEXT.md`; VE-3828, CLI 1.1): `vendo destinations`
   (hidden aliases `integrations`, `int`), "app" not "app connection", "platform" not "integration type". Flag names
   (`jobs … --integration <integrationId>`), API paths, JSON fields, `--json` output and code identifiers keep the
@@ -88,13 +98,14 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `~/.bash_login` and `~/.profile` that exists (Yalcin, 2026-10-06). There install.sh (`uname -s` Darwin) adds its
   block to that file too, creating `~/.bash_profile` when none exists (never beside `~/.profile`, which bash would
   stop reading), and its summary names each file (`bash, loaded from ~/.bashrc and ~/.bash_profile`); bare
-  `vendo completions` and doctor look in those files on macOS, and the bare text's bash step names the login file.
+  `vendo completions` and doctor look in `~/.bashrc` and that one login file on macOS (`bash_login_file`), not in
+  the login files bash skips, and the bare text's bash step names the login file.
   A zsh line counts only after compinit, which the script's `compdef` needs: an earlier line, not a comment (or a
   command earlier on its line), that runs `compinit` or sources oh-my-zsh (`oh-my-zsh.sh`), Prezto
   (`.zprezto/init.zsh`) or Zim (`${ZIM_HOME}/init.zsh`, `~/.zim/init.zsh`); the installer's block counts as before.
   The bare text tells zsh users to add its lines at the end of `~/.zshrc`, after a framework's compinit. What it
-  says for bash is recorded per system
-  (`completions__…_macos`/`…_linux`), and `the_installer_adds_bash_completions_where_bash_reads_them` in
+  says for bash is recorded per system (`completions__…_macos`/`…_linux`; see Snapshots for refreshing both), and
+  `the_installer_adds_bash_completions_where_bash_reads_them` in
   `rust/tests/cli.rs` runs install.sh's `install_completions` (the script without its last line, `main "$@"`) in
   scratch HOMEs. A flag with a fixed set of values offers them on TAB through `Suggest` in `cli.rs`, each list citing
   its source: parsing still takes any string (the API decides), and clap sees the values only while a script is

@@ -128,7 +128,8 @@ impl Setup {
 /// startup file (fish loads its completions folder itself); or, for bash and zsh, a line in a startup
 /// file that runs `vendo completions <shell>`, as [`by_hand`] and the docs set it up. For zsh that
 /// line counts only after compinit ([`zsh_loads_by_hand`]). Bash's startup files are `~/.bashrc` and,
-/// on macOS, its login files too ([`BASH_LOGIN_FILES`]).
+/// on macOS, the one login file bash reads ([`bash_login_file`]), where install.sh adds its block too:
+/// the other login files are skipped, as bash skips them.
 pub fn setup(shell: Option<&str>, home: &Path, os: Os) -> Setup {
     let shell = match shell {
         Some("bash") => Shell::Bash,
@@ -138,7 +139,7 @@ pub fn setup(shell: Option<&str>, home: &Path, os: Os) -> Setup {
     };
     let (script, startup_files): (&str, Vec<&'static str>) = match shell {
         Shell::Bash if os == Os::MacOs => {
-            (".local/share/vendo/completions/vendo.bash", [".bashrc"].into_iter().chain(BASH_LOGIN_FILES).collect())
+            (".local/share/vendo/completions/vendo.bash", vec![".bashrc", bash_login_file(home)])
         }
         Shell::Bash => (".local/share/vendo/completions/vendo.bash", vec![".bashrc"]),
         Shell::Zsh => (".local/share/vendo/completions/vendo.zsh", vec![".zshrc"]),
@@ -410,6 +411,21 @@ mod tests {
             assert_eq!(setup(Some("bash"), home.path(), Os::MacOs), Setup::Installed(Shell::Bash, vec![file]));
             assert_eq!(setup(Some("bash"), home.path(), Os::Other), Setup::Missing(Shell::Bash), "{file}");
         }
+        // Only the login file bash reads counts, the first that exists: beside ~/.bash_profile, a block in
+        // ~/.profile or a line in ~/.bash_login loads nothing.
+        let home = tempfile::tempdir().unwrap();
+        write(home.path(), BASH_SCRIPT, b"# the script\n");
+        write(home.path(), ".bash_profile", b"export EDITOR=vi\n");
+        write(home.path(), ".profile", BLOCK.as_bytes());
+        write(home.path(), ".bash_login", b"eval \"$(vendo completions bash)\"\n");
+        assert_eq!(setup(Some("bash"), home.path(), Os::MacOs), Setup::Missing(Shell::Bash));
+        write(home.path(), ".bashrc", BLOCK.as_bytes());
+        assert_eq!(setup(Some("bash"), home.path(), Os::MacOs), Setup::Installed(Shell::Bash, vec![".bashrc"]));
+        std::fs::remove_file(home.path().join(".bash_profile")).unwrap();
+        assert_eq!(
+            setup(Some("bash"), home.path(), Os::MacOs),
+            Setup::Installed(Shell::Bash, vec![".bashrc", ".bash_login"])
+        );
         // What the installer leaves on macOS: the block in ~/.bashrc and in the login file.
         let home = installed("bash");
         write(home.path(), ".bash_profile", BLOCK.as_bytes());

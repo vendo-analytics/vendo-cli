@@ -14,6 +14,10 @@
 //!   What bare `vendo completions` says for bash depends on the system (bash
 //!   reads other startup files on macOS), so it is recorded per system:
 //!   `…_macos` on macOS and `…_linux` elsewhere (`Session::record_per_system`).
+//!   A run checks and rewrites only its own system's files, and CI, on Linux
+//!   only, checks only the `_linux` ones: to refresh those on a Mac, force the
+//!   Linux rules and run the update command again, with the steps the
+//!   Snapshots bullet in AGENTS.md gives.
 //!
 //! What varies between machines or runs is replaced before comparing: the stub
 //! URL, HOME, the binary's path, the CLI version, request IDs and the few
