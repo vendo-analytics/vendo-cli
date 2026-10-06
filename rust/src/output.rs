@@ -298,14 +298,15 @@ pub fn print_count_of(count: Option<&Value>, label: &str) {
     println!("{}", dim(&count_text(count, label)));
 }
 
-fn list_count(res: &Value, rows: usize, label: &str) -> String {
+/// [`print_list_count`]'s text, plain: also the hint of a selectable list (VE-3894, `crate::browse`).
+pub(crate) fn list_count(res: &Value, rows: usize, label: &str) -> String {
     let rows = Value::from(rows);
     count_text(Some(res.pointer("/meta/pagination/total").filter(|v| !v.is_null()).unwrap_or(&rows)), label)
 }
 
 /// `${count} ${label}${count === 1 ? '' : 's'}`: the count as a template literal prints it (a
 /// missing one is `undefined`), singular only for the number 1 (the string "1" is plural).
-fn count_text(count: Option<&Value>, label: &str) -> String {
+pub(crate) fn count_text(count: Option<&Value>, label: &str) -> String {
     let plural = if matches!(count, Some(Value::Number(n)) if js_number_of(n) == 1.0) { "" } else { "s" };
     format!("{} {label}{plural}", js_template(count))
 }
@@ -743,8 +744,9 @@ fn error_value(message: &str, code: Option<&str>, status: Option<u16>, request_i
     })
 }
 
-/// `message` without terminal styling: a hint styled for a terminal stays plain in JSON.
-fn strip_ansi(message: &str) -> String {
+/// `message` without terminal styling: a hint styled for a terminal stays plain in JSON, and a table's
+/// cell in the row of a selectable list (VE-3894, `crate::browse`).
+pub(crate) fn strip_ansi(message: &str) -> String {
     let mut plain = String::with_capacity(message.len());
     let mut chars = message.chars().peekable();
     while let Some(c) = chars.next() {
@@ -982,7 +984,7 @@ pub fn choose_command(title: &str, commands: &[MenuCommand]) -> Option<usize> {
     let width = commands.iter().map(|command| command.name.chars().count()).max()?;
     let rows: Vec<String> = commands.iter().map(|command| MenuRow { command, width }.to_string()).collect();
     let hint = inquire::Select::<&str>::DEFAULT_HELP_MESSAGE?;
-    select(title, &rows, hint, &|at| commands[at].name.clone(), false)
+    select(title, &rows, hint, &|at| commands[at].name.clone(), false, 0)
 }
 
 /// A row of [`choose_value`]'s list: what the list shows (typing filters by it), and what the
@@ -1006,17 +1008,19 @@ impl std::fmt::Display for ValueRow {
 /// list after the title. `note` follows the menu's hint (`… type to filter · newest 500 shown`).
 /// Keys typed before the list opened, while it loaded, are thrown away ([`discard_typed_ahead`]):
 /// an Enter among them would choose the first row unseen. Esc, Ctrl-C, Ctrl-D and a terminal that
-/// hangs up leave quietly, as at the menu. `None` when the list cannot run (no rows, the terminal
-/// refused it). Only where [`can_show_menu`].
+/// hangs up leave quietly, as at the menu. The cursor starts on the row at `cursor`: the first for
+/// the lists for a missing value and the profile list, the item just viewed when a selectable list
+/// opens again after Back (VE-3894, `crate::browse`). `None` when the list cannot run (no rows, the
+/// terminal refused it). Only where [`can_show_menu`].
 #[cfg(feature = "menu")]
-pub fn choose_value(title: &str, rows: &[ValueRow], note: Option<&str>) -> Option<usize> {
+pub fn choose_value(title: &str, rows: &[ValueRow], note: Option<&str>, cursor: usize) -> Option<usize> {
     let hint = inquire::Select::<&str>::DEFAULT_HELP_MESSAGE?;
     let hint = match note {
         Some(note) => format!("{hint} · {note}"),
         None => hint.to_string(),
     };
     let shown: Vec<String> = rows.iter().map(|row| row.shown.clone()).collect();
-    select(title, &shown, &hint, &|at| rows[at].answer.clone(), true)
+    select(title, &shown, &hint, &|at| rows[at].answer.clone(), true, cursor)
 }
 
 /// A row of [`select`]'s list as inquire draws it: `shown`, the row broken into lines that leave the
@@ -1039,9 +1043,17 @@ impl std::fmt::Display for Fitted {
 /// free ([`fitted`]); ↑↓ move, typing filters by substring in any case, as inquire's own filter
 /// does, over the row as it is, so text the screen breaks still matches; Enter chooses, and
 /// `answer` of the chosen row's index replaces the list after the title ([`fitted_answer`]).
-/// `discard` throws away the keys typed before it opened ([`discard_typed_ahead`]).
+/// `discard` throws away the keys typed before it opened ([`discard_typed_ahead`]). The cursor starts
+/// on the row at `cursor`.
 #[cfg(feature = "menu")]
-fn select(title: &str, rows: &[String], hint: &str, answer: &dyn Fn(usize) -> String, discard: bool) -> Option<usize> {
+fn select(
+    title: &str,
+    rows: &[String],
+    hint: &str,
+    answer: &dyn Fn(usize) -> String,
+    discard: bool,
+    cursor: usize,
+) -> Option<usize> {
     use inquire::{Select, list_option::ListOption};
     let (columns, lines) = screen_size();
     let (page, height) = menu_page(title, rows, Some(hint), (columns, lines));
@@ -1056,6 +1068,7 @@ fn select(title: &str, rows: &[String], hint: &str, answer: &dyn Fn(usize) -> St
     };
     let answered = |row: ListOption<&Fitted>| fitted_answer(title, &answer(row.index));
     let list = Select::new(title, fitted_rows)
+        .with_starting_cursor(cursor)
         .with_page_size(page)
         .with_help_message(hint)
         .with_scorer(&filter)

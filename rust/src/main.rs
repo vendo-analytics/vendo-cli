@@ -22,6 +22,8 @@ macro_rules! eprintln {
 // Asking for a value a command is missing, at a terminal (VE-3881); part of the `menu` feature.
 #[cfg(feature = "menu")]
 mod ask;
+// A list command's rows to choose from at a terminal, then an item's actions (VE-3894).
+mod browse;
 mod cli;
 mod client;
 mod commands;
@@ -40,7 +42,7 @@ mod update_check;
 mod watch;
 mod web_app;
 
-use std::process::ExitCode;
+use std::{ffi::OsString, process::ExitCode};
 
 use crate::{
     cli::{
@@ -66,17 +68,33 @@ async fn main() -> ExitCode {
         }
         Invocation::Run(args) => args,
     };
-    let cli::Parsed { cli, json } = cli::parse(args).await;
-    output::set_json_errors(json);
-    let ctx = Ctx::new(cli.profile.clone(), cli.debug);
-
-    match run(&ctx, cli.command).await {
-        Ok(code) => code,
-        Err(err) => {
-            output::report_error(&err);
-            ExitCode::from(1)
-        }
+    let program = args.first().cloned().unwrap_or_else(|| "vendo".into());
+    let mut parsed = cli::parse(args).await;
+    loop {
+        let cli::Parsed { cli, json } = parsed;
+        output::set_json_errors(json);
+        let ctx = Ctx::new(cli.profile.clone(), cli.debug);
+        let code = match run(&ctx, cli.command).await {
+            Ok(code) => code,
+            Err(err) => {
+                output::report_error(&err);
+                return ExitCode::from(1);
+            }
+        };
+        // An action chosen for an item of a selectable list (VE-3894) runs as if typed, with
+        // `--profile` and `--debug` as given, and the CLI ends with its exit code.
+        let Some(words) = browse::chosen() else { return code };
+        parsed = cli::parse(action_args(program.clone(), cli.profile, cli.debug, words)).await;
     }
+}
+
+/// The words of an action chosen in a selectable list (VE-3894) as typed: the program's name,
+/// `--profile=<name>` when `--profile` was given (VENDO_PROFILE carries over in the environment),
+/// `--debug` when it was given, then the action's words (`apps pause <full ID>`).
+fn action_args(program: OsString, profile: Option<String>, debug: bool, words: Vec<OsString>) -> Vec<OsString> {
+    let globals = profile.map(|name| OsString::from(format!("--profile={name}"))).into_iter();
+    let debug = debug.then(|| OsString::from("--debug")).into_iter();
+    std::iter::once(program).chain(globals).chain(debug).chain(words).collect()
 }
 
 async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {

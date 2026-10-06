@@ -10,14 +10,15 @@ use tokio::{
 };
 
 use crate::{
+    browse,
     client::{Client, payload},
     commands::pipeline_resource::{read_json_file, split_list},
     context::Ctx,
     jobs::Job,
     output::{
         OutputMode, bold, color_status, dim, js_color_status, js_greater_than, js_if, js_join, js_template, js_truthy,
-        print_field, print_json, print_label, print_list_count, print_status_label, print_success, red,
-        resolve_output_mode, run_action, short_id, table, time_ago, yellow,
+        list_count, print_field, print_json, print_label, print_status_label, print_success, red, resolve_output_mode,
+        run_action, short_id, time_ago, yellow,
     },
     short_ids::{Listing, resolve},
 };
@@ -174,23 +175,30 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
         OutputMode::Json => print_json(&res),
         OutputMode::Field => print_field(&rows, args.output.as_deref().unwrap_or_default()),
         OutputMode::Table => {
-            let mut grid = table(&["ID", "Name", "Type", "Role", "State", "Status", "Last Sync"]);
-            for app in &rows {
-                grid.add_row(vec![
-                    dim(&short_id(&text(app, "id").unwrap_or_default())),
-                    text(app, "displayName").unwrap_or_default(),
-                    text(app, "appType").unwrap_or_default(),
-                    role_label(app),
-                    color_status(&text(app, "state").unwrap_or_default()),
-                    access_status_label(app),
-                    time_ago(text(app, "lastSyncAt").as_deref()),
-                ]);
-            }
-            println!("{grid}");
-            print_list_count(&res, rows.len(), "app");
+            // The table, or at a terminal the same rows to choose from (VE-3894).
+            let table = browse::Table {
+                header: &["ID", "Name", "Type", "Role", "State", "Status", "Last Sync"],
+                cells: rows.iter().map(app_cells).collect(),
+                footer: list_count(&res, rows.len(), "app"),
+            };
+            browse::shown(&client, browse::Group::Apps, &rows, table, args.output.as_deref()).await?;
         }
     }
     Ok(())
+}
+
+/// A row of the `apps list` table, its cells styled as the table shows them; a selectable list shows
+/// them plain (VE-3894).
+fn app_cells(app: &Value) -> Vec<String> {
+    vec![
+        dim(&short_id(&text(app, "id").unwrap_or_default())),
+        text(app, "displayName").unwrap_or_default(),
+        text(app, "appType").unwrap_or_default(),
+        role_label(app),
+        color_status(&text(app, "state").unwrap_or_default()),
+        access_status_label(app),
+        time_ago(text(app, "lastSyncAt").as_deref()),
+    ]
 }
 
 pub async fn diagnose(ctx: &Ctx, json: bool) -> Result<()> {
@@ -283,15 +291,27 @@ pub async fn diagnose(ctx: &Ctx, json: bool) -> Result<()> {
 pub async fn get(ctx: &Ctx, app_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
     let app_id = resolve(&client, Listing::Apps, app_id).await?;
-    let res = run_action("Fetching app...", client.get(&format!("/apps/{app_id}"), &[])).await?;
     if json {
-        print_json(&res);
+        print_json(&fetch(&client, &app_id).await?);
         return Ok(());
     }
+    show(&client, &app_id).await.map(|_| ())
+}
+
+/// What `apps get` shows of the app `id`, a full ID (no short-ID lookup), from its request behind its
+/// spinner; the app as the API sent it. A selectable list shows it for the app chosen and reads the
+/// actions that apply from it (VE-3894).
+pub(crate) async fn show(client: &Client, id: &str) -> Result<Value> {
+    let res = fetch(client, id).await?;
     for line in app_lines(payload(&res)) {
         println!("{line}");
     }
-    Ok(())
+    Ok(payload(&res).clone())
+}
+
+/// `GET /apps/<id>`, behind `apps get`'s spinner.
+async fn fetch(client: &Client, id: &str) -> Result<Value> {
+    Ok(run_action("Fetching app...", client.get(&format!("/apps/{id}"), &[])).await?)
 }
 
 /// The `apps get` view, with the TS CLI's `${…}` rendering of missing (`undefined`) and null fields.

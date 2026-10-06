@@ -298,8 +298,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   one, stdin closed on a CI runner: it prints the sign-in URL and that line, opens no browser and waits for the
   sign-in. A stdin that is not a terminal (a pipe, a file) is no prompt: login reads it as before, so
   `echo | CI=true vendo login` opens the browser as `echo | vendo login` does. The profile list opens where the group
-  menu does (`can_show_menu`; VE-3892, below), so `echo 1 | vendo profile switch` reads no answer from the pipe. On
-  `TERM=dumb` the group menu, the questions for a missing value and the profile list are off; the y/N questions still
+  menu does (`can_show_menu`; VE-3892, below), so `echo 1 | vendo profile switch` reads no answer from the pipe, and so
+  do the selectable lists (VE-3894, below): with prompts off a list command prints its table. On `TERM=dumb` the group
+  menu, the questions for a missing value, the profile list and the selectable lists are off; the y/N questions still
   ask.
 - Missing values (VE-3881, decided by Yalcin 2026-10-07, CLI 1.1): a command typed without a value it requires asks for
   it where the group menu opens (`output::can_show_menu`, the same rule, the hang-up watch included) instead of stopping
@@ -366,7 +367,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   commands, the hidden `catalog credential-schema` and the `integrations`/`int` aliases too); `ask.rs`'s coverage test
   fails when a required value has no row in `VALUES`. An agent that runs `vendo` on a pseudo-terminal without `CI` or
   `VENDO_NO_INPUT` now waits at the question where it got exit 2, as at the group menu and the y/N questions;
-  `VENDO_NO_INPUT=1` turns it off.
+  `VENDO_NO_INPUT=1` turns it off. Since VE-3894 it also waits at `vendo apps list`, where it got the table and exit 0,
+  a worse change than this one's (a run that succeeded now waits); `VENDO_NO_INPUT=1`, `--json` or `--output` give the
+  table back.
 - Profile list (VE-3892, decided by Yalcin 2026-10-07, CLI 1.1): `--profile` typed with no name opens an arrow-key list
   of the saved profiles with type-to-filter where the group menu opens (`output::can_show_menu`, the same rule, the
   hang-up watch included): `ask::choose_profile`, a `choose_value` list (VE-3881) titled with the command as the tree
@@ -397,6 +400,50 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `TERM=dumb` and with stderr redirected, where the numbered picker asked, and with a write-only stdin, where the picker
   showed its title and search line and then ended quietly (exit 0, nothing switched; VE-3892 review), and `--profile`'s
   help unchanged (it does not say that a bare `--profile` opens the list).
+- Selectable lists (VE-3894, decided by Yalcin 2026-10-07, CLI 1.1: "items first then actions, but still keep the
+  actions so we can go directly to the action without the list too. The change should only apply to list: make the
+  list selectable"): where the group menu opens (`output::can_show_menu`, the same rule, the hang-up watch included), a
+  list command that would print its table (no `--json`, no `--output`, an empty one included) shows the same rows, from
+  the same requests and flags, as a `choose_value` list (VE-3881's) instead. `rust/src/browse.rs` owns it: the list
+  command builds the table's cells once into a `browse::Table`, which prints the table, footer and all, where the list
+  does not open (`Table::print`, the code that printed it before), and `browse::shown` decides (`browse::opens`; a stub
+  that is false without the `menu` feature). Each row is the table's own cells as plain text (`output::strip_ansi`) on
+  one line (line ends and other control characters a space, `browse::one_line`, the answered line too), padded per
+  column (`ask::padded`), with no header row; the list is titled with the command as the tree names it
+  (`vendo apps list`), the table's footer follows the hint (`· 57 apps`), and an item is answered as VE-3881 answers
+  it (`? vendo apps list a1b2c3d4... (Menu Shop)`). Enter shows exactly what the group's `get` shows, from its code,
+  spinner and request (`apps::show`, which `get` calls after its short-ID lookup), then the item's action menu: titled
+  with the group (`vendo apps`), the actions that apply to the item as that request returned it, each with its
+  description from the tree, then `back   Back to the list`, the cursor on the first and the keys typed while the
+  item loaded thrown away. Apps: `pause` when active, `resume` when inactive, neither for another state, then
+  `update` and `delete` (`browse::Group::actions`; only visible commands of the group that take the item's ID, which
+  a unit test checks). A chosen action is answered as the command (`? vendo apps pause a1b2c3d4... (Menu Shop)`) and
+  runs exactly as typed: `browse` keeps its words (`apps pause <full ID>`, `browse::chosen`) and `main` parses them
+  again after `--profile=<name>` and `--debug` as given (`action_args`; VENDO_PROFILE and VENDO_DEBUG carry over in the
+  environment), so delete's y/N (VE-3823) asks, the full ID needs no short-ID lookup, `update` with no flags fails as
+  typed (`Nothing to update — pass at least one flag.`, exit 1), and the CLI ends with the action's exit code. Back
+  opens the list again with no request, the cursor on the item just viewed and the filter cleared; nothing above is
+  erased (the answered lines and the details stay, the list opens below them). Esc, Ctrl-C, Ctrl-D and a hang-up on
+  the list or the action menu exit 0 with nothing run. A details request that fails (an item deleted since the list
+  loaded, a 429, the network) is `get`'s error, exit 1. An empty response prints the table and its count, exit 0, as
+  does a first list the terminal refuses; a later list or action menu that cannot run exits 0 quietly. Without a
+  terminal, with prompts off, on `TERM=dumb`, with stderr redirected, stdout piped or a write-only stdin, with
+  `--json` or `--output`, and built without the `menu` feature, the list command prints exactly what it printed (the
+  `output/` snapshots are unchanged; `where_the_list_cannot_open_and_with_json_or_output_apps_list_prints_what_it_printed`).
+  `get`, the bare group's menu and every action command work as before. So far `vendo apps list` (VE-3894's first
+  group); the other list commands follow. ❓ Open for Yalcin, built with cautious defaults: `get` kept everywhere
+  (Yalcin's "we don't really need get" in the run that built this, against the decision's "keep the actions";
+  options: hide it from the group menu only, hide it everywhere as a hidden path, or remove it, which breaks scripts,
+  agents and VE-3881's questions), the table's own cells in a row (all columns, wider rows that wrap on 80 columns,
+  no header; VE-3881's narrower cells would drop Status and Last Sync), the CLI ending after an action rather than
+  returning to the list, `update` offered though it fails without flags, the action menu's title, rows, answers and
+  order with the cursor on the first action (a double Enter after it opens runs pause or resume, which ask no y/N;
+  option: start on `back`), the footer as today's words in the hint (`· 57 apps` while 20 rows show; option `20 of 57
+  apps`), an empty list printing the table and count (option: VE-3881's `No apps to choose from.`, exit 2), Back's
+  cursor on the item with the filter cleared and nothing erased, `delete` offered though the API refuses an app still
+  in use (409, VE-3756), neither pause nor resume for a state other than active and inactive, a failed details
+  request ending with `get`'s error rather than returning to the list, agents on a pseudo-terminal now waiting at
+  the list (see Missing values), `--output ""` keeping the table, and the list commands' `--help` unchanged.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665; whoami and doctor are `workspace` since VE-3891); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

@@ -76,7 +76,7 @@ enum Ask {
 /// The lists a value is chosen from by its ID: the account's, and the methodologies (the system's
 /// too).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Listed {
+pub(crate) enum Listed {
     Apps,
     Sources,
     /// The API's integrations, which customers call destinations (VE-3828).
@@ -162,8 +162,9 @@ impl Listed {
     }
 
     /// What the answered line names a chosen row by after its short ID, as its table names it:
-    /// `(Menu Shop)`, `(Demo Shop → Demo Warehouse)`; nothing for a job, which has no name.
-    fn name(self, row: &Value) -> String {
+    /// `(Menu Shop)`, `(Demo Shop → Demo Warehouse)`; nothing for a job, which has no name. A
+    /// selectable list's answered line names an item by it too (VE-3894, `crate::browse`).
+    pub(crate) fn name(self, row: &Value) -> String {
         let text = |key: &str| Job(row).text(key).unwrap_or_default();
         match self {
             Listed::Apps => text("displayName"),
@@ -405,7 +406,7 @@ async fn choose_listed(client: &Client, listed: Listed, title: &str, json: bool)
 }
 
 /// How the answered line names a chosen row: its ID, then its name in brackets when it has one.
-fn named(id: String, name: &str) -> String {
+pub(crate) fn named(id: String, name: &str) -> String {
     if name.is_empty() { id } else { format!("{id} ({name})") }
 }
 
@@ -564,14 +565,15 @@ fn choose<T>(
     let shown = padded(items.iter().map(cells).collect());
     let rows: Vec<ValueRow> =
         shown.into_iter().zip(items).map(|(shown, item)| ValueRow { shown, answer: answer(item) }).collect();
-    output::choose_value(title, &rows, cut.as_deref())
+    output::choose_value(title, &rows, cut.as_deref(), 0)
 }
 
 /// The rows of a list: each cell padded to its column's width in the columns the screen gives it
 /// (`unicode-width`: a wide character such as 東 takes two, so a name in Japanese keeps the columns
 /// after it in line, as the tables keep them), two spaces apart as the tables' columns are, the last
-/// column as it is. Plain text: typing filters by what the row shows.
-fn padded(rows: Vec<Vec<String>>) -> Vec<String> {
+/// column as it is. Plain text: typing filters by what the row shows. A selectable list's rows and its
+/// action menu are padded so too (VE-3894, `crate::browse`).
+pub(crate) fn padded(rows: Vec<Vec<String>>) -> Vec<String> {
     use unicode_width::UnicodeWidthStr;
     let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
     let widths: Vec<usize> = (0..columns)

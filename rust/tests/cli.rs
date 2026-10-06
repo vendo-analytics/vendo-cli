@@ -4211,11 +4211,14 @@ async fn a_bare_group_on_a_terminal_opens_a_menu_and_runs_the_chosen_command() {
     terminal.wait_for("vendo apps LIS");
     terminal.press("\r");
     terminal.wait_for("vendo apps list");
-    // `vendo --profile beta apps list` runs against the stub.
+    // `vendo --profile beta apps list` runs against the stub: at a terminal, its apps to choose from
+    // (VE-3894), which Esc leaves.
+    terminal.wait_for("type to filter · 1 app]");
+    let listed = shown_from(&terminal, "? vendo apps list");
+    assert_eq!(listed[1], "> a1b2c3d4...  Menu Shop  shopify  source  active  connected  —", "{listed:#?}");
+    terminal.press("\u{1b}");
     let (ran, code) = terminal.finish();
     assert_eq!(code, Some(0), "{ran}");
-    let ran = plain(&ran);
-    assert!(ran.contains("a1b2c3d4...") && ran.contains("Menu Shop") && ran.contains("shopify"), "{ran}");
     assert_eq!(sent(&server).await, ["GET /api/v1/accounts/acct-beta/apps?limit=20&offset=0"]);
 }
 
@@ -4685,16 +4688,7 @@ const APP_ROWS: [&str; 3] = [
 /// [`apps_to_choose`] in `account`: the list, and `{ data: <app> }` for every request about one
 /// (get, pause, resume, delete, update).
 async fn apps_to_choose_stub(account: &str) -> MockServer {
-    let server = MockServer::start().await;
-    let apps = format!("/api/v1/accounts/{account}/apps");
-    serve(&server, "GET", &apps, 200, page_of(apps_to_choose(), 0, false)).await;
-    for app in apps_to_choose() {
-        Mock::given(wiremock::matchers::path_regex(format!("^{apps}/{}(/.*)?$", app["id"].as_str().unwrap())))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": app })))
-            .mount(&server)
-            .await;
-    }
-    server
+    apps_stub(account, apps_to_choose()).await
 }
 
 /// The ready platforms `GET /api/v1/catalog` lists (VE-3829), and each one's catalog entry.
@@ -8119,6 +8113,13 @@ async fn a_command_ending_in_profile_with_no_name_runs_with_the_chosen_profile_f
         terminal.press(keys);
         let answer = format!("? {title} {chosen}");
         terminal.wait_for(&answer[2..]);
+        // `apps list` at a terminal shows its table's rows to choose from (VE-3894), which Esc leaves.
+        let listed = (args[0] == "apps" && !args.contains(&"--json")).then(|| {
+            terminal.wait_for("type to filter · 1 app]");
+            let listed = shown_from(&terminal, "? vendo apps list");
+            terminal.press("\u{1b}");
+            listed
+        });
         let (rest, code) = terminal.finish();
         let asked = sent(&server).await[before..].to_vec();
         // The same words with the profile typed after `--profile`, on a pipe.
@@ -8127,9 +8128,18 @@ async fn a_command_ending_in_profile_with_no_name_runs_with_the_chosen_profile_f
         let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
         assert_eq!(code, typed.status.code(), "{case}: {rest:?}");
         assert_eq!((code, &asked), (Some(0), &typed_sent), "{case}");
-        // What it showed after the answer is what the typed command printed (a table has borders only
-        // at a terminal).
-        assert_eq!(table_cells(&after_answer(&terminal, &answer)), table_cells(&printed_lines(&typed)), "{case}");
+        let printed = table_cells(&printed_lines(&typed));
+        match listed {
+            // The typed table's rows, of the chosen profile's apps.
+            Some(listed) => {
+                let rows: Vec<String> = listed[1..listed.len() - 1].iter().map(|row| row[2..].to_string()).collect();
+                assert_eq!(table_cells(&rows), printed[1..printed.len() - 1], "{case}");
+                assert_eq!(after_answer(&terminal, &answer), ["? vendo apps list <canceled>"], "{case}");
+            }
+            // What it showed after the answer is what the typed command printed (a table has borders only
+            // at a terminal).
+            None => assert_eq!(table_cells(&after_answer(&terminal, &answer)), printed, "{case}"),
+        }
         // For that command alone: the saved active profile stays.
         assert_eq!(sandbox.config()["activeProfile"], "alpha", "{case}");
     }
@@ -8139,7 +8149,7 @@ async fn a_command_ending_in_profile_with_no_name_runs_with_the_chosen_profile_f
     assert_eq!(sent(&server).await, [&beta, &beta, &beta, &beta, &alpha, &alpha].map(String::as_str));
 
     // After a group, as if typed: `vendo apps --profile beta` then opens the group's menu, whose first
-    // command, `list`, runs with beta.
+    // command, `list`, runs with beta: beta's apps to choose from (VE-3894).
     let mut terminal = OnTerminal::start(&sandbox, &["apps", "--profile"]);
     terminal.wait_for("type to filter]");
     assert_eq!(shown_lines(&terminal, (40, 120)), profile_list("vendo apps --profile", &rows("alpha")));
@@ -8148,9 +8158,12 @@ async fn a_command_ending_in_profile_with_no_name_runs_with_the_chosen_profile_f
     terminal.wait_for("Update an app");
     terminal.press("\r");
     terminal.wait_for("vendo apps list");
+    terminal.wait_for("type to filter · 1 app]");
+    let listed = shown_from(&terminal, "? vendo apps list");
+    assert_eq!(listed[1], "> a1b2c3d4...  Beta Shop  shopify  source  active  connected  —", "{listed:#?}");
+    terminal.press("\u{1b}");
     let (rest, code) = terminal.finish();
     assert_eq!(code, Some(0), "{rest:?}");
-    assert!(plain(&rest).contains("Beta Shop"), "{rest:?}");
     assert_eq!(sent(&server).await[6..], [beta]);
     assert_eq!(sandbox.config()["activeProfile"], "alpha");
 }
@@ -8306,4 +8319,540 @@ fn with_no_saved_profile_profile_with_no_name_says_so_and_is_the_usage_error() {
     let (screen, code) = OnTerminal::spawn(cmd, (40, 120), "", None, None).finish();
     assert_eq!((code, plain(&screen)), (Some(0), "No profiles yet. Run `vendo login` to create one.\n".to_string()));
     assert!(!empty.path().join(".config").exists(), "nothing is saved");
+}
+
+// ── VE-3894: a list command's rows to choose from at a terminal ─────────────
+// Decided by Yalcin, 2026-10-07, CLI 1.1 ("items first then actions, but still keep the actions so we
+// can go directly to the action without the list too"): where the group menu opens (VE-3826), a list
+// command shows the rows its table shows, from the same request, as an arrow-key list with
+// type-to-filter, its footer after the hint. Enter shows the item as its group's `get` shows it, then
+// the actions that apply to it and `back`; an action runs exactly as typed, Back opens the list again
+// on that item, and Esc leaves. Elsewhere the table prints as before, byte for byte.
+
+const OLD_APP: &str = "d4c3b2a1-0000-4000-8000-000000000004";
+
+/// The apps a selectable list shows: one of each state (`deleted`, which the list does not normally
+/// send, stands for any other), the last synced two hours ago.
+fn apps_to_browse() -> Vec<Value> {
+    let mut synced = app_to_choose(CHOOSE_PIXEL, "Demo Pixel", "meta_ads", &["destination"], "inactive");
+    synced["lastSyncAt"] = json!(minutes_ago(130));
+    vec![
+        app_to_choose(MENU_APP, "Menu Shop", "shopify", &["source"], "active"),
+        synced,
+        app_to_choose(OLD_APP, "Old Shop", "shopify", &["source"], "deleted"),
+    ]
+}
+
+/// [`apps_to_browse`] as the list shows them: the table's cells as plain text, padded per column.
+const BROWSE_ROWS: [&str; 3] = [
+    "a1b2c3d4...  Menu Shop   shopify   source       active    connected  —",
+    "0c0d0e0f...  Demo Pixel  meta_ads  destination  inactive  paused     2h ago",
+    "d4c3b2a1...  Old Shop    shopify   source       deleted   connected  —",
+];
+
+/// The list's hint: the menu's, then the table's footer.
+const BROWSE_HINT: &str = "[↑↓ to move, enter to select, type to filter · 3 apps]";
+
+/// `apps` in `account`: the list (any query) and `{ data: <app> }` for every request about one.
+async fn apps_stub(account: &str, apps: Vec<Value>) -> MockServer {
+    let server = MockServer::start().await;
+    let route = format!("/api/v1/accounts/{account}/apps");
+    serve(&server, "GET", &route, 200, page_of(apps.clone(), 0, false)).await;
+    for app in apps {
+        Mock::given(wiremock::matchers::path_regex(format!("^{route}/{}(/.*)?$", app["id"].as_str().unwrap())))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": app })))
+            .mount(&server)
+            .await;
+    }
+    server
+}
+
+/// What an open apps list shows with the cursor on the row at `at`.
+fn apps_list(at: usize) -> Vec<String> {
+    let rows = BROWSE_ROWS.iter().enumerate().map(|(i, row)| format!("{} {row}", if i == at { '>' } else { ' ' }));
+    [vec!["? vendo apps list".to_string()], rows.collect(), vec![BROWSE_HINT.to_string()]].concat()
+}
+
+/// The action menu of an app, `actions` its rows before `back`, as the menu shows them.
+fn app_actions(actions: &[&str]) -> Vec<String> {
+    let about = |action: &str| match action {
+        "pause" => "Pause an app",
+        "resume" => "Resume a paused app",
+        "update" => "Update an app",
+        "delete" => "Delete an app (soft delete)",
+        _ => "Back to the list",
+    };
+    let rows = actions.iter().chain(&["back"]).map(|action| format!("{action:<6}  {}", about(action)));
+    let rows: Vec<String> = rows.collect();
+    let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+    [vec!["? vendo apps".to_string()], marked(&rows), vec![HINT.to_string()]].concat()
+}
+
+/// The lines the terminal shows from the last one that is `first` on, as [`shown_lines`] reads them.
+fn shown_from(terminal: &OnTerminal, first: &str) -> Vec<String> {
+    let shown = shown_lines(terminal, (40, 120));
+    let at = shown.iter().rposition(|line| line == first).unwrap_or_else(|| panic!("{first:?}: {shown:#?}"));
+    shown[at..].to_vec()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn apps_list_at_a_terminal_lists_the_tables_rows_to_choose_from_with_its_footer_in_the_hint() {
+    let server = apps_stub("acct-alpha", apps_to_browse()).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let piped = sandbox.run(&["apps", "list"]);
+    let piped_sent = sent(&server).await;
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "list"]);
+    terminal.wait_for("type to filter · 3 apps]");
+    // Titled with the command, every row the table shows (its cells, plain), the first marked, and
+    // the table's footer after the hint.
+    let shown = shown_lines(&terminal, (40, 120));
+    assert_eq!(shown, apps_list(0));
+    let table = table_cells(&printed_lines(&piped));
+    let listed: Vec<String> = shown[1..shown.len() - 1].iter().map(|row| row[2..].to_string()).collect();
+    assert_eq!(table_cells(&listed), table[1..table.len() - 1], "the table's rows, without its header and footer");
+    assert_eq!(table.last().unwrap(), &["3 apps"]);
+    terminal.press("\u{1b}");
+    let (rest, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{rest:?}");
+    // The list sent what the table sends, and nothing more.
+    assert_eq!(sent(&server).await[piped_sent.len()..], piped_sent);
+    assert_eq!(piped_sent, [format!("GET {V1}/apps?limit=20&offset=0")]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn enter_shows_the_app_as_apps_get_does_then_the_actions_that_apply_to_its_state() {
+    // Active: pause; inactive: resume; any other state: neither. Then update, delete and back, each
+    // with its description as `vendo apps --help` lists it.
+    let server = apps_stub("acct-alpha", apps_to_browse()).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let help = command_rows(&sandbox, &["apps"]);
+    for (at, id, actions) in [
+        (0, MENU_APP, &["pause", "update", "delete"][..]),
+        (1, CHOOSE_PIXEL, &["resume", "update", "delete"]),
+        (2, OLD_APP, &["update", "delete"]),
+    ] {
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, &["apps", "list"]);
+        terminal.wait_for("type to filter · 3 apps]");
+        if at > 0 {
+            terminal.press(&"\u{1b}[B".repeat(at));
+            terminal.wait_for(&format!("> {}", BROWSE_ROWS[at]));
+        }
+        terminal.press("\r");
+        terminal.wait_for("Back to the list");
+        terminal.wait_for("type to filter]");
+        let asked = sent(&server).await[before..].to_vec();
+        // What `vendo apps get <full id>` sends and prints on a pipe.
+        let typed = sandbox.run(&["apps", "get", id]);
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!(asked, [&[format!("GET {V1}/apps?limit=20&offset=0")][..], &typed_sent].concat(), "{id}");
+        let name = BROWSE_ROWS[at][13..].split("  ").next().unwrap();
+        let answer = format!("? vendo apps list {} ({name})", &BROWSE_ROWS[at][..11]);
+        let shown = shown_from(&terminal, &answer);
+        let menu = app_actions(actions);
+        let details = &shown[1..shown.len() - menu.len()];
+        let details: Vec<String> = details.iter().filter(|line| !line.is_empty()).cloned().collect();
+        assert_eq!(details, printed_lines(&typed), "{id}");
+        assert_eq!(shown[shown.len() - menu.len()..], menu, "{id}");
+        // Each described as the group's help describes it.
+        let described =
+            |row: &str| row.split_once(' ').map(|(name, about)| (name.to_string(), about.trim().to_string()));
+        for row in &menu[1..=actions.len()] {
+            let (name, about) = described(&row[2..]).unwrap();
+            assert!(help.iter().any(|line| described(line) == Some((name.clone(), about.clone()))), "{row}: {help:#?}");
+        }
+        terminal.press("\u{1b}");
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{id}: {rest:?}");
+        assert_eq!(sent(&server).await.len(), before + asked.len() + typed_sent.len(), "{id}: nothing more sent");
+    }
+}
+
+/// Opens `vendo <args>` (an apps list), chooses the row at `at` and waits for its action menu.
+#[cfg(unix)]
+fn app_menu_of(sandbox: &Sandbox, args: &[&str], env: &[(&str, &str)], at: usize) -> OnTerminal {
+    let mut terminal = OnTerminal::start_env(sandbox, args, env);
+    terminal.wait_for("type to filter · 3 apps]");
+    if at > 0 {
+        terminal.press(&"\u{1b}[B".repeat(at));
+        terminal.wait_for(&format!("> {}", BROWSE_ROWS[at]));
+    }
+    terminal.press("\r");
+    terminal.wait_for("Back to the list");
+    terminal.wait_for("type to filter]");
+    terminal
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_chosen_action_runs_exactly_as_the_typed_command_and_the_cli_ends_with_its_exit_code() {
+    let server = apps_stub("acct-alpha", apps_to_browse()).await;
+    let sandbox = Sandbox::new(&server.uri());
+    /// The row chosen, its name, the keys that choose the action, the action, what the y/N question is
+    /// answered (none when it asks none), and the same command typed with the full ID.
+    struct Case<'a>(usize, &'a str, &'a str, &'a str, Option<&'a str>, &'a [&'a str]);
+    let cases = [
+        Case(0, "Menu Shop", "\r", "pause", None, &["apps", "pause", MENU_APP]),
+        Case(1, "Demo Pixel", "\r", "resume", None, &["apps", "resume", CHOOSE_PIXEL]),
+        // No change to make: it fails after the choice as when typed, exit 1 (VE-3881's Q13).
+        Case(2, "Old Shop", "upd\r", "update", None, &["apps", "update", OLD_APP]),
+        // The y/N of a delete (VE-3823) asks as when typed: n sends nothing, y deletes.
+        Case(0, "Menu Shop", "\u{1b}[B\u{1b}[B\r", "delete", Some("n\n"), &[]),
+        Case(1, "Demo Pixel", "DELETE\r", "delete", Some("y\n"), &["apps", "delete", CHOOSE_PIXEL, "--yes"]),
+    ];
+    for Case(at, name, keys, action, answer, typed_args) in cases {
+        let case = format!("{action} {name} {answer:?}");
+        let before = sent(&server).await.len();
+        let mut terminal = app_menu_of(&sandbox, &["apps", "list"], &[], at);
+        terminal.press(keys);
+        let answered = format!("? vendo apps {action} {} ({name})", &BROWSE_ROWS[at][..11]);
+        terminal.wait_for(&answered[2..]);
+        if let Some(answer) = answer {
+            terminal.wait_for("(y/N) ");
+            terminal.press(answer);
+        }
+        let (rest, code) = terminal.finish();
+        let asked = sent(&server).await[before..].to_vec();
+        // The list and the app, then what the typed command sends, and nothing else.
+        let typed = (!typed_args.is_empty()).then(|| sandbox.run(typed_args));
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        let shown = [MENU_APP, CHOOSE_PIXEL, OLD_APP][at];
+        assert_eq!(
+            asked[..2],
+            [format!("GET {V1}/apps?limit=20&offset=0"), format!("GET {V1}/apps/{shown}")],
+            "{case}"
+        );
+        assert_eq!(asked[2..], typed_sent, "{case}");
+        match typed {
+            Some(typed) => {
+                assert_eq!(code, typed.status.code(), "{case}: {rest:?}");
+                // What it showed after the answer (and the y/N question, answered) is what the typed
+                // command printed.
+                let mut after = after_answer(&terminal, &answered);
+                after.retain(|line| !line.contains("(y/N)"));
+                assert_eq!(after, printed_lines(&typed), "{case}");
+            }
+            None => {
+                assert_eq!(code, Some(0), "{case}: {rest:?}");
+                assert!(asked.len() == 2, "{case}: {asked:#?}");
+                assert_eq!(after_answer(&terminal, &answered), ["Delete app a1b2c3d4...? (y/N) n"], "{case}");
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn back_opens_the_list_again_on_the_item_with_no_request_and_the_filter_cleared() {
+    let server = apps_stub("acct-alpha", apps_to_browse()).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "list"]);
+    terminal.wait_for("type to filter · 3 apps]");
+    // Filtered down to Demo Pixel, which Enter shows.
+    terminal.press("pixel");
+    terminal.wait_for("vendo apps list pixel");
+    terminal.press("\r");
+    terminal.wait_for("Back to the list");
+    terminal.wait_for("type to filter]");
+    let shown_once = sent(&server).await;
+    terminal.press("back\r");
+    terminal.wait_for("type to filter · 3 apps]");
+    terminal.wait_for("\u{1b}[?25h");
+    // The same rows, the filter cleared, the cursor on the app just viewed; nothing sent.
+    assert_eq!(shown_from(&terminal, "? vendo apps list"), apps_list(1));
+    assert_eq!(sent(&server).await, shown_once);
+    // Nothing above is erased: the app's answered line, its details and `back` stay.
+    let shown = shown_lines(&terminal, (40, 120));
+    let first = shown.iter().position(|line| line == "? vendo apps list 0c0d0e0f... (Demo Pixel)").unwrap();
+    let back = shown.iter().position(|line| line == "? vendo apps back").unwrap();
+    let typed = sandbox.run(&["apps", "get", CHOOSE_PIXEL]);
+    let details: Vec<String> = shown[first + 1..back].iter().filter(|line| !line.is_empty()).cloned().collect();
+    assert_eq!(details, printed_lines(&typed));
+    assert_eq!(shown[back + 1], "? vendo apps list", "{shown:#?}");
+    // Enter shows the same app again, as the first time.
+    terminal.press("\r");
+    terminal.wait_for("Back to the list");
+    terminal.wait_for("type to filter]");
+    terminal.press("\u{1b}");
+    let (rest, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{rest:?}");
+    let listed = format!("GET {V1}/apps?limit=20&offset=0");
+    let pixel = format!("GET {V1}/apps/{CHOOSE_PIXEL}");
+    assert_eq!(sent(&server).await, [&listed, &pixel, &pixel, &pixel].map(String::as_str));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn esc_ctrl_c_or_ctrl_d_at_the_list_or_an_items_actions_leave_quietly_and_run_nothing() {
+    // As at the group menu (VE-3826): exit 0, nothing run, the title and `<canceled>` where the list
+    // or the menu was, and the cursor on the next line. At the list, at an app's actions, and at the
+    // list opened again after Back.
+    let server = apps_stub("acct-alpha", apps_to_browse()).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let listed = format!("GET {V1}/apps?limit=20&offset=0");
+    let menu = format!("GET {V1}/apps/{MENU_APP}");
+    for (step, title, requests) in [
+        ("list", "vendo apps list", vec![listed.clone()]),
+        ("actions", "vendo apps", vec![listed.clone(), menu.clone()]),
+        ("list after back", "vendo apps list", vec![listed.clone(), menu.clone()]),
+    ] {
+        for (key, name) in [("\u{1b}", "Esc"), ("\u{3}", "Ctrl-C"), ("\u{4}", "Ctrl-D")] {
+            let case = format!("{name} at the {step}");
+            let before = sent(&server).await.len();
+            let mut terminal = if step == "list" {
+                let mut terminal = OnTerminal::start(&sandbox, &["apps", "list"]);
+                terminal.wait_for("type to filter · 3 apps]");
+                terminal
+            } else {
+                app_menu_of(&sandbox, &["apps", "list"], &[], 0)
+            };
+            if step == "list after back" {
+                terminal.press("back\r");
+                terminal.wait_for("type to filter · 3 apps]");
+            }
+            terminal.press(key);
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            let rest = plain(&rest).to_lowercase();
+            assert!(!rest.contains("error") && !rest.contains("usage"), "{case}: {rest:?}");
+            let (shown, cursor) = screen(&terminal.screen, 40, 120);
+            let last = shown.iter().rposition(|line| !line.is_empty()).unwrap();
+            assert_eq!((shown[last].clone(), cursor), (format!("? {title} <canceled>"), (last + 1, 0)), "{case}");
+            assert_eq!(sent(&server).await[before..], requests, "{case}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_list_and_an_items_actions_exit_as_ctrl_d_does_when_their_terminal_hangs_up() {
+    let server = apps_stub("acct-alpha", apps_to_browse()).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut outcomes = Vec::new();
+    for step in ["list", "actions"] {
+        let mut terminal = OnTerminal::start_detached(&sandbox, &["apps", "list"]);
+        terminal.wait_for("type to filter · 3 apps]");
+        if step == "actions" {
+            terminal.press("\r");
+            terminal.wait_for("Back to the list");
+            terminal.wait_for("type to filter]");
+        }
+        let (exited, ended) = hang_up(&mut terminal);
+        outcomes.push((step, exited, ended));
+    }
+    assert!(
+        outcomes.iter().all(|(_, exited, ended)| *exited && ended.code == Some(0) && ended.cpu < HUNG_UP_CPU),
+        "each should exit 0 within {HUNG_UP_EXIT:?}, using under {HUNG_UP_CPU:?} of processor time: {outcomes:#?}"
+    );
+    let listed = format!("GET {V1}/apps?limit=20&offset=0");
+    assert_eq!(sent(&server).await, [listed.clone(), listed, format!("GET {V1}/apps/{MENU_APP}")]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_profile_and_debug_the_list_ran_with_carry_into_the_action() {
+    // `--profile` before or after the command, VENDO_PROFILE, the profile chosen for `--profile` typed
+    // with no name (VE-3892), and the group menu (VE-3826): the action goes to the profile the list
+    // listed, as typed. `--debug` too.
+    let server = apps_stub("acct-beta", apps_to_browse()).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let pause = format!("POST /api/v1/accounts/acct-beta/apps/{MENU_APP}/pause");
+    let answered = "? vendo apps pause a1b2c3d4... (Menu Shop)";
+    for (args, env) in [
+        (&["--profile", "beta", "apps", "list"][..], &[][..]),
+        (&["apps", "list", "--profile", "beta"], &[]),
+        (&["apps", "list"], &[("VENDO_PROFILE", "beta")]),
+        (&["--debug", "apps", "list", "--profile=beta"], &[]),
+        (&["apps", "list"], &[("VENDO_PROFILE", "beta"), ("VENDO_DEBUG", "1")]),
+    ] {
+        let case = format!("{env:?} {}", args.join(" "));
+        let mut terminal = app_menu_of(&sandbox, args, env, 0);
+        terminal.press("\r");
+        terminal.wait_for(&answered[2..]);
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{case}: {rest:?}");
+        assert_eq!(sent(&server).await.last(), Some(&pause), "{case}");
+        let after = after_answer(&terminal, answered);
+        let debug = args.contains(&"--debug") || env.contains(&("VENDO_DEBUG", "1"));
+        // The screen breaks the debug lines; joined, the request is the pause.
+        let joined = after.concat();
+        let debugged = joined.contains(&format!(
+            "[debug] request method=POST url={}/api/v1/accounts/acct-beta/apps/{MENU_APP}/pause",
+            server.uri()
+        ));
+        assert_eq!(debugged, debug, "{case}: {after:#?}");
+        assert_eq!(after.last().map(String::as_str), Some("Done: App a1b2c3d4... paused."), "{case}");
+    }
+    // Chosen for `--profile` typed with no name, then from the group's menu.
+    for (args, keys) in [(&["apps", "list", "--profile"][..], "beta\r"), (&["apps", "--profile"], "beta\r")] {
+        let case = args.join(" ");
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        terminal.press(keys);
+        terminal.wait_for(&format!("vendo {} beta", args.join(" ")));
+        if args[1] == "--profile" {
+            terminal.wait_for("Update an app");
+            terminal.press("\r");
+            terminal.wait_for("vendo apps list");
+        }
+        terminal.wait_for("type to filter · 3 apps]");
+        terminal.press("\r");
+        terminal.wait_for("Back to the list");
+        terminal.wait_for("type to filter]");
+        terminal.press("\r");
+        terminal.wait_for(&answered[2..]);
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{case}: {rest:?}");
+        assert_eq!(sent(&server).await.last(), Some(&pause), "{case}");
+    }
+    // For the command alone: the saved active profile stays.
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn typing_filters_the_list_by_any_column_and_a_cell_with_a_line_break_stays_on_its_row() {
+    let server = apps_stub("acct-alpha", apps_to_browse()).await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (typed, rows) in [
+        ("SHOPIFY", &[BROWSE_ROWS[0], BROWSE_ROWS[2]][..]),
+        ("paused", &BROWSE_ROWS[1..2]),
+        ("2h ago", &BROWSE_ROWS[1..2]),
+        ("d4c3b2a1", &BROWSE_ROWS[2..]),
+        ("deleted", &BROWSE_ROWS[2..]),
+    ] {
+        let mut terminal = OnTerminal::start(&sandbox, &["apps", "list"]);
+        terminal.wait_for("type to filter · 3 apps]");
+        terminal.press(typed);
+        terminal.wait_for(&format!("vendo apps list {typed}"));
+        terminal.wait_for("\u{1b}[?25h");
+        assert_eq!(listed_rows(&terminal), marked(rows), "{typed}");
+        terminal.press("\u{1b}");
+        assert_eq!(terminal.finish().1, Some(0), "{typed}");
+    }
+    // Line ends and other control characters in a cell show as spaces: the row stays one line, and so
+    // does the answered line.
+    let mut broken = app_to_choose(MENU_APP, "Two\nLine\tShop", "shopify", &["source"], "active");
+    broken["accessStatus"] = json!("needs\r\nattention");
+    let server = apps_stub("acct-alpha", vec![broken]).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "list"]);
+    terminal.wait_for("type to filter · 1 app]");
+    assert_eq!(
+        shown_lines(&terminal, (40, 120)),
+        [
+            "? vendo apps list",
+            "> a1b2c3d4...  Two Line Shop  shopify  source  active  needs  attention  —",
+            "[↑↓ to move, enter to select, type to filter · 1 app]",
+        ]
+    );
+    terminal.press("\r");
+    terminal.wait_for("Back to the list");
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+    assert!(shown_lines(&terminal, (40, 120)).contains(&"? vendo apps list a1b2c3d4... (Two Line Shop)".to_string()));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_app_that_cannot_be_read_ends_with_the_error_apps_get_gives() {
+    // Deleted since the list loaded (or a 429, or the network): `apps get`'s error, exit 1.
+    let server = MockServer::start().await;
+    serve(&server, "GET", &format!("{V1}/apps"), 200, page_of(apps_to_browse(), 0, false)).await;
+    let missing = json!({ "error": { "code": "NOT_FOUND", "message": "App not found" } });
+    Mock::given(path(format!("{V1}/apps/{OLD_APP}")))
+        .respond_with(ResponseTemplate::new(404).set_body_json(missing).insert_header("x-request-id", "req_server_1"))
+        .mount(&server)
+        .await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "list"]);
+    terminal.wait_for("type to filter · 3 apps]");
+    terminal.press("old\r");
+    let answered = "? vendo apps list d4c3b2a1... (Old Shop)";
+    terminal.wait_for(&answered[2..]);
+    let (rest, code) = terminal.finish();
+    let typed = sandbox.run(&["apps", "get", OLD_APP]);
+    assert_eq!((code, typed.status.code()), (Some(1), Some(1)), "{rest:?}");
+    assert_eq!(after_answer(&terminal, answered), printed_lines(&typed));
+    assert_eq!(printed_lines(&typed), ["Error: App not found", "Request ID: req_server_1"]);
+}
+
+/// The ways `vendo <args>` runs at a terminal where the list does not open, each with what it shows:
+/// prompts off, `TERM=dumb`, stderr redirected, a stdin no key can be read from.
+#[cfg(unix)]
+fn where_no_list_opens(sandbox: &Sandbox, args: &[&str]) -> Vec<(String, Option<i32>, String)> {
+    let mut shown = Vec::new();
+    for setting in [("CI", "1"), ("VENDO_NO_INPUT", "1"), ("TERM", "dumb")] {
+        let (screen, code) = OnTerminal::start_env(sandbox, args, &[setting]).finish();
+        shown.push((format!("{setting:?}"), code, plain(&screen)));
+    }
+    let log = tempfile::NamedTempFile::new().unwrap();
+    let (screen, code) =
+        OnTerminal::start_with(sandbox, args, (40, 120), "", Some(log.reopen().unwrap().into())).finish();
+    assert_eq!(std::fs::read_to_string(log.path()).unwrap(), "", "2>file: nothing on stderr");
+    shown.push(("2>file".into(), code, plain(&screen)));
+    let pseudo_terminal = pseudo_terminal_sized(40, 120);
+    let write_only = {
+        use std::os::unix::{ffi::OsStrExt, fs::OpenOptionsExt};
+        let name = std::ffi::OsStr::from_bytes(pseudo_terminal.2.as_bytes());
+        std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOCTTY).open(name).unwrap()
+    };
+    let cmd = sandbox.command(args);
+    let (screen, code) = OnTerminal::launch_on(pseudo_terminal, cmd, "", Some(write_only.into()), None, true).finish();
+    shown.push(("0>write-only".into(), code, plain(&screen)));
+    shown
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn where_the_list_cannot_open_and_with_json_or_output_apps_list_prints_what_it_printed() {
+    // Byte for byte: piped (`output/` records it), with stdout piped from a terminal, and at a terminal
+    // with prompts off, on `TERM=dumb`, with stderr redirected or a write-only stdin, where it prints the
+    // table a terminal shows (borders and all), as before. `--json` and `--output`, an empty one too,
+    // print what they print on a pipe; the empty `--output` the table. Nothing more is sent.
+    let server = apps_stub("acct-alpha", apps_to_browse()).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let piped = sandbox.run(&["apps", "list"]);
+    let (reference, code) = OnTerminal::start_env(&sandbox, &["apps", "list"], &[("CI", "1")]).finish();
+    assert_eq!(code, Some(0), "{reference:?}");
+    let reference = plain(&reference);
+    // The table a terminal shows: the piped table's cells, with borders.
+    let bordered: Vec<String> = reference.lines().map(str::to_string).collect();
+    assert_eq!(table_cells(&bordered), cells(&piped.stdout));
+    assert!(reference.starts_with("┌") && reference.ends_with("3 apps\n"), "{reference}");
+    for (case, code, screen) in where_no_list_opens(&sandbox, &["apps", "list"]) {
+        assert_eq!((code, screen), (Some(0), reference.clone()), "{case}");
+    }
+    // Keys and the screen on a terminal, stdout piped (`vendo apps list | less`).
+    let (_controller, terminal) = pseudo_terminal();
+    let terminal = std::fs::File::from(terminal);
+    let out =
+        sandbox.command(&["apps", "list"]).stdin(terminal.try_clone().unwrap()).stderr(terminal).output().unwrap();
+    assert_eq!((out.status.code(), text(&out.stdout)), (Some(0), text(&piped.stdout)));
+    for flags in [&["--json"][..], &["--output", "id"], &["--output", "state"]] {
+        let args: Vec<&str> = ["apps", "list"].into_iter().chain(flags.iter().copied()).collect();
+        let (screen, code) = OnTerminal::start(&sandbox, &args).finish();
+        let piped = sandbox.run(&args);
+        assert_eq!((code, plain(&screen)), (Some(0), text(&piped.stdout)), "{flags:?}");
+    }
+    let (screen, code) = OnTerminal::start(&sandbox, &["apps", "list", "--output", ""]).finish();
+    assert_eq!((code, plain(&screen)), (Some(0), reference.clone()), "--output ''");
+    let listed = format!("GET {V1}/apps?limit=20&offset=0");
+    assert!(sent(&server).await.iter().all(|request| *request == listed), "{:#?}", sent(&server).await);
+    assert_eq!(sent(&server).await.len(), 2 + 5 + 1 + 3 + 3 + 1);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_empty_list_prints_the_table_and_its_count_at_a_terminal_too() {
+    let server = apps_stub("acct-alpha", Vec::new()).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let (reference, code) = OnTerminal::start_env(&sandbox, &["apps", "list"], &[("CI", "1")]).finish();
+    assert_eq!(code, Some(0));
+    let (screen, code) = OnTerminal::start(&sandbox, &["apps", "list"]).finish();
+    assert_eq!((code, plain(&screen)), (Some(0), plain(&reference)));
+    assert!(plain(&screen).ends_with("0 apps\n"), "{screen:?}");
+    assert_eq!(text(&sandbox.run(&["apps", "list"]).stdout).lines().last(), Some("0 apps"));
 }

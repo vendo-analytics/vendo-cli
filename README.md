@@ -110,7 +110,11 @@ command (`vendo apps`) opens a menu of its commands: arrow keys move, typing fil
 needs stdin, stdout and stderr to be terminals, `TERM` not `dumb` and prompts on (see
 [Non-interactive runs](#non-interactive-runs-ci-and-vendo_no_input)); otherwise the group prints its help and
 exits 2. Under the same rule, `--profile` typed last with no name, and `vendo profile switch` with none, open a list
-of your saved profiles; otherwise `--profile` with no name is a usage error (exit 2).
+of your saved profiles; otherwise `--profile` with no name is a usage error (exit 2). Also under that rule,
+`vendo apps list` shows its apps as a list to pick from instead of printing the table: the same rows and count, arrow
+keys move, typing filters, and Enter shows the app as `vendo apps get` does, then what you can do with it (pause or
+resume, update, delete, or back to the list). The action runs as if you had typed it, so `delete` still asks y/N.
+Esc leaves. With `--json` or `--output`, or where the menu cannot open, `vendo apps list` prints the table as before.
 
 ### Apps, sources and destinations
 
@@ -388,12 +392,14 @@ empty, `0` or `false` and it asks none, at a terminal too:
 - `delete`, `jobs cancel` and `logout --all` need `--yes`. Without it they stop with exit 1 before they send
   anything. `--json` does not imply `--yes`.
 - A group run without its command (`vendo apps`) prints its help and exits 2 instead of opening the menu.
+- `vendo apps list` prints its table instead of a list to pick from.
 - `vendo profile switch` without a profile name prints `Cancelled.` instead of a list to pick from, and `--profile`
   without a name exits 2 with its usage error.
 - `vendo login` without a key prints the sign-in link and waits; it opens no browser. In CI, use
   `vendo login --api-key ... --account ...` or the environment variables below.
 
-`TERM=dumb` turns off the group menu and the profile list; the y/N questions still ask.
+`TERM=dumb` turns off the group menu, the profile list and the list `vendo apps list` shows; the y/N questions still
+ask.
 
 ### Environment variables
 
