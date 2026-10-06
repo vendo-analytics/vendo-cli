@@ -309,6 +309,20 @@ impl Client {
         })
     }
 
+    /// The account the account-scoped routes go to, or the error a request to one fails with, before
+    /// anything is sent, when there is none. A command missing a value checks it before it asks for
+    /// one from a list of the account's (VE-3881).
+    pub fn require_account(&self) -> Result<String, ApiError> {
+        self.account_id.clone().ok_or_else(|| {
+            client_error(
+                "No account configured. Run `vendo profile set --account <account-id>` or set VENDO_ACCOUNT_ID."
+                    .to_string(),
+                0,
+                None,
+            )
+        })
+    }
+
     fn route(&self, path: &str) -> Result<(String, Option<String>), ApiError> {
         let mut path = match path.strip_prefix("/integrations") {
             Some(rest) => format!("/connections{rest}"),
@@ -318,18 +332,7 @@ impl Client {
         let scoped = !global && ACCOUNT_SCOPED_PREFIXES.iter().any(|p| path.starts_with(p));
         let header_scoped =
             !global && ACCOUNT_HEADER_PATHS.iter().any(|p| path == *p || path.starts_with(&format!("{p}/")));
-        let account = if scoped || header_scoped {
-            Some(self.account_id.clone().ok_or_else(|| {
-                client_error(
-                    "No account configured. Run `vendo profile set --account <account-id>` or set VENDO_ACCOUNT_ID."
-                        .to_string(),
-                    0,
-                    None,
-                )
-            })?)
-        } else {
-            None
-        };
+        let account = if scoped || header_scoped { Some(self.require_account()?) } else { None };
         if scoped {
             path = format!("/accounts/{}{path}", account.as_deref().unwrap_or_default());
         }

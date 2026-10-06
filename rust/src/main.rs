@@ -19,6 +19,9 @@ macro_rules! eprintln {
     ($($arg:tt)*) => { $crate::output::write_stderr(::std::format_args!($($arg)*), true) };
 }
 
+// Asking for a value a command is missing, at a terminal (VE-3881); part of the `menu` feature.
+#[cfg(feature = "menu")]
+mod ask;
 mod cli;
 mod client;
 mod commands;
@@ -51,7 +54,6 @@ use crate::{
         pipeline_resource::{self as resource, ActionOpts},
         sources, tree,
     },
-    config::{ConfigStore, EnvVars, default_config_path},
     context::Ctx,
 };
 
@@ -64,18 +66,9 @@ async fn main() -> ExitCode {
         }
         Invocation::Run(args) => args,
     };
-    let cli::Parsed { cli, json } = cli::parse(args);
+    let cli::Parsed { cli, json } = cli::parse(args).await;
     output::set_json_errors(json);
-    let debug = cli.debug
-        || std::env::var("VENDO_DEBUG")
-            .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
-            .unwrap_or(false);
-    let home = std::env::home_dir().unwrap_or_default();
-    let ctx = Ctx {
-        store: ConfigStore::new(default_config_path(&home), cli.profile.clone(), EnvVars::from_process()),
-        home,
-        debug,
-    };
+    let ctx = Ctx::new(cli.profile.clone(), cli.debug);
 
     match run(&ctx, cli.command).await {
         Ok(code) => code,

@@ -842,7 +842,8 @@ fn prompt(question: &str) -> Answer {
 
 /// Ctrl-C or Ctrl-D at a prompt: Node's readline closed and the question
 /// never resolved, so the TS CLI exited 0 with nothing printed or changed.
-/// Leaving a menu ([`choose_command`]) ends the same way.
+/// Leaving a menu ([`choose_command`]) or a list or question for a missing value ([`choose_value`],
+/// [`ask_text`]) ends the same way.
 pub fn quit_quietly() -> ! {
     std::process::exit(0)
 }
@@ -977,32 +978,92 @@ impl std::fmt::Display for MenuRow<'_> {
 /// [`can_show_menu`]; inquire reads the keys from stdin and draws on stderr.
 #[cfg(feature = "menu")]
 pub fn choose_command(title: &str, commands: &[MenuCommand]) -> Option<usize> {
-    use crossterm::{cursor, queue, style::Print};
-    use inquire::{InquireError, Select};
+    use inquire::Select;
     let width = commands.iter().map(|command| command.name.chars().count()).max()?;
     let rows: Vec<MenuRow> = commands.iter().map(|command| MenuRow { command, width }).collect();
     let row_widths: Vec<usize> = rows.iter().map(|row| row.to_string().chars().count()).collect();
     let (page, height) = menu_page(title, &row_widths, Select::<MenuRow>::DEFAULT_HELP_MESSAGE, screen_size());
     let menu = Select::new(title, rows).with_page_size(page).with_formatter(&|row| row.value.command.name.clone());
-    // Room below the cursor for the menu and the line after it, so that drawing it never scrolls
-    // the screen, and its first line saved (DECSC) for [`clear_menu`].
+    run_prompt(title, height, || menu.raw_prompt()).map(|chosen| chosen.index)
+}
+
+/// A row of [`choose_value`]'s list: what the list shows (typing filters by it), and what the
+/// answered line shows after the title once it is chosen.
+#[cfg(feature = "menu")]
+pub struct ValueRow {
+    pub shown: String,
+    pub answer: String,
+}
+
+#[cfg(feature = "menu")]
+impl std::fmt::Display for ValueRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.shown)
+    }
+}
+
+/// The arrow-key list a command missing a value opens (VE-3881), drawn and left as the group menu
+/// is ([`choose_command`]): `title` (the command, `vendo apps get`), then `rows`; ↑↓ move, typing
+/// filters (by substring, in any case), Enter chooses, and the chosen row's answer replaces the
+/// list after the title. `note` follows the menu's hint (`… type to filter · newest 500 shown`).
+/// Esc, Ctrl-C, Ctrl-D and a terminal that hangs up leave quietly, as at the menu. `None` when the
+/// list cannot run (no rows, the terminal refused it). Only where [`can_show_menu`].
+#[cfg(feature = "menu")]
+pub fn choose_value(title: &str, rows: &[ValueRow], note: Option<&str>) -> Option<usize> {
+    use inquire::Select;
+    let hint = Select::<&ValueRow>::DEFAULT_HELP_MESSAGE?;
+    let hint = match note {
+        Some(note) => format!("{hint} · {note}"),
+        None => hint.to_string(),
+    };
+    let row_widths: Vec<usize> = rows.iter().map(|row| row.shown.chars().count()).collect();
+    let (page, height) = menu_page(title, &row_widths, Some(&hint), screen_size());
+    let list = Select::new(title, rows.iter().collect())
+        .with_page_size(page)
+        .with_help_message(&hint)
+        .with_formatter(&|row| row.value.answer.clone());
+    run_prompt(title, height, || list.raw_prompt()).map(|chosen| chosen.index)
+}
+
+/// The one-line question a command missing a value with no list asks (VE-3881): `title` (the
+/// command and the option, `vendo apps create --name`), then what is typed; Enter answers, and an
+/// empty answer is refused with inquire's "A response is required." line above the question. Esc,
+/// Ctrl-C, Ctrl-D and a terminal that hangs up leave quietly, as at the group menu. `None` when the
+/// question cannot run. Only where [`can_show_menu`].
+#[cfg(feature = "menu")]
+pub fn ask_text(title: &str) -> Option<String> {
+    let question = inquire::Text::new(title).with_validator(inquire::validator::ValueRequiredValidator::default());
+    // The question, and the refusal above it.
+    run_prompt(title, 2, || question.prompt())
+}
+
+/// Runs an inquire prompt titled `title` that takes up to `height` lines, as the group menu runs
+/// (VE-3826): room below the cursor for it and the line after it, so that drawing it never scrolls
+/// the screen, its first line saved (DECSC) for [`clear_menu`], and [`HangUpWatch`] while it is
+/// open. Esc and Ctrl-D ([`quit_quietly`]) leave the title and `<canceled>`, Ctrl-C too (inquire
+/// leaves the prompt standing for it, so [`clear_menu`] redraws it), and so does a terminal that
+/// hangs up or a prompt left in the background for good. `None` when inquire could not run it.
+#[cfg(feature = "menu")]
+fn run_prompt<T>(title: &str, height: usize, prompt: impl FnOnce() -> inquire::error::InquireResult<T>) -> Option<T> {
+    use crossterm::{cursor, queue, style::Print};
+    use inquire::InquireError;
     let below = u16::try_from(height).unwrap_or(u16::MAX);
     let mut stderr = std::io::stderr();
     let _ = queue!(stderr, Print("\n".repeat(below.into())), cursor::MoveUp(below), cursor::SavePosition)
         .and_then(|()| stderr.flush());
     let watch = HangUpWatch::start();
-    let answer = menu.raw_prompt();
-    // The menu has closed: a hang-up from here on is the chosen command's to meet.
+    let answer = prompt();
+    // The prompt has closed: a hang-up from here on is the command's to meet.
     drop(watch);
     match answer {
-        Ok(chosen) => Some(chosen.index),
+        Ok(answer) => Some(answer),
         Err(InquireError::OperationCanceled) => quit_quietly(),
         Err(InquireError::OperationInterrupted) => {
             let _ = clear_menu(&mut stderr, title, inquire::ui::RenderConfig::default());
             quit_quietly()
         }
         // inquire could not draw on a terminal that hung up (a key read before the hang-up
-        // redraws the menu), or from the background: as when the watch sees it first.
+        // redraws the prompt), or from the background: as when the watch sees it first.
         Err(_) if menu_lost() => quit_quietly(),
         Err(_) => None,
     }
@@ -1013,13 +1074,14 @@ pub fn choose_command(title: &str, commands: &[MenuCommand]) -> Option<usize> {
 #[cfg(all(feature = "menu", unix))]
 const HANG_UP_CHECK: Duration = Duration::from_millis(250);
 
-/// The terminals [`choose_command`]'s menu uses: stdin, where its keys come from, and stderr, where
+/// The terminals a prompt ([`run_prompt`]) uses: stdin, where its keys come from, and stderr, where
 /// inquire draws it. The same terminal, unless a program gave `vendo` two.
 #[cfg(all(feature = "menu", unix))]
 const MENU_TERMINALS: [libc::c_int; 2] = [libc::STDIN_FILENO, libc::STDERR_FILENO];
 
-/// While [`choose_command`]'s menu is open, a thread that ends the CLI as Ctrl-D does
-/// ([`quit_quietly`]: exit 0, nothing run) once the menu can no longer read its keys: a terminal it
+/// While a prompt is open ([`run_prompt`]: the group menu, or a list or question for a missing value),
+/// a thread that ends the CLI as Ctrl-D does ([`quit_quietly`]: exit 0, nothing run) once the menu
+/// can no longer read its keys: a terminal it
 /// uses hung up ([`MENU_TERMINALS`]; stdin's settings are put back first, as far as its terminal
 /// still takes them), or the menu is in the background of its terminal for good
 /// ([`reads_fail_in_background`]; that terminal is another job's now and is left as it is).
@@ -1251,7 +1313,7 @@ fn screen_size() -> (usize, usize) {
 /// Ctrl-C leaves the screen as Esc and Ctrl-D do. For those two inquire redraws the menu as its
 /// title and `<canceled>`; for Ctrl-C it returns with the whole menu standing, and at the bottom
 /// of the screen with the cursor on the hint, which the shell's next prompt overwrote. So: back to
-/// the menu's first line, saved by [`choose_command`], clear from there down, and write inquire's
+/// the menu's first line, saved by [`run_prompt`], clear from there down, and write inquire's
 /// line for Esc.
 #[cfg(feature = "menu")]
 fn clear_menu(out: &mut impl Write, title: &str, config: inquire::ui::RenderConfig) -> std::io::Result<()> {

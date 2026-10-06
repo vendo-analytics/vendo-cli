@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::{
     client::Client,
-    config::{ConfigStore, EffectiveConfig, require_api_key},
+    config::{ConfigStore, EffectiveConfig, EnvVars, default_config_path, require_api_key},
 };
 
 pub struct Ctx {
@@ -15,6 +15,19 @@ pub struct Ctx {
 }
 
 impl Ctx {
+    /// The state of one run: the config store with `--profile` (`profile`; else `VENDO_PROFILE`, else
+    /// the active profile) and this process's environment, the home directory, and the debug switch,
+    /// on with `--debug` or `VENDO_DEBUG`. The command and the questions before it ([`crate::ask`])
+    /// make it alike.
+    pub fn new(profile: Option<String>, debug: bool) -> Self {
+        let debug = debug
+            || std::env::var("VENDO_DEBUG")
+                .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+                .unwrap_or(false);
+        let home = std::env::home_dir().unwrap_or_default();
+        Ctx { store: ConfigStore::new(default_config_path(&home), profile, EnvVars::from_process()), home, debug }
+    }
+
     pub fn effective(&self) -> EffectiveConfig {
         self.store.effective()
     }

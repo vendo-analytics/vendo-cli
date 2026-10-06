@@ -42,9 +42,11 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   a wiremock `MockServer` blocks on its state outside tokio, which hangs for good once the test's task has spent
   tokio's cooperative budget (it hung the VE-3831 refusal test).
 - Snapshots (VE-3824), the regression net once the parity harness goes at 1.0.0: `rust/tests/cli/snapshots.rs`
-  records every `--help` screen, found by walking the real command tree, in `rust/tests/snapshots/help/`, and the
+  records every `--help` screen, found by walking the real command tree, in `rust/tests/snapshots/help/`, the
   table, `--json` and confirmation output of each command against the stub's synthetic account in
-  `rust/tests/snapshots/output/`. Any change to them fails `cargo test`. After a deliberate change run
+  `rust/tests/snapshots/output/`, and the usage error of every command that requires a value (37 with the hidden
+  `catalog credential-schema`), as text and with `--json`, in `rust/tests/snapshots/usage/` (VE-3881). Any change to
+  them fails `cargo test`. After a deliberate change run
   `INSTA_UPDATE=always cargo test --test cli` from `rust/` (it also deletes stale snapshots), review
   `git diff rust/tests/snapshots` and commit the snapshots with the change. Bare `vendo completions` for bash and
   for an unknown shell is recorded per system (VE-3830): `completions__bare_bash_macos`/`_linux` and
@@ -193,10 +195,11 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   prompts not off, the rule `confirm` asks by), stderr a terminal too, as inquire draws the menu there (`vendo apps
   2>err.log` keeps the usage error), and `TERM` not `dumb` (Yalcin, 2026-10-06). ↑↓ move, typing filters by name
   and description, and Enter puts the chosen name where it would have been typed and parses again
-  (`cli::chosen_command`), so global options, `MOVED`, confirmations and usage errors (a missing `<appId>`) apply as
-  typed; a chosen group opens its own menu. Esc, Ctrl-C and Ctrl-D exit 0 (`output::quit_quietly`) and leave the
-  title and `<canceled>`: inquire leaves the menu standing on Ctrl-C, so `output::clear_menu` redraws it from the
-  line `choose_command` saved. A terminal of the menu's that hangs up while it is open (stdin's or stderr's: its
+  (`cli::chosen_command`), so global options, `MOVED` and confirmations apply as typed, and a chosen command missing a
+  value asks for it as when typed (VE-3881, below); a chosen group opens its own menu. Esc, Ctrl-C and Ctrl-D exit 0
+  (`output::quit_quietly`) and leave the title and `<canceled>`: inquire leaves the menu standing on Ctrl-C, so
+  `output::clear_menu` redraws it from the line `output::run_prompt` saved (the setup the menu and the questions for a
+  missing value share). A terminal of the menu's that hangs up while it is open (stdin's or stderr's: its
   window closed, or the program that opened the pseudo-terminal dropped it) ends the CLI as Ctrl-D does, exit 0 with
   nothing run, within a quarter of a second (`output::HangUpWatch`, a thread that polls stdin and stderr for POLLHUP,
   re-polling every 250 ms because macOS does not wake a poll that began with a key waiting): where it is not
@@ -231,14 +234,41 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
 - Prompts off (VE-3826, decided by Yalcin 2026-10-06, CLI 1.1): `CI` or `VENDO_NO_INPUT` set to anything but empty,
   `0` or `false` (any case) turns every prompt off, also at a terminal; there is no `--no-input` flag.
   `output::prompts_off` owns the rule, and every prompt asks by it: the y/N questions refuse without `--yes`, a bare
-  group is the usage error (exit 2), and the profile picker does not ask (`profile switch` prints "Cancelled."),
-  each as without a terminal, through `can_prompt`; at a terminal login does not read its "Press ENTER to open in
-  the browser" (`commands/login.rs`), so it does what it does without one, stdin closed on a CI runner: it prints
-  the sign-in URL and that line, opens no browser and waits for the sign-in. A stdin that is not a terminal (a pipe,
-  a file) is no prompt: login reads it as before, so `echo | CI=true vendo login` opens the browser as
-  `echo | vendo login` does. The profile picker (`output::search_select_option`) asks by `can_prompt`, so
-  only when stdin and stdout are terminals (`echo 1 | vendo profile switch` reads no answer from the pipe). On
-  `TERM=dumb` only the group menu is off; the questions and the picker still ask.
+  group and a command missing a value are the usage error (exit 2), and the profile picker does not ask
+  (`profile switch` prints "Cancelled."), each as without a terminal, through `can_prompt`; at a terminal login does
+  not read its "Press ENTER to open in the browser" (`commands/login.rs`), so it does what it does without one, stdin
+  closed on a CI runner: it prints the sign-in URL and that line, opens no browser and waits for the sign-in. A stdin
+  that is not a terminal (a pipe, a file) is no prompt: login reads it as before, so `echo | CI=true vendo login`
+  opens the browser as `echo | vendo login` does. The profile picker (`output::search_select_option`) asks by
+  `can_prompt`, so only when stdin and stdout are terminals (`echo 1 | vendo profile switch` reads no answer from the
+  pipe). On `TERM=dumb` only the group menu and the questions for a missing value are off; the y/N questions and the
+  picker still ask.
+- Missing values (VE-3881, decided by Yalcin 2026-10-07, CLI 1.1): a command typed without a value it requires asks
+  for it where the group menu opens (`output::can_show_menu`, the same rule, the hang-up watch included) instead of
+  stopping with clap's usage error; optional values are not asked. `rust/src/ask.rs` (the `menu` feature) owns it:
+  `VALUES` says how each value is asked for, and a value not there keeps the usage error. A value with choices opens an
+  arrow-key list with type-to-filter (`output::choose_value`: the menu's inquire Select and hint, plain-text rows padded
+  per column, filtered by substring in any case): an app of the account's as `apps list` lists them (newest first,
+  pages of 100, at most 5 like a short-ID lookup; with more, the hint ends `· newest 500 shown`), a platform ready to
+  connect as `catalog list` lists them by default (VE-3829). Free text (`apps create --name`) is a one-line question
+  (`output::ask_text`, refusing an empty answer). Each is titled with the command as the tree names it
+  (`vendo apps get`, `vendo apps create --type`), and the answered line reads like the command so far
+  (`? vendo apps get a1b2c3d4... (Menu Shop)`). The values go into the words where they would have been typed (an
+  option as `--type=shopify`, an ID whole) and `cli::parse` parses again, once, so global options, `MOVED`, the y/N
+  of a delete, `--dry-run`, `--json` and `--output` apply as typed. Before anything is asked: no API key, or an
+  unknown `VENDO_PROFILE`, is that error, and a list of the account's without an account is the client's "No account
+  configured" error (`Client::require_account`), exit 1 with nothing sent; the platforms are the key's, so
+  `apps create` lists them without an account. A list that fails is its error (exit 1, the JSON error with
+  `--json`); an empty one says `No apps to choose from.` and is the usage error (exit 2). Esc, Ctrl-C, Ctrl-D and a
+  hang-up exit 0 with nothing run. ❓ Open for Yalcin, built with the spec's cautious defaults: lists not narrowed
+  beyond what the list command shows (Q2), the empty-list line (Q4), the cut-off note's wording (Q6), `apps create`'s
+  platforms not narrowed by `--role` (Q9), and `--dry-run` sending the list request (Q14). Without a terminal, with
+  prompts off, on `TERM=dumb`, with stderr redirected or a write-only stdin, the usage error stays byte for byte and
+  nothing is sent (`rust/tests/snapshots/usage/`). Built so far for `apps get|pause|resume|delete|update` and
+  `apps create --type/--name`; the other commands are `PENDING` in `ask.rs`'s coverage test and keep the usage error
+  until their part is built. An agent that runs `vendo` on a
+  pseudo-terminal without `CI` or `VENDO_NO_INPUT` now waits at the question where it got exit 2, as at the group menu
+  and the y/N questions; `VENDO_NO_INPUT=1` turns it off.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

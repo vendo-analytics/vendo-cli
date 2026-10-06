@@ -116,7 +116,8 @@ fn capability_label(permissions: &[String]) -> String {
     }
 }
 
-fn role_label(app: &Value) -> String {
+/// The Role column of `apps list`, and of the list a command missing an app shows (VE-3881).
+pub(crate) fn role_label(app: &Value) -> String {
     match app.get("roles") {
         Some(Value::Array(roles)) if roles.is_empty() => "—".into(),
         Some(Value::Array(roles)) => js_join(roles, ", "),

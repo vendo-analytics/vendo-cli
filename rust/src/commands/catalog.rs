@@ -13,8 +13,9 @@ use crate::{
     },
 };
 
-/// `item.supportedRoles.join(', ')`.
-fn roles(item: &Value) -> String {
+/// `item.supportedRoles.join(', ')`: the Roles column, also of the list `apps create` shows when it is
+/// missing its `--type` (VE-3881).
+pub(crate) fn roles(item: &Value) -> String {
     item.get("supportedRoles").and_then(Value::as_array).map(|r| js_join(r, ", ")).unwrap_or_default()
 }
 

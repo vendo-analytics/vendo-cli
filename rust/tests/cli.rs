@@ -3947,8 +3947,8 @@ async fn methodologies_get_takes_the_short_id_its_list_shows() {
 // terminals, the rule `delete` asks by, and stderr, where the menu is drawn), `vendo apps` opens an
 // arrow-key menu of the apps commands with type-to-filter, and Enter runs the chosen command as if
 // it had been typed. Without a terminal nothing prompts: the group's help and exit 2, as before
-// (snapshots.rs checks every group). A chosen command that needs an argument fails as it does when
-// typed without it.
+// (snapshots.rs checks every group). A chosen command that needs an argument asks for it as it does
+// when typed without it (VE-3881).
 
 /// What the terminal shows without escape sequences (cursor moves, clearing, styles) and with
 /// plain line ends.
@@ -4428,18 +4428,22 @@ fn the_menu_lists_only_visible_commands() {
 }
 
 #[cfg(unix)]
-#[test]
-fn a_chosen_command_missing_its_argument_is_the_usage_error_it_is_when_typed() {
-    let sandbox = Sandbox::new(CLOSED);
-    let typed = sandbox.run(&["apps", "get"]);
-    assert_eq!(typed.status.code(), Some(2));
+#[tokio::test]
+async fn a_chosen_command_missing_its_app_asks_for_it_as_it_does_when_typed() {
+    // VE-3881: `vendo apps` → get asks for the app as `vendo apps get` does, then runs.
+    let server = apps_to_choose_stub("acct-alpha").await;
+    let sandbox = Sandbox::new(&server.uri());
     let mut terminal = OnTerminal::start(&sandbox, &["apps"]);
     terminal.wait_for("Update an app");
     terminal.press("get app\r");
     terminal.wait_for("vendo apps get");
-    let (rest, code) = terminal.finish();
-    assert_eq!(code, Some(2), "{rest:?}");
-    assert!(plain(&rest).ends_with(&text(&typed.stderr)), "{rest:?}");
+    terminal.wait_for(APP_ROWS[2]);
+    terminal.press("\r");
+    terminal.wait_for("vendo apps get a1b2c3d4... (Menu Shop)");
+    let (ran, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{ran:?}");
+    assert!(plain(&ran).contains("Menu Shop"), "{ran:?}");
+    assert_eq!(sent(&server).await, [format!("GET {V1}/apps?limit=100&offset=0"), format!("GET {V1}/apps/{MENU_APP}")]);
 }
 
 #[cfg(unix)]
@@ -4480,12 +4484,16 @@ fn a_bare_group_needs_stdin_stdout_and_stderr_on_a_terminal_to_open_the_menu() {
 }
 
 #[cfg(unix)]
-#[test]
-fn on_a_short_terminal_the_menu_scrolls_its_list() {
+#[tokio::test]
+async fn on_a_short_terminal_the_menu_scrolls_its_list() {
     // A menu taller than the screen drew over itself: the title went, rows went missing or showed
     // twice, two of them marked `>`. It lists as many commands as fit between the title and the
     // hint, with a line to spare, and scrolls; the one marked `>` is the one Enter runs.
-    let sandbox = Sandbox::new(CLOSED);
+    let server = MockServer::start().await;
+    for list in ["apps", "connections"] {
+        serve(&server, "GET", &format!("{V1}/{list}"), 200, page_of(Vec::new(), 0, false)).await;
+    }
+    let sandbox = Sandbox::new(&server.uri());
     for (group, (lines, columns), down, chosen) in [
         ("apps", (6, 120), 5, "delete"),
         // refresh-source's row takes two lines on 80 columns.
@@ -4504,13 +4512,542 @@ fn on_a_short_terminal_the_menu_scrolls_its_list() {
         assert!(hint < shown.len() - 1, "{shown:#?}");
         let marked: Vec<&String> = shown.iter().filter(|line| line.starts_with('>')).collect();
         assert!(marked.len() == 1 && marked[0].starts_with(&format!("> {chosen} ")), "{shown:#?}");
-        // Both need an ID, so Enter ends in the usage error for the command shown.
+        // Both need an ID, asked for from a list of the account's (VE-3881): with none to choose
+        // from, Enter ends in the usage error for the command shown.
         terminal.press("\r");
         terminal.wait_for(&format!("vendo {group} {chosen}"));
         let (rest, code) = terminal.finish();
         assert_eq!(code, Some(2), "{rest:?}");
         assert!(plain(&rest).contains(&format!("Usage: vendo {group} {chosen} <")), "{rest:?}");
     }
+}
+
+// ── VE-3881: a missing value is asked for at a terminal ─────────────────────
+// Decided by Yalcin, 2026-10-07, CLI 1.1: where the group menu opens (VE-3826), a command missing a
+// required value asks for it instead of failing: an app from an arrow-key list of the account's
+// apps, with type-to-filter, a platform from the ones ready to connect, a name as a one-line
+// question. What is chosen or typed runs the command exactly as if it had been typed. Esc, Ctrl-C
+// and Ctrl-D leave quietly, running nothing. Without a terminal it is the usage error it was
+// (`usage/` in snapshots.rs, `with_prompts_off_or_no_screen_to_ask_on_a_missing_value_is_the_usage_error`).
+
+const CHOOSE_BQ: &str = "e5f6a7b8-0000-4000-8000-000000000002";
+const CHOOSE_PIXEL: &str = "0c0d0e0f-0000-4000-8000-000000000003";
+
+fn app_to_choose(id: &str, name: &str, app_type: &str, roles: &[&str], state: &str) -> Value {
+    json!({
+        "id": id, "appType": app_type, "displayName": name, "permissions": [], "roles": roles, "state": state,
+        "accessStatus": "connected", "lastSyncAt": null,
+    })
+}
+
+/// The apps to choose from, newest first as the route lists them.
+fn apps_to_choose() -> Vec<Value> {
+    vec![
+        app_to_choose(MENU_APP, "Menu Shop", "shopify", &["source"], "active"),
+        app_to_choose(CHOOSE_BQ, "Analytics BQ", "bigquery", &["source", "destination"], "active"),
+        app_to_choose(CHOOSE_PIXEL, "Demo Pixel", "meta_ads", &["destination"], "inactive"),
+    ]
+}
+
+/// [`apps_to_choose`] as the list shows them: plain text, each column padded to one width.
+const APP_ROWS: [&str; 3] = [
+    "a1b2c3d4...  Menu Shop     shopify   source               active",
+    "e5f6a7b8...  Analytics BQ  bigquery  source, destination  active",
+    "0c0d0e0f...  Demo Pixel    meta_ads  destination          inactive",
+];
+
+/// [`apps_to_choose`] in `account`: the list, and `{ data: <app> }` for every request about one
+/// (get, pause, resume, delete, update).
+async fn apps_to_choose_stub(account: &str) -> MockServer {
+    let server = MockServer::start().await;
+    let apps = format!("/api/v1/accounts/{account}/apps");
+    serve(&server, "GET", &apps, 200, page_of(apps_to_choose(), 0, false)).await;
+    for app in apps_to_choose() {
+        Mock::given(wiremock::matchers::path_regex(format!("^{apps}/{}(/.*)?$", app["id"].as_str().unwrap())))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": app })))
+            .mount(&server)
+            .await;
+    }
+    server
+}
+
+/// The ready platforms `GET /api/v1/catalog` lists (VE-3829), and each one's catalog entry.
+async fn serve_platforms(server: &MockServer) {
+    let ready = vec![
+        platform("bigquery", "BigQuery", "self_serve", Value::Null),
+        platform("shopify", "Shopify", "self_serve", Value::Null),
+    ];
+    serve_catalog(server, false, json!({ "data": ready, "meta": { "selfServeTotal": 2, "requestAccessTotal": 3 } }))
+        .await;
+    let defaults = json!({ "source": ["read_warehouse"], "destination": ["write_warehouse"] });
+    for app_type in ["bigquery", "shopify"] {
+        let entry = json!({ "data": { "appType": app_type, "defaultPermissions": defaults } });
+        serve(server, "GET", &format!("{CATALOG}/{app_type}"), 200, entry).await;
+    }
+}
+
+/// [`serve_platforms`] as the list shows them.
+const PLATFORM_ROWS: [&str; 2] = ["BigQuery  bigquery  ads  source", "Shopify   shopify   ads  source"];
+
+/// A terminal wide enough that a JSON error is one line.
+const WIDE: (u16, u16) = (40, 400);
+
+/// The lines the terminal shows, as [`screen`] reads them, up to its last line that shows anything.
+fn shown_lines(terminal: &OnTerminal, (lines, columns): (usize, usize)) -> Vec<String> {
+    let (mut shown, _) = screen(&terminal.screen, lines, columns);
+    shown.truncate(shown.iter().rposition(|line| !line.is_empty()).map_or(0, |last| last + 1));
+    shown
+}
+
+/// What the screen shows of a list: its lines between the title (the first line) and the hint.
+fn listed_rows(terminal: &OnTerminal) -> Vec<String> {
+    let shown = shown_lines(terminal, (40, 120));
+    shown[1..shown.len() - 1].to_vec()
+}
+
+/// A credentials file in `sandbox`'s HOME, for `apps create --credentials-file`.
+fn credentials_file(sandbox: &Sandbox) -> String {
+    let file = sandbox.home.path().join("bq.json");
+    std::fs::write(&file, r#"{ "type": "service_account" }"#).unwrap();
+    file.display().to_string()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_missing_app_is_chosen_from_the_accounts_apps_and_the_command_runs_as_typed() {
+    let server = apps_to_choose_stub("acct-alpha").await;
+    let sandbox = Sandbox::new(&server.uri());
+    let list = format!("GET {V1}/apps?limit=100&offset=0");
+    for (command, flags) in [
+        ("get", &[][..]),
+        ("get", &["--json"]),
+        ("pause", &[]),
+        ("pause", &["--dry-run"]),
+        ("resume", &["--output", "id"]),
+        ("delete", &["--yes"]),
+        ("update", &["--name", "Renamed"]),
+        // No change asked for: the command says so after the choice, as when typed with the ID.
+        ("update", &[]),
+    ] {
+        let args: Vec<&str> = ["apps", command].into_iter().chain(flags.iter().copied()).collect();
+        let case = args.join(" ");
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, &args);
+        terminal.wait_for("type to filter]");
+        // Titled with the command; every app, newest first, the first marked; the menu's hint.
+        let shown = shown_lines(&terminal, (40, 120));
+        let mut expected = vec![format!("? vendo apps {command}")];
+        expected
+            .extend(APP_ROWS.iter().enumerate().map(|(i, row)| format!("{} {row}", if i == 0 { '>' } else { ' ' })));
+        expected.push("[↑↓ to move, enter to select, type to filter]".to_string());
+        assert_eq!(shown, expected, "{case}");
+        // Down to the second app, which Enter chooses: the answer names it by its short ID and name.
+        terminal.press("\u{1b}[B");
+        terminal.wait_for(&format!("> {}", APP_ROWS[1]));
+        terminal.press("\r");
+        let answer = format!("? vendo apps {command} e5f6a7b8... (Analytics BQ)");
+        terminal.wait_for(&answer[2..]);
+        let (_, code) = terminal.finish();
+        let asked = sent(&server).await[before..].to_vec();
+        // The same command typed with the app's full ID, on a pipe.
+        let typed_args: Vec<&str> = ["apps", command, CHOOSE_BQ].into_iter().chain(flags.iter().copied()).collect();
+        let typed = sandbox.run(&typed_args);
+        let typed_sent = sent(&server).await[before + asked.len()..].to_vec();
+        assert_eq!(code, typed.status.code(), "{case}");
+        assert_eq!((&asked[0], &asked[1..]), (&list, &typed_sent[..]), "{case}");
+        // What it showed after the answer is what the typed command printed.
+        let shown = shown_lines(&terminal, (40, 120));
+        let answered = shown.iter().position(|line| *line == answer).unwrap();
+        let after: Vec<&str> =
+            shown[answered + 1..].iter().map(String::as_str).filter(|line| !line.is_empty()).collect();
+        let typed_output = text(&typed.stdout) + &text(&typed.stderr);
+        let printed: Vec<&str> = typed_output.lines().map(str::trim_end).filter(|line| !line.is_empty()).collect();
+        assert_eq!(after, printed, "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn typing_filters_the_apps_by_name_short_id_or_any_column() {
+    let server = apps_to_choose_stub("acct-alpha").await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (typed, rows) in [
+        ("ANALYTICS", &APP_ROWS[1..2]),
+        ("0C0D0E0F...", &APP_ROWS[2..]),
+        ("e5f6a7b8", &APP_ROWS[1..2]),
+        ("destination", &APP_ROWS[1..]),
+        ("shop", &APP_ROWS[..1]),
+    ] {
+        let mut terminal = OnTerminal::start(&sandbox, &["apps", "get"]);
+        terminal.wait_for("type to filter]");
+        terminal.press(typed);
+        terminal.wait_for(&format!("vendo apps get {typed}"));
+        // The end of that frame: inquire shows the cursor again. It redraws only the lines that
+        // changed, so the screen, not the stream, shows the rows left.
+        terminal.wait_for("\u{1b}[?25h");
+        let expected: Vec<String> =
+            rows.iter().enumerate().map(|(i, row)| format!("{} {row}", if i == 0 { '>' } else { ' ' })).collect();
+        assert_eq!(listed_rows(&terminal), expected, "{typed}");
+        terminal.press("\u{1b}");
+        assert_eq!(terminal.finish().1, Some(0), "{typed}");
+    }
+    // Enter chooses the first app left.
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "get"]);
+    terminal.wait_for("type to filter]");
+    terminal.press("pixel");
+    terminal.wait_for("vendo apps get pixel");
+    terminal.press("\r");
+    terminal.wait_for("vendo apps get 0c0d0e0f... (Demo Pixel)");
+    assert_eq!(terminal.finish().1, Some(0));
+    assert_eq!(sent(&server).await.last().unwrap(), &format!("GET {V1}/apps/{CHOOSE_PIXEL}"));
+}
+
+/// A second terminal a test gives `vendo` besides [`OnTerminal`]'s, read on a thread, so that the
+/// test can wait for what it shows and type into it.
+#[cfg(unix)]
+struct SecondTerminal {
+    controller: std::fs::File,
+    /// The terminal end, kept until the test ends.
+    terminal: std::os::fd::OwnedFd,
+    output: std::sync::mpsc::Receiver<Vec<u8>>,
+    shown: String,
+}
+
+#[cfg(unix)]
+impl SecondTerminal {
+    fn new() -> Self {
+        use std::io::Read;
+        let (controller, terminal, _) = pseudo_terminal_sized(40, 120);
+        let mut reader = controller.try_clone().unwrap();
+        let (tx, output) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n @ 1..) = reader.read(&mut buf) {
+                if tx.send(buf[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        SecondTerminal { controller, terminal, output, shown: String::new() }
+    }
+
+    /// The terminal end, for `vendo`'s stdin or stderr.
+    fn end(&self) -> Stdio {
+        self.terminal.try_clone().unwrap().into()
+    }
+
+    fn wait_for(&mut self, expected: &str) {
+        while !self.shown.contains(expected) {
+            match self.output.recv_timeout(std::time::Duration::from_secs(20)) {
+                Ok(chunk) => self.shown.push_str(&text(&chunk)),
+                Err(_) => panic!("the second terminal never showed {expected:?}; it showed {:?}", self.shown),
+            }
+        }
+    }
+
+    fn press(&self, keys: &str) {
+        use std::io::Write;
+        (&self.controller).write_all(keys.as_bytes()).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn with_json_the_list_is_drawn_on_stderr_and_stdout_carries_only_the_json() {
+    // `--profile beta` before the command, and `--json` after it, apply as typed.
+    let server = apps_to_choose_stub("acct-beta").await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut keys = SecondTerminal::new();
+    // The keys and the list on one terminal (stdin and stderr), stdout on another.
+    let cmd = sandbox.command(&["--profile", "beta", "apps", "get", "--json"]);
+    let mut terminal = OnTerminal::launch(cmd, (40, 120), "", Some(keys.end()), Some(keys.end()), true);
+    keys.wait_for("type to filter]");
+    keys.press("\r");
+    let (stdout, code) = terminal.finish();
+    keys.wait_for("vendo apps get a1b2c3d4... (Menu Shop)");
+    let typed = sandbox.run(&["--profile", "beta", "apps", "get", MENU_APP, "--json"]);
+    assert_eq!((code, plain(&stdout)), (Some(0), text(&typed.stdout)));
+    let beta = "/api/v1/accounts/acct-beta/apps";
+    assert_eq!(sent(&server).await[..2], [format!("GET {beta}?limit=100&offset=0"), format!("GET {beta}/{MENU_APP}")]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn apps_delete_asks_which_app_then_asks_y_n_unless_yes() {
+    let server = apps_to_choose_stub("acct-alpha").await;
+    let sandbox = Sandbox::new(&server.uri());
+    let list = format!("GET {V1}/apps?limit=100&offset=0");
+    for (answer, deleted) in [("n\n", false), ("y\n", true)] {
+        let before = sent(&server).await.len();
+        let mut terminal = OnTerminal::start(&sandbox, &["apps", "delete"]);
+        terminal.wait_for("type to filter]");
+        terminal.press("\r");
+        terminal.wait_for("vendo apps delete a1b2c3d4... (Menu Shop)");
+        // The question names the app chosen, as it names one typed (VE-3823).
+        let (shown, code) = answer_question(terminal, answer);
+        assert_eq!(code, Some(0), "{shown:?}");
+        assert!(plain(&shown).contains(&format!("Delete app a1b2c3d4...? (y/N) {answer}")), "{shown:?}");
+        let mut expected = vec![list.clone()];
+        expected.extend(deleted.then(|| format!("DELETE {V1}/apps/{MENU_APP}")));
+        assert_eq!(sent(&server).await[before..], expected, "{answer:?}");
+    }
+    // `--yes`: no question.
+    let before = sent(&server).await.len();
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "delete", "--yes"]);
+    terminal.wait_for("type to filter]");
+    terminal.press("\r");
+    let (shown, code) = terminal.finish();
+    assert_eq!(code, Some(0), "{shown:?}");
+    assert!(!shown.contains("(y/N)") && plain(&shown).contains("App a1b2c3d4... deleted."), "{shown:?}");
+    assert_eq!(sent(&server).await[before..], [list, format!("DELETE {V1}/apps/{MENU_APP}")]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn apps_create_asks_for_a_ready_platform_then_a_name_and_creates_the_app_as_typed() {
+    let server = MockServer::start().await;
+    serve_platforms(&server).await;
+    let created = app_to_choose(CHOOSE_BQ, "Analytics BQ", "bigquery", &["source"], "active");
+    serve(&server, "POST", &format!("{V1}/apps"), 201, json!({ "data": created })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let credentials = credentials_file(&sandbox);
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "create", "--credentials-file", &credentials]);
+    terminal.wait_for("type to filter]");
+    // The platforms ready to connect, as `vendo catalog list` lists them by default.
+    let expected: Vec<String> =
+        PLATFORM_ROWS.iter().enumerate().map(|(i, row)| format!("{} {row}", if i == 0 { '>' } else { ' ' })).collect();
+    assert_eq!(listed_rows(&terminal), expected);
+    assert_eq!(shown_lines(&terminal, (40, 120))[0], "? vendo apps create --type");
+    terminal.press("SHOP");
+    terminal.wait_for("vendo apps create --type SHOP");
+    terminal.press("\r");
+    terminal.wait_for("vendo apps create --type shopify");
+    // Then the name, asked as a one-line question: an empty answer is refused.
+    terminal.wait_for("vendo apps create --name");
+    terminal.press("\r");
+    terminal.wait_for("A response is required.");
+    terminal.press("My Shop\r");
+    terminal.wait_for("vendo apps create --name My Shop");
+    let (_, code) = terminal.finish();
+    let asked = sent(&server).await;
+    // The same typed, on a pipe.
+    let typed =
+        sandbox.run(&["apps", "create", "--credentials-file", &credentials, "--type=shopify", "--name", "My Shop"]);
+    let typed_sent = sent(&server).await[asked.len()..].to_vec();
+    assert_eq!(code, Some(0));
+    assert_eq!(typed.status.code(), Some(0), "{}", text(&typed.stderr));
+    assert_eq!((asked[0].as_str(), &asked[1..]), ("GET /api/v1/catalog", &typed_sent[..]));
+    assert_eq!(typed_sent.len(), 2, "{typed_sent:?}");
+    assert!(
+        typed_sent[1].starts_with(&format!("POST {V1}/apps ")) && typed_sent[1].contains("\"displayName\":\"My Shop\"")
+    );
+    let shown = shown_lines(&terminal, (40, 120));
+    let answered = shown.iter().position(|line| line == "? vendo apps create --name My Shop").unwrap();
+    let after: Vec<&str> = shown[answered + 1..].iter().map(String::as_str).filter(|line| !line.is_empty()).collect();
+    let printed = text(&typed.stdout);
+    assert_eq!(after, printed.lines().map(str::trim_end).filter(|line| !line.is_empty()).collect::<Vec<_>>());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn esc_ctrl_c_or_ctrl_d_at_the_list_or_the_question_leave_quietly() {
+    // As at the group menu (VE-3826): exit 0, nothing run, and the screen the same for all three keys:
+    // what was answered, the title and `<canceled>`, and the cursor on the next line.
+    let server = apps_to_choose_stub("acct-alpha").await;
+    serve_platforms(&server).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let credentials = credentials_file(&sandbox);
+    let earlier: String = (1..=30).map(|n| format!("line {n}\n")).collect();
+    let asking: [(&[&str], &str, &[&str]); 2] = [
+        (&["apps", "get"], "", &["? vendo apps get <canceled>"]),
+        (
+            &["apps", "create", "--credentials-file", &credentials],
+            "\r",
+            &["? vendo apps create --type bigquery", "? vendo apps create --name <canceled>"],
+        ),
+    ];
+    for (size, before) in [((40, 120), ""), ((16, 80), earlier.as_str())] {
+        for (args, answers, last) in asking {
+            let mut screens = Vec::new();
+            for (key, name) in [("\u{1b}", "Esc"), ("\u{3}", "Ctrl-C"), ("\u{4}", "Ctrl-D")] {
+                let case = format!("{name} {}", args.join(" "));
+                let requests = sent(&server).await.len();
+                let mut terminal = OnTerminal::start_with(&sandbox, args, size, before, None);
+                terminal.wait_for("type to filter]");
+                terminal.press(answers);
+                if !answers.is_empty() {
+                    terminal.wait_for("vendo apps create --name");
+                }
+                terminal.press(key);
+                let (rest, code) = terminal.finish();
+                assert_eq!(code, Some(0), "{case}: {rest:?}");
+                let (shown, cursor) = screen(&terminal.screen, size.0.into(), size.1.into());
+                let end = shown.iter().rposition(|line| !line.is_empty()).unwrap() + 1;
+                let tail: Vec<&str> = shown[end - last.len()..end].iter().map(String::as_str).collect();
+                assert_eq!((tail.as_slice(), cursor), (last, (end, 0)), "{case}: {shown:#?}");
+                let list = if answers.is_empty() {
+                    format!("GET {V1}/apps?limit=100&offset=0")
+                } else {
+                    "GET /api/v1/catalog".into()
+                };
+                assert_eq!(sent(&server).await[requests..], [list], "{case}");
+                screens.push((shown, cursor));
+            }
+            assert!(screens.iter().all(|screen| *screen == screens[0]), "{screens:#?}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_list_and_the_question_exit_as_ctrl_d_does_when_their_terminal_hangs_up() {
+    let server = apps_to_choose_stub("acct-alpha").await;
+    serve_platforms(&server).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let credentials = credentials_file(&sandbox);
+    let mut outcomes = Vec::new();
+    let create = ["apps", "create", "--credentials-file", &credentials];
+    for (args, answers) in [(&["apps", "get"][..], ""), (&create, "\r")] {
+        let mut terminal = OnTerminal::start_detached(&sandbox, args);
+        terminal.wait_for("type to filter]");
+        terminal.press(answers);
+        if !answers.is_empty() {
+            terminal.wait_for("vendo apps create --name");
+        }
+        let (exited, ended) = hang_up(&mut terminal);
+        outcomes.push((args, exited, ended));
+    }
+    assert!(
+        outcomes.iter().all(|(_, exited, ended)| *exited && ended.code == Some(0) && ended.cpu < HUNG_UP_CPU),
+        "each should exit 0 within {HUNG_UP_EXIT:?}, using under {HUNG_UP_CPU:?} of processor time: {outcomes:#?}"
+    );
+    assert_eq!(sent(&server).await, [format!("GET {V1}/apps?limit=100&offset=0"), "GET /api/v1/catalog".to_string()]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn with_nothing_to_choose_from_it_says_so_and_is_the_usage_error() {
+    let server = MockServer::start().await;
+    serve(&server, "GET", &format!("{V1}/apps"), 200, page_of(Vec::new(), 0, false)).await;
+    serve_catalog(&server, false, json!({ "data": [], "meta": { "selfServeTotal": 0, "requestAccessTotal": 0 } }))
+        .await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, nothing) in [
+        (&["apps", "get"][..], "No apps to choose from."),
+        (&["apps", "get", "--json"], "No apps to choose from."),
+        (&["apps", "create"], "No platforms to choose from."),
+    ] {
+        let typed = sandbox.run(args);
+        assert_eq!(typed.status.code(), Some(2));
+        // Wide enough that the JSON error is one line.
+        let mut terminal = OnTerminal::start_with(&sandbox, args, WIDE, "", None);
+        let (_, code) = terminal.finish();
+        let expected = format!("{nothing}\n{}", text(&typed.stderr));
+        let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into())).join("\n");
+        assert_eq!((code, shown), (Some(2), expected.trim_end().to_string()), "{args:?}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_list_that_fails_is_the_error_and_nothing_is_asked() {
+    let server = MockServer::start().await;
+    let refusal = json!({ "error": { "code": "INTERNAL_ERROR", "message": "Database unavailable" } });
+    serve(&server, "GET", &format!("{V1}/apps"), 500, refusal).await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "get"]);
+    let (_, code) = terminal.finish();
+    let shown = shown_lines(&terminal, (40, 120));
+    assert_eq!((code, shown[0].as_str()), (Some(1), "Error: Database unavailable"), "{shown:#?}");
+    assert!(shown.len() == 2 && shown[1].starts_with("Request ID: cli-"), "{shown:#?}");
+    let mut terminal = OnTerminal::start_with(&sandbox, &["apps", "get", "--json"], WIDE, "", None);
+    let (_, code) = terminal.finish();
+    let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into()));
+    assert_eq!((code, shown.len()), (Some(1), 1), "{shown:#?}");
+    let error: Value = serde_json::from_str(&shown[0]).unwrap();
+    assert_eq!(
+        (&error["error"]["message"], &error["error"]["code"], &error["error"]["status"]),
+        (&json!("Database unavailable"), &json!("INTERNAL_ERROR"), &json!(500))
+    );
+    assert_eq!(sent(&server).await, vec![format!("GET {V1}/apps?limit=100&offset=0"); 2]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn without_a_key_or_an_account_it_is_that_error_before_anything_is_asked() {
+    let server = MockServer::start().await;
+    serve_platforms(&server).await;
+    // No key: the error `vendo apps list` gives, also for the platforms, which need a key.
+    let sandbox = Sandbox::without_api_keys(&server.uri());
+    let no_key = text(&sandbox.run(&["apps", "list"]).stderr);
+    assert!(no_key.starts_with("Error: No API key configured."), "{no_key}");
+    for args in [&["apps", "get"][..], &["apps", "create"]] {
+        let mut terminal = OnTerminal::start(&sandbox, args);
+        let (_, code) = terminal.finish();
+        assert_eq!((code, shown_lines(&terminal, (40, 120)).join("\n")), (Some(1), no_key.trim_end().to_string()));
+    }
+    let mut terminal = OnTerminal::start_with(&sandbox, &["apps", "get", "--json"], WIDE, "", None);
+    let (_, code) = terminal.finish();
+    let json_error = text(&sandbox.run(&["apps", "list", "--json"]).stderr);
+    let shown = shown_lines(&terminal, (WIDE.0.into(), WIDE.1.into())).join("\n");
+    assert_eq!((code, shown), (Some(1), json_error.trim_end().to_string()));
+    // A VENDO_PROFILE that names no profile: its error.
+    let sandbox = Sandbox::new(&server.uri());
+    let mut unknown = sandbox.command(&["apps", "list"]);
+    let unknown = text(&unknown.env("VENDO_PROFILE", "gamma").output().unwrap().stderr);
+    assert!(unknown.contains("VENDO_PROFILE"), "{unknown}");
+    let mut terminal = OnTerminal::start_env(&sandbox, &["apps", "get"], &[("VENDO_PROFILE", "gamma")]);
+    let (_, code) = terminal.finish();
+    assert_eq!((code, shown_lines(&terminal, (40, 120)).join("\n")), (Some(1), unknown.trim_end().to_string()));
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+
+    // A key but no account: the apps cannot be listed, so the error `vendo apps list` gives.
+    let mut config = sandbox.config();
+    for profile in config["profiles"].as_object_mut().unwrap().values_mut() {
+        profile.as_object_mut().unwrap().remove("accountId");
+    }
+    std::fs::write(sandbox.home.path().join(".config/vendo/config.json"), config.to_string()).unwrap();
+    let no_account = text(&sandbox.run(&["apps", "list"]).stderr);
+    assert!(no_account.starts_with("Error: No account configured."), "{no_account}");
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "get"]);
+    let (_, code) = terminal.finish();
+    assert_eq!((code, shown_lines(&terminal, (40, 120)).join("\n")), (Some(1), no_account.trim_end().to_string()));
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+    // The platforms need no account (the catalog route is the key's): they are listed.
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "create"]);
+    terminal.wait_for(PLATFORM_ROWS[1]);
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+    assert_eq!(sent(&server).await, ["GET /api/v1/catalog"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn of_more_than_500_apps_the_newest_500_are_listed_and_the_hint_says_so() {
+    let server = MockServer::start().await;
+    for page in 0..6u64 {
+        let apps: Vec<Value> = (page * 100..page * 100 + 100)
+            .map(|n| {
+                app_to_choose(&uuid_with(&format!("{n:08x}"), n), &format!("App {n}"), "shopify", &["source"], "active")
+            })
+            .collect();
+        Mock::given(wiremock::matchers::method("GET"))
+            .and(path(format!("{V1}/apps")))
+            .and(wiremock::matchers::query_param("offset", (page * 100).to_string()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(page_of(apps, (page * 100) as usize, true)))
+            .mount(&server)
+            .await;
+    }
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = OnTerminal::start(&sandbox, &["apps", "get"]);
+    terminal.wait_for("[↑↓ to move, enter to select, type to filter · newest 500 shown]");
+    // The last of them can be found by typing.
+    terminal.press("App 499");
+    terminal.wait_for("000001f3...  App 499");
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+    let pages: Vec<String> = (0..5).map(|page| format!("GET {V1}/apps?limit=100&offset={}", page * 100)).collect();
+    assert_eq!(sent(&server).await, pages);
 }
 
 // ── VE-3826: CI and VENDO_NO_INPUT turn prompts off; no menu on TERM=dumb ───

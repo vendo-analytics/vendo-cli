@@ -135,23 +135,62 @@ pub struct Parsed {
 /// Parse with [`command`]; usage errors and `--help` exit like clap does, a usage error as
 /// JSON when the words include `--json` ([`exit_with`]). A group run without its command opens
 /// its menu on a terminal, and the command chosen there is parsed as if typed ([`chosen_command`]).
-pub fn parse(mut args: Vec<OsString>) -> Parsed {
+/// A command missing required values asks for them there, once, and runs with them as if they had
+/// been typed ([`asked_values`], VE-3881).
+pub async fn parse(mut args: Vec<OsString>) -> Parsed {
+    let mut asked = false;
     loop {
         let cmd = command();
         let typed = rewrite_hidden_paths(&cmd, args.clone());
         let json_word = json_word(&typed);
-        let err = match cmd.clone().try_get_matches_from(typed) {
+        let err = match cmd.clone().try_get_matches_from(typed.clone()) {
             Ok(matches) => {
                 let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|err| exit_with(err, json_word));
                 return Parsed { cli, json: json_flag(&matches) };
             }
             Err(err) => err,
         };
-        match chosen_command(&cmd, &args, &err) {
-            Some(chosen) => args = chosen,
-            None => exit_with(err, json_word),
+        if let Some(chosen) = chosen_command(&cmd, &args, &err) {
+            args = chosen;
+            continue;
         }
+        if !asked {
+            asked = true;
+            if let Some(filled) = asked_values(&cmd, &args, &typed, &err, json_word).await {
+                args = filled;
+                continue;
+            }
+        }
+        exit_with(err, json_word)
     }
+}
+
+/// For a command typed without values it requires (clap's missing-arguments error), where someone
+/// can answer and see the question ([`crate::output::can_show_menu`], the group menu's rule):
+/// `args` with each value asked for and put where it would have been typed ([`crate::ask`],
+/// VE-3881). `None` keeps the usage error.
+#[cfg(feature = "menu")]
+async fn asked_values(
+    root: &clap::Command,
+    args: &[OsString],
+    typed: &[OsString],
+    err: &clap::Error,
+    json: bool,
+) -> Option<Vec<OsString>> {
+    crate::ask::missing_values(root, args, typed, err, json).await
+}
+
+/// A build without the `menu` feature asks for nothing (VE-3881): a missing value is the usage
+/// error at a terminal too, as a bare group is ([`menu_choice`]).
+#[cfg(not(feature = "menu"))]
+async fn asked_values(
+    _root: &clap::Command,
+    _args: &[OsString],
+    _typed: &[OsString],
+    _err: &clap::Error,
+    _json: bool,
+) -> Option<Vec<OsString>> {
+    None
 }
 
 /// For a group run without its command (`vendo apps`) where someone can answer and see the menu

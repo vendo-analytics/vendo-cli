@@ -83,10 +83,11 @@ pub fn name_of(row: &Value) -> String {
 }
 
 /// The API's largest page (`MAX_LIMIT` of the v1 routes, the metrics route's cap).
-const PAGE: usize = 100;
+pub(crate) const PAGE: usize = 100;
 /// At most this many pages per lookup, 500 rows in the API's default order (newest first for
-/// jobs): one lookup stays a few requests of the API key's 60 a minute.
-const MAX_PAGES: usize = 5;
+/// jobs): one lookup stays a few requests of the API key's 60 a minute. A command missing an ID lists as
+/// many to choose from (VE-3881, `crate::ask`).
+pub(crate) const MAX_PAGES: usize = 5;
 /// At most this many matches in a refusal, which then says how many more there are.
 const LISTED: usize = 10;
 
@@ -198,8 +199,9 @@ async fn matches_in_list(
     Ok(found)
 }
 
-/// One page of the list, and whether there is another.
-async fn list_page(
+/// One page of the list, and whether there is another: also what a command missing an ID lists to choose
+/// from (VE-3881, `crate::ask`).
+pub(crate) async fn list_page(
     client: &Client,
     listing: Listing,
     status: Option<&str>,
