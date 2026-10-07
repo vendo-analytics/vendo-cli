@@ -1,0 +1,3 @@
+# Formatting-only commits; `git blame` skips them (GitHub honours this file).
+# prettier format of src (VE-3926)
+a95eb566d894b18c73bc2a50598f52562163c252
