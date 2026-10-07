@@ -362,6 +362,19 @@ mod menu {
             words.push(id.into());
             words
         }
+
+        /// How the action menu answers `action` for the item, after the group: the command that runs
+        /// ([`Group::words`]) with the item named as the list answered it (`pause a1b2c3d4... (Menu
+        /// Shop)`), `--` before a name that starts with `-`, and nothing after a signal's `click-path`.
+        pub(super) fn answered(&self, action: &str, row: &Value, answer: &str) -> String {
+            if *self == Group::Signals {
+                return action.to_string();
+            }
+            if self.id(row).starts_with('-') {
+                return format!("{action} -- {answer}");
+            }
+            format!("{action} {answer}")
+        }
     }
 
     /// The rows of a list (`cells`, one per item of `rows`, `note` after the hint) to choose from;
@@ -390,7 +403,7 @@ mod menu {
         };
         loop {
             let item = group.show(client, &rows[at]).await?;
-            match choose_action(&group, &items[at].answer, &group.actions(&item)) {
+            match choose_action(&group, &rows[at], &items[at].answer, &group.actions(&item)) {
                 Some(Some(action)) => {
                     *CHOSEN.lock().unwrap_or_else(PoisonError::into_inner) = Some(group.words(action, &rows[at]));
                     return Ok(());
@@ -407,7 +420,12 @@ mod menu {
     /// the cursor on the first row, and the keys typed while the item loaded thrown away. Answered as
     /// the command that runs (`vendo apps pause a1b2c3d4... (Menu Shop)`), or `back`. `Some(None)` for
     /// back; `None` when the menu cannot run.
-    fn choose_action(group: &Group, answer: &str, actions: &[&'static str]) -> Option<Option<&'static str>> {
+    fn choose_action(
+        group: &Group,
+        row: &Value,
+        answer: &str,
+        actions: &[&'static str],
+    ) -> Option<Option<&'static str>> {
         let tree = crate::cli::command();
         let commands = group.path().split(' ').try_fold(&tree, |command, word| command.find_subcommand(word));
         let about = |name: &str| {
@@ -416,7 +434,7 @@ mod menu {
         };
         let mut cells: Vec<Vec<String>> = actions.iter().map(|name| vec![name.to_string(), about(name)]).collect();
         cells.push(vec![BACK.0.into(), BACK.1.into()]);
-        let answers = actions.iter().map(|name| format!("{name} {answer}")).chain([BACK.0.to_string()]);
+        let answers = actions.iter().map(|name| group.answered(name, row, answer)).chain([BACK.0.to_string()]);
         let rows: Vec<ValueRow> =
             padded(cells).into_iter().zip(answers).map(|(shown, answer)| ValueRow { shown, answer }).collect();
         let at = output::choose_value(&format!("vendo {}", group.path()), &rows, None, 0)?;
@@ -550,6 +568,8 @@ mod tests {
             .map(|word| word.into_string().unwrap())
             .collect();
         assert_eq!(words, ["measurement", "signals", "click-path"]);
+        // And the action menu answers it as that command, with no ID after it.
+        assert_eq!(Group::Signals.answered("click-path", &json!({ "id": "click_path" }), "click_path"), "click-path");
     }
 
     #[test]
@@ -567,6 +587,10 @@ mod tests {
         };
         assert_eq!(words("beta"), ["profile", "switch", "beta"]);
         assert_eq!(words("-odd"), ["profile", "switch", "--", "-odd"]);
+        // The action menu answers with the command that runs, `--` included.
+        let answered = |name: &str| profiles.answered("switch", &json!({ "name": name }), name);
+        assert_eq!(answered("beta"), "switch beta");
+        assert_eq!(answered("-odd"), "switch -- -odd");
     }
 
     #[test]

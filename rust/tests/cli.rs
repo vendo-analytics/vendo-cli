@@ -10463,7 +10463,7 @@ async fn the_click_path_signals_action_runs_its_command_exactly_as_typed() {
     let sandbox = Sandbox::new(&server.uri());
     let mut terminal = measured.menu_of(&sandbox, 0);
     terminal.press("\r");
-    let answered = "? vendo measurement signals click-path click_path";
+    let answered = "? vendo measurement signals click-path";
     terminal.wait_for(&answered[2..]);
     let (rest, code) = terminal.finish();
     let asked = sent(&server).await;
