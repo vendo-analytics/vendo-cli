@@ -115,9 +115,9 @@ of your saved profiles; otherwise `--profile` with no name is a usage error (exi
 pick from instead of printing the table: the same rows and count, arrow keys move, typing filters, and Enter shows the
 item as `get` does, then what you can do with it, or back to the list: for an app, source or destination pause or
 resume, update and delete (for a source or destination also sync while it is active, and for a destination with a
-source app refresh-source); for a job tail and cancel while it is queued or running. The action runs as if you had
-typed it, so `delete` and `jobs cancel` still ask y/N. Esc leaves. With `--json` or `--output`, or where the menu
-cannot open, these commands print the table as before.
+source app refresh-source); for a job tail and cancel while it is queued, pending or running. The action runs as
+if you had typed it, so `delete` and `jobs cancel` still ask y/N. Esc leaves. With `--json` or `--output`, or where
+the menu cannot open, these commands print the table as before.
 
 ### Apps, sources and destinations
 
