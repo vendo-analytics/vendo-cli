@@ -15,7 +15,7 @@
 //! delete's y/N, `VENDO_PROFILE` (the environment carries over), `VENDO_DEBUG` and the rest apply; the
 //! full ID needs no short-ID lookup, and the CLI ends with the action's exit code. Back opens the list
 //! again, its rows as they were (no request), the cursor on the item just viewed and the filter
-//! cleared; nothing above it is erased. Esc, Ctrl-C, Ctrl-D and a terminal that hangs up, on any of
+//! cleared; the action menu leaves no line (`output::take_back_answer`), nothing else is erased. Esc, Ctrl-C, Ctrl-D and a terminal that hangs up, on any of
 //! these lists, leave quietly, exit 0, nothing run. `get` and every action command work as before.
 //!
 //! The table prints as before, byte for byte, wherever the list does not open: without a terminal,
@@ -408,7 +408,7 @@ mod menu {
                     *CHOSEN.lock().unwrap_or_else(PoisonError::into_inner) = Some(group.words(action, &rows[at]));
                     return Ok(());
                 }
-                Some(None) => {}
+                Some(None) => output::take_back_answer(),
                 None => output::quit_quietly(),
             }
             at = output::choose_value(&title, &items, note, at).unwrap_or_else(|| output::quit_quietly());
@@ -418,8 +418,9 @@ mod menu {
     /// The action menu of the item answered as `answer`: `actions`, each with its description as the
     /// group's help lists it, then `back`, titled with the group as the tree names it (`vendo apps`),
     /// the cursor on the first row, and the keys typed while the item loaded thrown away. Answered as
-    /// the command that runs (`vendo apps pause a1b2c3d4... (Menu Shop)`), or `back`. `Some(None)` for
-    /// back; `None` when the menu cannot run.
+    /// the command that runs (`vendo apps pause a1b2c3d4... (Menu Shop)`). `Some(None)` for back, whose
+    /// line the caller takes back ([`output::take_back_answer`]): it runs nothing, and `vendo apps
+    /// back` would read as a command; `None` when the menu cannot run.
     fn choose_action(
         group: &Group,
         row: &Value,

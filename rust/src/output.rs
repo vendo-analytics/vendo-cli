@@ -1023,6 +1023,21 @@ pub fn choose_value(title: &str, rows: &[ValueRow], note: Option<&str>, cursor: 
     select(title, &shown, &hint, &|at| rows[at].answer.clone(), true, cursor)
 }
 
+/// Takes back the line the list just closed by [`choose_value`] left (`? <title> <answer>`): back
+/// to the list's first line, saved by [`run_prompt`], and clear from there down, as Ctrl-C does
+/// ([`clear_menu`]) without writing a line in its place. For an answer that runs nothing and leaves
+/// the screen as it was before the list opened (Back in a selectable list's action menu, VE-3894),
+/// whose line would otherwise read as a command (`vendo apps back`).
+#[cfg(feature = "menu")]
+pub fn take_back_answer() {
+    use crossterm::{
+        cursor, queue,
+        terminal::{Clear, ClearType},
+    };
+    let mut stderr = std::io::stderr();
+    let _ = queue!(stderr, cursor::RestorePosition, Clear(ClearType::FromCursorDown)).and_then(|()| stderr.flush());
+}
+
 /// A row of [`select`]'s list as inquire draws it: `shown`, the row broken into lines that leave the
 /// screen's last column free ([`fitted`]); typing filters by `text`, the row as it is.
 #[cfg(feature = "menu")]

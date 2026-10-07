@@ -8583,14 +8583,15 @@ async fn back_opens_the_list_again_on_the_item_with_no_request_and_the_filter_cl
     // The same rows, the filter cleared, the cursor on the app just viewed; nothing sent.
     assert_eq!(shown_from(&terminal, "? vendo apps list"), apps_list(1));
     assert_eq!(sent(&server).await, shown_once);
-    // Nothing above is erased: the app's answered line, its details and `back` stay.
+    // The app's answered line and its details stay; the action menu leaves no line (answered
+    // `back`, it read as a command, `vendo apps back`, which does not exist).
     let shown = shown_lines(&terminal, (40, 120));
     let first = shown.iter().position(|line| line == "? vendo apps list 0c0d0e0f... (Demo Pixel)").unwrap();
-    let back = shown.iter().position(|line| line == "? vendo apps back").unwrap();
+    assert!(!shown.iter().any(|line| line.ends_with("vendo apps back")), "{shown:#?}");
+    let again = first + shown[first..].iter().position(|line| line == "? vendo apps list").unwrap();
     let typed = sandbox.run(&["apps", "get", CHOOSE_PIXEL]);
-    let details: Vec<String> = shown[first + 1..back].iter().filter(|line| !line.is_empty()).cloned().collect();
+    let details: Vec<String> = shown[first + 1..again].iter().filter(|line| !line.is_empty()).cloned().collect();
     assert_eq!(details, printed_lines(&typed));
-    assert_eq!(shown[back + 1], "? vendo apps list", "{shown:#?}");
     // Enter shows the same app again, as the first time.
     terminal.press("\r");
     terminal.wait_for("Back to the list");
@@ -9446,8 +9447,9 @@ async fn back_opens_the_source_destination_or_job_list_again_on_the_item_with_no
         // The same rows, the filter cleared, the cursor on the item just viewed; nothing sent.
         assert_eq!(shown_from(&terminal, &browsed.title()), browsed.list(1), "{}", browsed.group);
         assert_eq!(sent(&server).await, shown_once, "{}", browsed.group);
-        let back = format!("? vendo {} back", browsed.group);
-        assert!(shown_lines(&terminal, (40, 120)).contains(&back), "{}", browsed.group);
+        // The action menu leaves no line: answered `back`, it read as a command.
+        let back = format!("vendo {} back", browsed.group);
+        assert!(!shown_lines(&terminal, (40, 120)).iter().any(|line| line.ends_with(&back)), "{}", browsed.group);
         terminal.press("\u{1b}");
         let (rest, code) = terminal.finish();
         assert_eq!(code, Some(0), "{}: {rest:?}", browsed.group);
@@ -9985,8 +9987,9 @@ async fn back_opens_the_platform_dictionary_metric_or_model_list_again_on_the_it
         // The same rows, the filter cleared, the cursor on the item just viewed; nothing sent.
         assert_eq!(shown_from(&terminal, &selectable.title()), selectable.list(1), "{}", selectable.group);
         assert_eq!(sent(&server).await, shown_once, "{}", selectable.group);
-        let back = format!("? vendo {} back", selectable.group);
-        assert!(shown_lines(&terminal, (40, 120)).contains(&back), "{}", selectable.group);
+        // The action menu leaves no line: answered `back`, it read as a command.
+        let back = format!("vendo {} back", selectable.group);
+        assert!(!shown_lines(&terminal, (40, 120)).iter().any(|line| line.ends_with(&back)), "{}", selectable.group);
         terminal.press("\u{1b}");
         let (rest, code) = terminal.finish();
         assert_eq!(code, Some(0), "{}: {rest:?}", selectable.group);
@@ -10501,8 +10504,9 @@ async fn back_opens_a_measurement_list_again_on_the_item_with_no_request() {
         // The same rows, the filter cleared, the cursor on the item just viewed; nothing sent.
         assert_eq!(shown_from(&terminal, &measured.title()), measured.list(1), "{case}");
         assert_eq!(sent(&server).await, shown_once, "{case}");
-        let back = format!("? vendo {} back", measured.group);
-        assert!(shown_lines(&terminal, (40, 120)).contains(&back), "{case}");
+        // The action menu leaves no line: answered `back`, it read as a command.
+        let back = format!("vendo {} back", measured.group);
+        assert!(!shown_lines(&terminal, (40, 120)).iter().any(|line| line.ends_with(&back)), "{case}");
         terminal.press("\u{1b}");
         let (rest, code) = terminal.finish();
         assert_eq!(code, Some(0), "{case}: {rest:?}");

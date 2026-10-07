@@ -450,8 +450,10 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   (VE-3823) asks, the full ID needs no short-ID lookup, `update` with no flags fails as typed (`Nothing to update —
   pass at least one flag.`, exit 1), a source's `sync` while its job runs says `Sync already in progress`, `tail`
   follows the job (clearing the screen as typed), and the CLI ends with the action's exit code. Back opens the list
-  again with no request, the cursor on the item just viewed and the filter cleared; nothing above is
-  erased (the answered lines and the details stay, the list opens below them). Esc, Ctrl-C, Ctrl-D and a hang-up on
+  again with no request, the cursor on the item just viewed and the filter cleared; the action menu's line is taken back
+  (`output::take_back_answer`, as Ctrl-C clears a menu, with no line in its place: answered `back` it read as a command,
+  `vendo apps back`, which does not exist), nothing else is erased (the item list's answered line and the details stay,
+  the list opens below them). Esc, Ctrl-C, Ctrl-D and a hang-up on
   the list or the action menu exit 0 with nothing run. A details request that fails (an item deleted since the list
   loaded, a 429, the network) is `get`'s error, exit 1. An empty response prints the table and its count, exit 0, as
   does a first list the terminal refuses; a later list or action menu that cannot run exits 0 quietly. Without a
