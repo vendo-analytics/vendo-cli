@@ -104,27 +104,54 @@ The commands in each group:
 | `measurement` | `methodologies list`, `methodologies get`, `rules preview`, `ltv list`, `ltv cohort`, `ltv customer`, `signals list`, `signals click-path` |
 | `profile` | `list`, `switch`, `set` |
 
-`vendo <command> --help` shows a command's flags and examples, and `vendo commands` lists every command but `help`
-on one line each. `--profile <name>` and `--debug` work with every command. At a terminal, a group run without its
-command (`vendo apps`) opens a menu of its commands: arrow keys move, typing filters, Enter runs, Esc leaves. The menu
-needs stdin, stdout and stderr to be terminals, `TERM` not `dumb` and prompts on (see
-[Non-interactive runs](#non-interactive-runs-ci-and-vendo_no_input)); otherwise the group prints its help and
-exits 2. Under the same rule, `--profile` typed last with no name, and `vendo profile switch` with none, open a list
-of your saved profiles; otherwise `--profile` with no name is a usage error (exit 2). Also under that rule,
-`vendo apps list`, `vendo sources list`, `vendo destinations list`, `vendo jobs list`, `vendo catalog list`,
-`vendo dictionary list`, `vendo metrics list`, `vendo models list`, `vendo measurement methodologies list`,
-`vendo measurement ltv list`, `vendo measurement signals list` and `vendo profile list` show their rows as a list to
-pick from instead of printing the table: the same rows and count, arrow keys move, typing filters, and Enter shows the
-item as `get` does (a cohort as `ltv cohort` does; a signal or a profile shows nothing first), then what you can do
-with it, or back to the list: for an app, source or destination pause or
-resume, update and delete (for a source or destination also sync while it is active, and for a destination with a
-source app refresh-source); for a job tail and cancel while it is queued, pending or running; for a metric update
-and delete, and activate while it is a draft; for the `click_path` signal click-path; for a profile switch, unless it
-is the saved active profile. A platform, a dictionary entry, a model, a methodology or a cohort shows its details and
-back.
-The action runs as if you had typed it, so `delete` and `jobs cancel` still ask y/N. Esc leaves.
-`vendo dictionary search` prints its table as before. With `--json` or `--output`, or where
-the menu cannot open, these commands print the table as before.
+`vendo <command> --help` shows a command's flags and examples, `vendo help <command>` shows the same screen, and
+`vendo commands` lists every command but `help` on one line each. `vendo version` prints the version, as
+`vendo --version` does. `--profile <name>` and `--debug` work with every command.
+
+### At a terminal
+
+When you run `vendo` yourself in a terminal, it shows lists to pick from where a script would get a table or an
+error. In each list arrow keys move, typing filters, Enter chooses and Esc (or Ctrl-C) leaves with nothing run.
+What you choose is put where you would have typed it and the command runs as if you had, so its flags, `--json`
+included, and the y/N of `delete` and `jobs cancel` still apply.
+
+- **A group without its command** (`vendo apps`) opens a menu of the group's commands.
+- **A missing value.** A command typed without a value it requires asks for it, instead of stopping with a usage
+  error. An ID opens a list of the items, as the group's `list` shows them (500 at most):
+  `vendo apps get` lists your apps, `vendo jobs cancel` your jobs, `vendo catalog get` the platforms ready to
+  connect. A name, a search, a date or a file path is a one-line question: `vendo apps create` asks for the
+  platform from a list, then for the name. Optional values are not asked for. The answer shows as the command so
+  far, such as `vendo apps get a1b2c3d4... (Demo Shop)`.
+- **A profile.** `vendo --profile` with no name, on its own, opens a list of your saved profiles and makes the one
+  you pick active, as `vendo profile switch <profile>` does; so does `vendo profile switch` with no name.
+  `--profile` with no name at the end of a command (`vendo status --profile`) uses the profile you pick for that
+  command only.
+- **A list.** `vendo apps list`, `sources list`, `destinations list`, `jobs list`, `catalog list`,
+  `dictionary list`, `metrics list`, `models list`, `measurement methodologies list`, `measurement ltv list`,
+  `measurement signals list` and `profile list` show their rows as a list to pick from instead of printing the
+  table: the same rows, from the same flags, with the table's count after the keys. Enter on an item shows it as
+  `get` does (a cohort as `ltv cohort` does; a signal or a profile shows nothing first), then what you can do with
+  it, or `back` to the list:
+
+  | Item | Actions offered |
+  | --- | --- |
+  | App | pause (while active) or resume (while inactive), update, delete |
+  | Source | sync (while active), pause or resume, update, delete |
+  | Destination | sync (while active), refresh-source (when it has a source app), pause or resume, update, delete |
+  | Job | tail and cancel, while it is queued, pending or running |
+  | Metric | activate (while a draft), update, delete |
+  | The `click_path` signal | click-path |
+  | Profile | switch, unless it is the active profile |
+
+  A platform, a dictionary entry, a model, a methodology or a cohort shows its details and `back`. The action runs
+  as if you had typed it and the CLI ends there. `vendo dictionary search` prints its table as before, and with
+  `--json` or `--output` every list command prints what it did before.
+
+These lists and menus open only when stdin, stdout and stderr are all terminals, `TERM` is not `dumb` and prompts
+are on (see [Non-interactive runs](#non-interactive-runs-ci-and-vendo_no_input)). Otherwise nothing waits for an
+answer: a group without its command prints its help and exits 2, a missing value is the usage error (exit 2),
+`--profile` with no name is a usage error (exit 2) and `vendo profile switch` with no name prints `Cancelled.`, and
+the list commands print their table. Every `get` and every action command still works when typed in full.
 
 ### Apps, sources and destinations
 
@@ -338,7 +365,7 @@ vendo sources list --state active --output id
 ### Errors and exit codes
 
 A command exits with 0 when it succeeds, 1 when it fails and 2 when it was called wrongly (an unknown command, a
-missing argument). Two report a failure and still exit 0: `vendo logout` when you are not logged in, and
+missing argument where the CLI cannot ask for it). Two report a failure and still exit 0: `vendo logout` when you are not logged in, and
 `vendo jobs tail` when the job fails or the wait times out. With `--json` both print the JSON error, and
 `jobs tail` still prints the last job it read, if any, on stdout.
 
@@ -396,12 +423,14 @@ on, and `vendo workspace` shows it as a warning.
 
 ### Non-interactive runs: `CI` and `VENDO_NO_INPUT`
 
-The CLI asks a question only when stdin and stdout are terminals. Set `CI` or `VENDO_NO_INPUT` to anything but
+The CLI asks a y/N question only when stdin and stdout are terminals, and opens its menus and lists only when
+stderr is one too (see [At a terminal](#at-a-terminal)). Set `CI` or `VENDO_NO_INPUT` to anything but
 empty, `0` or `false` and it asks none, at a terminal too:
 
 - `delete`, `jobs cancel` and `logout --all` need `--yes`. Without it they stop with exit 1 before they send
   anything. `--json` does not imply `--yes`.
 - A group run without its command (`vendo apps`) prints its help and exits 2 instead of opening the menu.
+- A command missing a value it requires (`vendo apps get`) stops with its usage error, exit 2, instead of asking.
 - `vendo apps list`, `sources list`, `destinations list`, `jobs list`, `catalog list`, `dictionary list`,
   `metrics list`, `models list`, `measurement methodologies list`, `measurement ltv list` and
   `measurement signals list` print their table, and `vendo profile list` its lines, instead of a list to pick from.
@@ -410,8 +439,12 @@ empty, `0` or `false` and it asks none, at a terminal too:
 - `vendo login` without a key prints the sign-in link and waits; it opens no browser. In CI, use
   `vendo login --api-key ... --account ...` or the environment variables below.
 
-`TERM=dumb` turns off the group menu, the profile list and the lists to pick from that every `list` command shows
-(`apps list` to `models list`, the measurement lists and `profile list`); the y/N questions still ask.
+`TERM=dumb` turns off the group menu, the questions for a missing value, the profile list and the lists to pick
+from that every `list` command shows (`apps list` to `models list`, the measurement lists and `profile list`); the
+y/N questions still ask.
+
+An agent or tool that runs `vendo` on a pseudo-terminal gets these questions and lists too, and waits at them. Set
+`VENDO_NO_INPUT=1` to get the usage errors and tables instead.
 
 ### Environment variables
 
