@@ -105,10 +105,7 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
         }
         Command::Logout { all, yes, json } => account::logout(ctx, all, yes, json).map(|_| ok),
         Command::Profile { command } => match command {
-            ProfileCommand::List { json } => {
-                account::profile_list(ctx, json);
-                Ok(ok)
-            }
+            ProfileCommand::List { json } => account::profile_list(ctx, json).await.map(|_| ok),
             ProfileCommand::Switch { profile, account, json } => {
                 account::profile_switch(ctx, profile, account, json).map(|_| ok)
             }

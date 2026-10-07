@@ -23,10 +23,12 @@
 //! `--output`, and built without the `menu` feature. It prints at a terminal too for an empty list,
 //! and when the terminal refuses the first list.
 //!
-//! So far: `vendo apps list`, `vendo sources list`, `vendo destinations list` (its hidden
-//! `integrations list` and `int list` too), `vendo jobs list`, `vendo catalog list`, `vendo dictionary
-//! list` (not `dictionary search`, which prints the same table), `vendo metrics list` and `vendo models
-//! list` ([`Group`]).
+//! Every visible list command ([`Group`]): `vendo apps list`, `vendo sources list`, `vendo destinations
+//! list` (its hidden `integrations list` and `int list` too), `vendo jobs list`, `vendo catalog list`,
+//! `vendo dictionary list` (not `dictionary search`, which prints the same table), `vendo metrics list`,
+//! `vendo models list`, `vendo measurement methodologies list`, `vendo measurement ltv list`, `vendo
+//! measurement signals list` and `vendo profile list` (its hidden `config list` too), which prints
+//! lines rather than a table ([`profiles`]).
 
 use std::{
     ffi::OsString,
@@ -60,7 +62,7 @@ impl Table<'_> {
 }
 
 /// The list commands whose rows can be chosen (VE-3894).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Group {
     /// `vendo apps list`.
     Apps,
@@ -78,6 +80,17 @@ pub enum Group {
     Metrics,
     /// `vendo models list`.
     Models,
+    /// `vendo measurement methodologies list`: shown from the list's own row, as `methodologies get`
+    /// reads the same route.
+    Methodologies,
+    /// `vendo measurement ltv list`: the cohorts of the list's `--granularity` and `--segment`, which
+    /// the cohort shown takes too.
+    Cohorts { granularity: String, segment: String },
+    /// `vendo measurement signals list`: nothing to show of a signal (the group has no `get`).
+    Signals,
+    /// `vendo profile list` (hidden `config list`): `saved`, the saved `activeProfile`, which
+    /// `profile switch` would not change.
+    Profiles { saved: Option<String> },
 }
 
 /// The words of the action chosen for an item, kept by the list (`menu::browse`) for `main` to parse
@@ -101,9 +114,27 @@ pub async fn shown(
     output: Option<&str>,
 ) -> Result<()> {
     if opens(false, output) && !rows.is_empty() {
-        return browse(client, group, rows, table).await;
+        let (cells, footer) = (table.cells.clone(), table.footer.clone());
+        return browse(Some(client), group, rows, cells, Some(&footer), || table.print()).await;
     }
     table.print();
+    Ok(())
+}
+
+/// What `vendo profile list` shows in place of its lines (`print`): where the list can open
+/// ([`opens`], no `--json`) and there are profiles, `rows` (one per profile, as `--json` prints it) to
+/// choose from, each shown as its `cells`; Enter offers `profile switch` unless the profile is the
+/// saved active one (`saved`), and shows nothing first, as there is no `profile get`.
+pub async fn profiles(
+    saved: impl FnOnce() -> Option<String>,
+    rows: &[Value],
+    cells: Vec<Vec<String>>,
+    print: impl FnOnce(),
+) -> Result<()> {
+    if opens(false, None) && !rows.is_empty() {
+        return browse(None, Group::Profiles { saved: saved() }, rows, cells, None, print).await;
+    }
+    print();
     Ok(())
 }
 
@@ -124,8 +155,15 @@ pub fn opens(_json: bool, _output: Option<&str>) -> bool {
 
 /// Never reached without the `menu` feature, where nothing [`opens`]: the table.
 #[cfg(not(feature = "menu"))]
-async fn browse(_client: &Client, _group: Group, _rows: &[Value], table: Table<'_>) -> Result<()> {
-    table.print();
+async fn browse(
+    _client: Option<&Client>,
+    _group: Group,
+    _rows: &[Value],
+    _cells: Vec<Vec<String>>,
+    _note: Option<&str>,
+    print: impl FnOnce(),
+) -> Result<()> {
+    print();
     Ok(())
 }
 
@@ -137,14 +175,14 @@ use menu::browse;
 mod menu {
     use std::ffi::OsString;
 
-    use anyhow::Result;
+    use anyhow::{Context, Result};
     use serde_json::Value;
 
-    use super::{CHOSEN, Group, PoisonError, Table};
+    use super::{CHOSEN, Group, PoisonError};
     use crate::{
         ask::{Listed, named, padded},
         client::Client,
-        commands::{apps, catalog, dictionary, integrations, jobs, metrics, models, sources},
+        commands::{apps, catalog, dictionary, integrations, jobs, measurement, metrics, models, sources},
         jobs::{ACTIVE_JOB_STATUSES, Job},
         output::{self, ValueRow, short_id},
     };
@@ -154,7 +192,7 @@ mod menu {
 
     impl Group {
         /// The group as the tree names it, after `vendo`.
-        pub(super) fn path(self) -> &'static str {
+        pub(super) fn path(&self) -> &'static str {
             match self {
                 Group::Apps => "apps",
                 Group::Sources => "sources",
@@ -164,15 +202,22 @@ mod menu {
                 Group::Dictionary => "dictionary",
                 Group::Metrics => "metrics",
                 Group::Models => "models",
+                Group::Methodologies => "measurement methodologies",
+                Group::Cohorts { .. } => "measurement ltv",
+                Group::Signals => "measurement signals",
+                Group::Profiles { .. } => "profile",
             }
         }
 
         /// The item's full ID, which `get` and its actions take: a platform's app type, a dictionary
-        /// entry's subject ID, any other item's `id`.
-        fn id(self, row: &Value) -> String {
+        /// entry's subject ID, a cohort's period (`ltv cohort`'s), a profile's name, any other item's
+        /// `id` (a signal's is its name, `click_path`).
+        fn id(&self, row: &Value) -> String {
             match self {
                 Group::Catalog => Job(row).text("appType").unwrap_or_default(),
                 Group::Dictionary => Job(row).text("subjectId").unwrap_or_default(),
+                Group::Cohorts { .. } => Job(row).text("cohort_period").unwrap_or_default(),
+                Group::Profiles { .. } => Job(row).text("name").unwrap_or_default(),
                 _ => Job(row).id(),
             }
         }
@@ -180,8 +225,10 @@ mod menu {
         /// How the answered line names the item, as VE-3881's lists name it: `a1b2c3d4... (Menu Shop)`,
         /// `9c0d1e2f... (Analytics BQ → Demo Pixel)`, a job by its short ID alone, on one line as its row
         /// is ([`one_line`]). A platform by its app type alone, a dictionary entry by its subject ID (not
-        /// a short ID, in full) and its display name: `<subject ID> (Checkout Completed)`.
-        fn answer(self, row: &Value) -> String {
+        /// a short ID, in full) and its display name: `<subject ID> (Checkout Completed)`. A methodology
+        /// as VE-3881's list names it, a cohort by its period, a signal by its ID and a profile by its
+        /// name, each alone.
+        fn answer(&self, row: &Value) -> String {
             let listed = match self {
                 Group::Apps => Listed::Apps,
                 Group::Sources => Listed::Sources,
@@ -189,7 +236,10 @@ mod menu {
                 Group::Jobs => Listed::Jobs,
                 Group::Metrics => Listed::Metrics,
                 Group::Models => Listed::Models,
-                Group::Catalog => return one_line(&self.id(row)),
+                Group::Methodologies => Listed::Methodologies,
+                Group::Catalog | Group::Cohorts { .. } | Group::Signals | Group::Profiles { .. } => {
+                    return one_line(&self.id(row));
+                }
                 Group::Dictionary => {
                     let name = Job(row).text("displayName").unwrap_or_default();
                     return one_line(&named(self.id(row), &name));
@@ -199,9 +249,22 @@ mod menu {
         }
 
         /// Shows what the group's `get` shows of the item, from its code, spinner and requests; the item
-        /// as that request returned it. A request that fails is `get`'s error (exit 1).
-        async fn show(self, client: &Client, row: &Value) -> Result<Value> {
+        /// as that request returned it. A request that fails is `get`'s error (exit 1). A methodology as
+        /// `methodologies get` shows it, from the list's row (its `get` reads the same route, so nothing
+        /// is sent); a cohort as `ltv cohort` shows it with the list's `--granularity` and
+        /// `--segment`; nothing for a signal or a profile, which have no `get` (the row itself).
+        async fn show(&self, client: Option<&Client>, row: &Value) -> Result<Value> {
             let id = self.id(row);
+            match self {
+                Group::Methodologies => {
+                    print!("{}", measurement::render_methodology(row));
+                    return Ok(row.clone());
+                }
+                Group::Signals | Group::Profiles { .. } => return Ok(row.clone()),
+                _ => {}
+            }
+            // Every other list command has its client (`shown`).
+            let client = client.context("no client to show the item with")?;
             match self {
                 Group::Apps => apps::show(client, &id).await,
                 Group::Sources => sources::show(client, &id).await,
@@ -211,6 +274,10 @@ mod menu {
                 Group::Dictionary => dictionary::show(client, &id).await,
                 Group::Metrics => metrics::show(client, &id).await,
                 Group::Models => models::show(client, &id).await,
+                Group::Cohorts { granularity, segment } => {
+                    measurement::show_cohort(client, &id, granularity.clone(), segment.clone()).await
+                }
+                Group::Methodologies | Group::Signals | Group::Profiles { .. } => Ok(row.clone()),
             }
         }
 
@@ -227,10 +294,14 @@ mod menu {
         /// (the help's 'Activate a draft metric'; not an archived one), then `update` and `delete`,
         /// always. Platforms, dictionary entries and models: nothing (their groups have no command that
         /// changes one; the hidden `catalog credential-schema` is never offered, and creating an app with
-        /// a platform is another group's command). Only visible commands of the
-        /// group that take the item's ID: never a hidden one, another group's (`jobs tail --source`) or
+        /// a platform is another group's command). Methodologies and cohorts: nothing (the CLI has no
+        /// command that changes one; `ltv customer` takes a customer). Signals: the `click_path` signal
+        /// its group's `click-path` (which takes no ID), any other nothing. Profiles: `switch` unless the
+        /// profile is the saved `activeProfile` (not the `*`, which `--profile` and `VENDO_PROFILE` move:
+        /// switching to the saved one changes nothing). Only visible commands of the group that take the
+        /// item's ID (but `click-path`): never a hidden one, another group's (`jobs tail --source`) or
         /// one that takes no ID.
-        pub(super) fn actions(self, item: &Value) -> Vec<&'static str> {
+        pub(super) fn actions(&self, item: &Value) -> Vec<&'static str> {
             let item = Job(item);
             let state = item.text("state");
             let sync = (state.as_deref() == Some("active")).then_some("sync");
@@ -257,17 +328,34 @@ mod menu {
                     let draft = (item.status() == "draft").then_some("activate");
                     draft.into_iter().chain(["update", "delete"]).collect()
                 }
-                Group::Catalog | Group::Dictionary | Group::Models => Vec::new(),
+                Group::Signals => {
+                    if item.text("id").as_deref() == Some("click_path") {
+                        vec!["click-path"]
+                    } else {
+                        Vec::new()
+                    }
+                }
+                Group::Profiles { saved } => {
+                    let name = item.text("name");
+                    if name.is_some() && name == *saved { Vec::new() } else { vec!["switch"] }
+                }
+                Group::Catalog | Group::Dictionary | Group::Models | Group::Methodologies | Group::Cohorts { .. } => {
+                    Vec::new()
+                }
             }
         }
 
         /// The words `action` runs as for the item, as typed after `vendo`: the group as the tree names
         /// it (whatever alias was typed), the action and the full ID, after `--` should it start with
-        /// `-` (an ID never does).
-        pub(super) fn words(self, action: &str, row: &Value) -> Vec<OsString> {
+        /// `-` (an ID never does; a profile's name might). A signal's `click-path` takes no ID: `measurement
+        /// signals click-path`.
+        pub(super) fn words(&self, action: &str, row: &Value) -> Vec<OsString> {
             let id = self.id(row);
             let mut words: Vec<OsString> = self.path().split(' ').map(OsString::from).collect();
             words.push(action.into());
+            if *self == Group::Signals {
+                return words;
+            }
             if id.starts_with('-') {
                 words.push("--".into());
             }
@@ -276,26 +364,33 @@ mod menu {
         }
     }
 
-    /// The rows of `table` (one per item of `rows`) to choose from; the table when the terminal refuses
-    /// the first list. Enter shows the item ([`Group::show`]), then its action menu ([`choose_action`]):
-    /// an action is kept for `main` to run, Back opens the list again with the cursor on that item. A
-    /// list or action menu that cannot run after the first leaves quietly (exit 0).
-    pub(super) async fn browse(client: &Client, group: Group, rows: &[Value], table: Table<'_>) -> Result<()> {
-        let plain = table.cells.iter().map(|row| row.iter().map(|cell| one_line(cell)).collect()).collect();
+    /// The rows of a list (`cells`, one per item of `rows`, `note` after the hint) to choose from;
+    /// `print`, what the command prints without a list, when the terminal refuses the first list. Enter
+    /// shows the item ([`Group::show`]), then its action menu ([`choose_action`]): an action is kept for
+    /// `main` to run, Back opens the list again with the cursor on that item. A list or action menu
+    /// that cannot run after the first leaves quietly (exit 0).
+    pub(super) async fn browse(
+        client: Option<&Client>,
+        group: Group,
+        rows: &[Value],
+        cells: Vec<Vec<String>>,
+        note: Option<&str>,
+        print: impl FnOnce(),
+    ) -> Result<()> {
+        let plain = cells.iter().map(|row| row.iter().map(|cell| one_line(cell)).collect()).collect();
         let items: Vec<ValueRow> = padded(plain)
             .into_iter()
             .zip(rows)
             .map(|(shown, row)| ValueRow { shown, answer: group.answer(row) })
             .collect();
         let title = format!("vendo {} list", group.path());
-        let note = Some(table.footer.as_str());
         let Some(mut at) = output::choose_value(&title, &items, note, 0) else {
-            table.print();
+            print();
             return Ok(());
         };
         loop {
             let item = group.show(client, &rows[at]).await?;
-            match choose_action(group, &items[at].answer, &group.actions(&item)) {
+            match choose_action(&group, &items[at].answer, &group.actions(&item)) {
                 Some(Some(action)) => {
                     *CHOSEN.lock().unwrap_or_else(PoisonError::into_inner) = Some(group.words(action, &rows[at]));
                     return Ok(());
@@ -312,7 +407,7 @@ mod menu {
     /// the cursor on the first row, and the keys typed while the item loaded thrown away. Answered as
     /// the command that runs (`vendo apps pause a1b2c3d4... (Menu Shop)`), or `back`. `Some(None)` for
     /// back; `None` when the menu cannot run.
-    fn choose_action(group: Group, answer: &str, actions: &[&'static str]) -> Option<Option<&'static str>> {
+    fn choose_action(group: &Group, answer: &str, actions: &[&'static str]) -> Option<Option<&'static str>> {
         let tree = crate::cli::command();
         let commands = group.path().split(' ').try_fold(&tree, |command, word| command.find_subcommand(word));
         let about = |name: &str| {
@@ -341,7 +436,7 @@ mod tests {
 
     use super::{Group, menu::one_line};
 
-    const GROUPS: [Group; 8] = [
+    const GROUPS: [Group; 12] = [
         Group::Apps,
         Group::Sources,
         Group::Destinations,
@@ -350,6 +445,10 @@ mod tests {
         Group::Dictionary,
         Group::Metrics,
         Group::Models,
+        Group::Methodologies,
+        Group::Cohorts { granularity: String::new(), segment: String::new() },
+        Group::Signals,
+        Group::Profiles { saved: None },
     ];
 
     #[test]
@@ -430,6 +529,47 @@ mod tests {
     }
 
     #[test]
+    fn a_methodology_or_a_cohort_offers_nothing_but_back() {
+        let item = json!({ "id": "click_path", "status": "draft", "state": "active", "is_system": false });
+        let cohorts = Group::Cohorts { granularity: "monthly".into(), segment: "all".into() };
+        for group in [Group::Methodologies, cohorts] {
+            assert!(group.actions(&item).is_empty(), "{group:?}");
+        }
+    }
+
+    #[test]
+    fn only_the_click_path_signal_offers_its_click_path_command() {
+        assert_eq!(Group::Signals.actions(&json!({ "id": "click_path", "state": "live" })), ["click-path"]);
+        for id in [json!("mmm"), json!("survey"), json!("geo_lift"), json!("Click_Path"), json!(null)] {
+            assert!(Group::Signals.actions(&json!({ "id": id, "state": "live" })).is_empty(), "{id}");
+        }
+        // It takes no ID: the signal is the command.
+        let words: Vec<String> = Group::Signals
+            .words("click-path", &json!({ "id": "click_path" }))
+            .into_iter()
+            .map(|word| word.into_string().unwrap())
+            .collect();
+        assert_eq!(words, ["measurement", "signals", "click-path"]);
+    }
+
+    #[test]
+    fn a_profile_offers_switch_unless_it_is_the_saved_active_one() {
+        // By the saved `activeProfile`, not the `*` that `--profile` and VENDO_PROFILE move.
+        let profiles = Group::Profiles { saved: Some("alpha".into()) };
+        assert!(profiles.actions(&json!({ "name": "alpha", "active": false })).is_empty());
+        assert_eq!(profiles.actions(&json!({ "name": "beta", "active": true })), ["switch"]);
+        assert_eq!(profiles.actions(&json!({ "name": "Alpha", "active": false })), ["switch"]);
+        // With no saved active profile, every profile can be switched to.
+        let unsaved = Group::Profiles { saved: None };
+        assert_eq!(unsaved.actions(&json!({ "name": "alpha", "active": true })), ["switch"]);
+        let words = |name: &str| -> Vec<String> {
+            profiles.words("switch", &json!({ "name": name })).into_iter().map(|w| w.into_string().unwrap()).collect()
+        };
+        assert_eq!(words("beta"), ["profile", "switch", "beta"]);
+        assert_eq!(words("-odd"), ["profile", "switch", "--", "-odd"]);
+    }
+
+    #[test]
     fn an_action_runs_as_typed_with_the_full_id() {
         let row = json!({ "id": "a1b2c3d4-0000-4000-8000-000000000001", "displayName": "Menu Shop" });
         let words: Vec<String> =
@@ -453,7 +593,9 @@ mod tests {
     #[test]
     fn every_action_is_a_visible_command_of_the_group_that_takes_the_items_id() {
         // An ID is the one argument it takes by position (`jobs tail`'s is optional, as it can follow a
-        // source's or destination's latest job instead), named as the group's IDs are (`<sourceId>`).
+        // source's or destination's latest job instead), named as the group's IDs are (`<sourceId>`);
+        // `profile switch` takes the profile's name. `signals click-path` takes none: the signal is the
+        // command.
         let tree = crate::cli::command();
         let states = [json!("active"), json!("inactive"), json!("deleted"), json!(null)];
         let statuses =
@@ -463,19 +605,26 @@ mod tests {
             let commands = group.path().split(' ').try_fold(&tree, |command, word| command.find_subcommand(word));
             let commands = commands.unwrap_or_else(|| panic!("{group:?}: no {}", group.path()));
             for (state, status) in states.iter().flat_map(|state| statuses.iter().map(move |status| (state, status))) {
-                let item = json!({ "state": state, "status": status, "sourceAppId": "a1b2c3d4" });
+                let item = json!({
+                    "state": state, "status": status, "sourceAppId": "a1b2c3d4", "id": "click_path", "name": "beta",
+                });
                 for action in group.actions(&item) {
                     offered.insert((group.path(), action));
                     let command = commands.find_subcommand(action);
                     let command = command.unwrap_or_else(|| panic!("{group:?}: {action} is no command"));
                     assert!(!command.is_hide_set(), "{group:?}: {action} is hidden");
                     let ids: Vec<&clap::Arg> = command.get_arguments().filter(|arg| arg.is_positional()).collect();
+                    if group == Group::Signals {
+                        assert!(ids.is_empty(), "{group:?}: {action} takes {ids:?}");
+                        continue;
+                    }
                     assert_eq!(ids.len(), 1, "{group:?}: {action} takes no one ID");
                     let name = ids[0].get_value_names().and_then(|names| names.first()).map(ToString::to_string);
-                    assert!(
-                        name.as_deref().is_some_and(|name| name.ends_with("Id")),
-                        "{group:?}: {action} takes {name:?}"
-                    );
+                    let named = |name: &str| match group {
+                        Group::Profiles { .. } => name == "profile",
+                        _ => name.ends_with("Id"),
+                    };
+                    assert!(name.as_deref().is_some_and(named), "{group:?}: {action} takes {name:?}");
                 }
             }
         }
@@ -487,6 +636,8 @@ mod tests {
             ("destinations", &["delete", "pause", "refresh-source", "resume", "sync", "update"]),
             ("jobs", &["cancel", "tail"]),
             ("metrics", &["activate", "delete", "update"]),
+            ("measurement signals", &["click-path"]),
+            ("profile", &["switch"]),
         ];
         let expected = expected.iter().flat_map(|(group, actions)| actions.iter().map(move |action| (*group, *action)));
         assert_eq!(offered, expected.collect());

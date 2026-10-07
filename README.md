@@ -112,12 +112,16 @@ needs stdin, stdout and stderr to be terminals, `TERM` not `dumb` and prompts on
 exits 2. Under the same rule, `--profile` typed last with no name, and `vendo profile switch` with none, open a list
 of your saved profiles; otherwise `--profile` with no name is a usage error (exit 2). Also under that rule,
 `vendo apps list`, `vendo sources list`, `vendo destinations list`, `vendo jobs list`, `vendo catalog list`,
-`vendo dictionary list`, `vendo metrics list` and `vendo models list` show their rows as a list to
+`vendo dictionary list`, `vendo metrics list`, `vendo models list`, `vendo measurement methodologies list`,
+`vendo measurement ltv list`, `vendo measurement signals list` and `vendo profile list` show their rows as a list to
 pick from instead of printing the table: the same rows and count, arrow keys move, typing filters, and Enter shows the
-item as `get` does, then what you can do with it, or back to the list: for an app, source or destination pause or
+item as `get` does (a cohort as `ltv cohort` does; a signal or a profile shows nothing first), then what you can do
+with it, or back to the list: for an app, source or destination pause or
 resume, update and delete (for a source or destination also sync while it is active, and for a destination with a
 source app refresh-source); for a job tail and cancel while it is queued, pending or running; for a metric update
-and delete, and activate while it is a draft. A platform, a dictionary entry or a model shows its details and back.
+and delete, and activate while it is a draft; for the `click_path` signal click-path; for a profile switch, unless it
+is the saved active profile. A platform, a dictionary entry, a model, a methodology or a cohort shows its details and
+back.
 The action runs as if you had typed it, so `delete` and `jobs cancel` still ask y/N. Esc leaves.
 `vendo dictionary search` prints its table as before. With `--json` or `--output`, or where
 the menu cannot open, these commands print the table as before.
@@ -399,15 +403,15 @@ empty, `0` or `false` and it asks none, at a terminal too:
   anything. `--json` does not imply `--yes`.
 - A group run without its command (`vendo apps`) prints its help and exits 2 instead of opening the menu.
 - `vendo apps list`, `sources list`, `destinations list`, `jobs list`, `catalog list`, `dictionary list`,
-  `metrics list` and `models list` print their table instead of a list to pick from.
+  `metrics list`, `models list`, `measurement methodologies list`, `measurement ltv list` and
+  `measurement signals list` print their table, and `vendo profile list` its lines, instead of a list to pick from.
 - `vendo profile switch` without a profile name prints `Cancelled.` instead of a list to pick from, and `--profile`
   without a name exits 2 with its usage error.
 - `vendo login` without a key prints the sign-in link and waits; it opens no browser. In CI, use
   `vendo login --api-key ... --account ...` or the environment variables below.
 
-`TERM=dumb` turns off the group menu, the profile list and the lists to pick from that `apps list`, `sources list`,
-`destinations list`, `jobs list`, `catalog list`, `dictionary list`, `metrics list` and `models list` show; the y/N
-questions still ask.
+`TERM=dumb` turns off the group menu, the profile list and the lists to pick from that every `list` command shows
+(`apps list` to `models list`, the measurement lists and `profile list`); the y/N questions still ask.
 
 ### Environment variables
 

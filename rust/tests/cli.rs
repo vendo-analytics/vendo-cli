@@ -4537,11 +4537,17 @@ fn the_old_config_group_opens_the_profile_menu() {
         assert!(menu.contains(row.as_str()), "{row:?} is not in the menu:\n{menu}");
     }
     assert!(!menu.contains("current") && !menu.contains("reset"), "{menu}");
+    // Its first command, `list`, shows the profiles to choose from (VE-3894), titled as the tree names
+    // it; Esc leaves.
     terminal.press("\r");
+    terminal.wait_for("vendo profile list");
+    terminal.wait_for("type to filter]");
+    let rows = profile_list_rows(CLOSED, &["alpha", "beta"], "alpha");
+    assert_eq!(shown_from(&terminal, "? vendo profile list"), profile_list("vendo profile list", &rows));
+    terminal.press("\u{1b}");
     let (ran, code) = terminal.finish();
     assert_eq!(code, Some(0), "{ran}");
-    let ran = plain(&ran);
-    assert!(ran.contains("alpha") && ran.contains("beta"), "{ran}");
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
 }
 
 #[cfg(unix)]
@@ -8113,13 +8119,21 @@ async fn a_command_ending_in_profile_with_no_name_runs_with_the_chosen_profile_f
         terminal.press(keys);
         let answer = format!("? {title} {chosen}");
         terminal.wait_for(&answer[2..]);
-        // `apps list` at a terminal shows its table's rows to choose from (VE-3894), which Esc leaves.
+        // `apps list` at a terminal shows its table's rows to choose from (VE-3894), which Esc leaves;
+        // `config list`, the profiles, each marked as the chosen profile marks them.
         let listed = (args[0] == "apps" && !args.contains(&"--json")).then(|| {
             terminal.wait_for("type to filter · 1 app]");
             let listed = shown_from(&terminal, "? vendo apps list");
             terminal.press("\u{1b}");
             listed
         });
+        if args[0] == "config" {
+            terminal.wait_for("vendo profile list");
+            terminal.wait_for("type to filter]");
+            let profiles = profile_list_rows(&server.uri(), &["alpha", "beta"], chosen);
+            assert_eq!(shown_from(&terminal, "? vendo profile list"), profile_list("vendo profile list", &profiles));
+            terminal.press("\u{1b}");
+        }
         let (rest, code) = terminal.finish();
         let asked = sent(&server).await[before..].to_vec();
         // The same words with the profile typed after `--profile`, on a pipe.
@@ -8135,6 +8149,12 @@ async fn a_command_ending_in_profile_with_no_name_runs_with_the_chosen_profile_f
                 let rows: Vec<String> = listed[1..listed.len() - 1].iter().map(|row| row[2..].to_string()).collect();
                 assert_eq!(table_cells(&rows), printed[1..printed.len() - 1], "{case}");
                 assert_eq!(after_answer(&terminal, &answer), ["? vendo apps list <canceled>"], "{case}");
+            }
+            // The profiles, whose list Esc left.
+            None if args[0] == "config" => {
+                assert_eq!(after_answer(&terminal, &answer), ["? vendo profile list <canceled>"], "{case}");
+                let profiles = profile_list_rows(&server.uri(), &["alpha", "beta"], chosen);
+                assert_eq!(table_cells(&profiles), printed, "{case}: the lines typed");
             }
             // What it showed after the answer is what the typed command printed (a table has borders only
             // at a terminal).
@@ -10164,4 +10184,717 @@ async fn an_empty_platform_dictionary_metric_or_model_list_prints_the_table_and_
         assert!(plain(&screen).ends_with(&format!("{footer}\n")), "{args:?}: {screen:?}");
         assert_eq!(text(&sandbox.run(args).stdout).lines().last(), Some(footer), "{args:?}");
     }
+}
+
+// ── VE-3894: measurement lists and profile list ──────────────────────────────
+// `vendo measurement methodologies list`, `vendo measurement ltv list`, `vendo measurement signals list`
+// and `vendo profile list` (its old name `config list` too) at a terminal, as `vendo apps list` above:
+// the rows they print, to choose from. Enter on a methodology shows it as `methodologies get` does,
+// from the list's row (nothing sent); on a cohort as `ltv cohort` does with the list's granularity and
+// segment; on a signal or a profile nothing, as they have no `get`. Then the actions that apply: the
+// `click_path` signal `click-path`, a profile `switch` unless it is the saved active profile; anything
+// else nothing; then `back`.
+
+/// `vendo profile list`'s lines as its selectable list shows them, for `profiles` named as
+/// [`Sandbox::new`] names them (`acct-<name>`) on `base_url`, `*` on `active`: the marker and name,
+/// the account ID and the base URL, padded per column.
+fn profile_list_rows(base_url: &str, profiles: &[&str], active: &str) -> Vec<String> {
+    let first = |name: &str| if name == active { format!("* {name} (active)") } else { format!("  {name}") };
+    let width = profiles.iter().map(|name| first(name).len()).max().unwrap();
+    let account = profiles.iter().map(|name| name.len() + 5).max().unwrap();
+    let row = |name: &&str| format!("{:<width$}  {:<account$}  {base_url}", first(name), format!("acct-{name}"));
+    profiles.iter().map(row).collect()
+}
+
+/// The signals as `GET /api/measurement/signals` sends them: click-path live, MMM a stub, survey live.
+fn signals_to_browse() -> Value {
+    json!({ "data": { "signals": [
+        { "id": "click_path", "state": "live", "availability": { "available": true } },
+        { "id": "mmm", "state": "stub", "availability": { "available": false, "reason": "Not enough spend history" } },
+        { "id": "survey", "state": "live", "availability": { "available": true } },
+    ] } })
+}
+
+/// [`measurement_and_dictionary_stub`] (the methodologies, the monthly and weekly cohorts and each
+/// cohort's detail), with [`signals_to_browse`] and the click-path status.
+async fn measurement_lists_stub() -> MockServer {
+    let server = measurement_and_dictionary_stub().await;
+    serve(&server, "GET", "/api/measurement/signals", 200, signals_to_browse()).await;
+    let status = json!({ "status": {
+        "enabled": true, "lastComputedAt": null, "sampleEstimates": [{ "tier_label": "a" }],
+        "readiness": { "available": true, "readiness": [{ "key": "clicks", "label": "Has click data", "ok": true }] },
+    } });
+    serve(&server, "GET", "/api/measurement/signals/click-path", 200, status).await;
+    server
+}
+
+/// A measurement list as its selectable list shows [`measurement_lists_stub`]'s items.
+#[derive(Clone, Copy, Debug)]
+struct Measured {
+    /// The list command.
+    args: &'static [&'static str],
+    /// The group as the tree names it.
+    group: &'static str,
+    /// The request the list sends, at a terminal as on a pipe.
+    listed: &'static str,
+    /// The items' IDs as their `get` takes them (a cohort's period), in the list's order.
+    ids: &'static [&'static str],
+    /// The items as the list shows them: the table's cells as plain text, padded per column.
+    rows: &'static [&'static str],
+    /// How an answered line names each item.
+    answers: &'static [&'static str],
+    /// The table's footer, which follows the list's hint.
+    footer: &'static str,
+    /// The actions each item offers before `back`.
+    actions: &'static [&'static [&'static str]],
+}
+
+const METHODOLOGIES_MEASURED: Measured = Measured {
+    args: &["measurement", "methodologies", "list"],
+    group: "measurement methodologies",
+    listed: METHODOLOGIES_LISTED,
+    ids: &[METHODOLOGY_BLENDED, METHODOLOGY_LAST_CLICK, METHODOLOGY_MIX],
+    rows: &[
+        "0d0e0f10...  Blended     linear          account  1  —",
+        "1e1f2021...  Last Click  last_click      system   1  —",
+        "2f303132...  Media Mix   position_based  system   1  —",
+    ],
+    answers: &["0d0e0f10... (Blended)", "1e1f2021... (Last Click)", "2f303132... (Media Mix)"],
+    footer: "3 methodologys",
+    actions: &[&[], &[], &[]],
+};
+
+const COHORTS_MEASURED: Measured = Measured {
+    args: &["measurement", "ltv", "list"],
+    group: "measurement ltv",
+    listed: "GET /api/measurement/ltv?granularity=monthly&segment_key=all&limit=50",
+    ids: &["2026-09-01", "2026-08-01", "2026-07-01"],
+    // Every column the table shows, the money ones too.
+    rows: &[
+        "2026-09-01  all  1,204  $12.50  —  —  —  —",
+        "2026-08-01  all  987    $12.50  —  —  —  —",
+        "2026-07-01  all  15     $12.50  —  —  —  —",
+    ],
+    answers: &["2026-09-01", "2026-08-01", "2026-07-01"],
+    footer: "3 cohorts",
+    actions: &[&[], &[], &[]],
+};
+
+/// `vendo measurement ltv list --granularity weekly --segment channel:meta`.
+const WEEKLY_MEASURED: Measured = Measured {
+    args: &["measurement", "ltv", "list", "--granularity", "weekly", "--segment", "channel:meta"],
+    listed: "GET /api/measurement/ltv?granularity=weekly&segment_key=channel%3Ameta&limit=50",
+    ids: &["2026-09-28", "2026-09-21"],
+    rows: &["2026-09-28  channel:meta  88  $12.50  —  —  —  —", "2026-09-21  channel:meta  90  $12.50  —  —  —  —"],
+    answers: &["2026-09-28", "2026-09-21"],
+    footer: "2 cohorts",
+    actions: &[&[], &[]],
+    ..COHORTS_MEASURED
+};
+
+const SIGNALS_MEASURED: Measured = Measured {
+    args: &["measurement", "signals", "list"],
+    group: "measurement signals",
+    listed: "GET /api/measurement/signals",
+    ids: &["click_path", "mmm", "survey"],
+    rows: &["click_path  live  yes  —", "mmm         stub  no   Not enough spend history", "survey      live  yes  —"],
+    answers: &["click_path", "mmm", "survey"],
+    footer: "3 signals",
+    actions: &[&["click-path"], &[], &[]],
+};
+
+const MEASURED: [Measured; 4] = [METHODOLOGIES_MEASURED, COHORTS_MEASURED, WEEKLY_MEASURED, SIGNALS_MEASURED];
+
+impl Measured {
+    /// The open list's title.
+    fn title(self) -> String {
+        format!("? vendo {} list", self.group)
+    }
+
+    /// The end of the list's hint: the table's footer.
+    fn hint_end(self) -> String {
+        format!("type to filter · {}]", self.footer)
+    }
+
+    /// What the open list shows with the cursor on the row at `at`.
+    fn list(self, at: usize) -> Vec<String> {
+        let rows = self.rows.iter().enumerate().map(|(i, row)| format!("{} {row}", if i == at { '>' } else { ' ' }));
+        let hint = format!("[↑↓ to move, enter to select, {}", self.hint_end());
+        [vec![self.title()], rows.collect(), vec![hint]].concat()
+    }
+
+    /// The requests Enter sends for the item at `at`: a cohort's, with the list's granularity and
+    /// segment; nothing for a methodology (the list's row) or a signal.
+    fn item(self, at: usize) -> Vec<String> {
+        match self.group {
+            "measurement ltv" => {
+                let query = self.listed.split_once('?').unwrap().1.trim_end_matches("&limit=50");
+                vec![format!("GET /api/measurement/ltv/cohort/{}?{query}", self.ids[at])]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The command typed on a pipe that prints what Enter shows of the item at `at`; none for a signal.
+    fn typed(self, at: usize) -> Option<Vec<&'static str>> {
+        match self.group {
+            "measurement methodologies" => Some(vec!["measurement", "methodologies", "get", self.ids[at]]),
+            "measurement ltv" => Some([&["measurement", "ltv", "cohort", self.ids[at]][..], &self.args[3..]].concat()),
+            _ => None,
+        }
+    }
+
+    /// The action menu of the item at `at`: its actions, then `back`, each described as the group's help
+    /// lists it.
+    fn menu(self, sandbox: &Sandbox, at: usize) -> Vec<String> {
+        let words: Vec<&str> = self.group.split(' ').collect();
+        let help = command_rows(sandbox, &words);
+        let about = |action: &str| match action {
+            "back" => "Back to the list".to_string(),
+            _ => help
+                .iter()
+                .find_map(|row| row.strip_prefix(action).filter(|about| about.starts_with(' ')))
+                .map(|about| about.trim().to_string())
+                .unwrap_or_else(|| panic!("{action}: {help:#?}")),
+        };
+        let names: Vec<&str> = self.actions[at].iter().copied().chain(["back"]).collect();
+        let width = names.iter().map(|name| name.len()).max().unwrap();
+        let rows: Vec<String> = names.iter().map(|name| format!("{name:<width$}  {}", about(name))).collect();
+        let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+        [vec![format!("? vendo {}", self.group)], marked(&rows), vec![HINT.to_string()]].concat()
+    }
+
+    /// Opens `vendo <args>`, this list, and waits for it.
+    fn open(self, sandbox: &Sandbox) -> OnTerminal {
+        let mut terminal = OnTerminal::start(sandbox, self.args);
+        terminal.wait_for(&self.hint_end());
+        terminal
+    }
+
+    /// Opens the list, chooses the row at `at` and waits for its action menu.
+    fn menu_of(self, sandbox: &Sandbox, at: usize) -> OnTerminal {
+        let mut terminal = self.open(sandbox);
+        if at > 0 {
+            terminal.press(&"\u{1b}[B".repeat(at));
+            terminal.wait_for(&format!("> {}", self.rows[at]));
+        }
+        terminal.press("\r");
+        terminal.wait_for("Back to the list");
+        terminal.wait_for("type to filter]");
+        terminal
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn measurement_lists_at_a_terminal_list_the_tables_rows_from_the_same_request() {
+    // Titled with the command, every row the table shows (its cells, plain, the LTV money columns
+    // too), the first marked, the table's footer after the hint. The flags go into the request as typed:
+    // the table's request, and nothing more.
+    let no_system = Measured {
+        args: &["measurement", "methodologies", "list", "--no-system"],
+        listed: "GET /api/measurement/methodologies?include_system=false",
+        ..METHODOLOGIES_MEASURED
+    };
+    for measured in MEASURED.into_iter().chain([no_system]) {
+        let case = measured.args.join(" ");
+        let server = measurement_lists_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let piped = sandbox.run(measured.args);
+        assert_eq!(sent(&server).await, [measured.listed], "{case}");
+        let mut terminal = measured.open(&sandbox);
+        let shown = shown_lines(&terminal, (40, 120));
+        assert_eq!(shown, measured.list(0), "{case}");
+        let table = table_cells(&printed_lines(&piped));
+        assert_eq!(table.last().unwrap(), &[measured.footer], "{case}");
+        let listed: Vec<String> = shown[1..shown.len() - 1].iter().map(|row| row[2..].to_string()).collect();
+        assert_eq!(table_cells(&listed), table[1..table.len() - 1], "{case}: the table's rows");
+        terminal.press("\u{1b}");
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{case}: {rest:?}");
+        assert_eq!(sent(&server).await, [measured.listed, measured.listed], "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn enter_on_a_methodology_cohort_or_signal_shows_it_as_its_get_does_then_the_actions_that_apply() {
+    // A methodology as `methodologies get` shows it, from the list's row: nothing sent. A cohort as `ltv
+    // cohort` shows it, with the list's granularity and segment. A signal nothing (no `get`). Then the
+    // `click_path` signal `click-path`; anything else nothing but back.
+    for measured in MEASURED {
+        for at in 0..measured.ids.len() {
+            let case = format!("{} {}", measured.args.join(" "), measured.ids[at]);
+            let server = measurement_lists_stub().await;
+            let sandbox = Sandbox::new(&server.uri());
+            let mut terminal = measured.menu_of(&sandbox, at);
+            let asked = sent(&server).await;
+            assert_eq!(asked, [vec![measured.listed.to_string()], measured.item(at)].concat(), "{case}");
+            let shown = shown_from(&terminal, &format!("{} {}", measured.title(), measured.answers[at]));
+            let menu = measured.menu(&sandbox, at);
+            let details = &shown[1..shown.len() - menu.len()];
+            let details: Vec<String> = details.iter().filter(|line| !line.is_empty()).cloned().collect();
+            match measured.typed(at) {
+                Some(typed) => {
+                    let typed = sandbox.run(&typed);
+                    assert_eq!(typed.status.code(), Some(0), "{case}");
+                    assert_eq!(details, printed_lines(&typed), "{case}");
+                    if measured.group == "measurement ltv" {
+                        assert_eq!(sent(&server).await[asked.len()..], measured.item(at), "{case}: as typed");
+                    }
+                }
+                None => assert!(details.is_empty(), "{case}: {details:#?}"),
+            }
+            assert_eq!(shown[shown.len() - menu.len()..], menu, "{case}");
+            let before = sent(&server).await.len();
+            terminal.press("\u{1b}");
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            assert_eq!(sent(&server).await.len(), before, "{case}: nothing more sent");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_click_path_signals_action_runs_its_command_exactly_as_typed() {
+    let measured = SIGNALS_MEASURED;
+    let server = measurement_lists_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut terminal = measured.menu_of(&sandbox, 0);
+    terminal.press("\r");
+    let answered = "? vendo measurement signals click-path click_path";
+    terminal.wait_for(&answered[2..]);
+    let (rest, code) = terminal.finish();
+    let asked = sent(&server).await;
+    let typed = sandbox.run(&["measurement", "signals", "click-path"]);
+    let typed_sent = sent(&server).await[asked.len()..].to_vec();
+    assert_eq!(typed_sent, ["GET /api/measurement/signals/click-path"]);
+    assert_eq!(asked, [measured.listed.to_string(), typed_sent[0].clone()]);
+    assert_eq!((code, typed.status.code()), (Some(0), Some(0)), "{rest:?}");
+    assert_eq!(after_answer(&terminal, answered), printed_lines(&typed));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn back_opens_a_measurement_list_again_on_the_item_with_no_request() {
+    for (measured, filter) in [
+        (METHODOLOGIES_MEASURED, "last"),
+        (COHORTS_MEASURED, "987"),
+        (WEEKLY_MEASURED, "09-21"),
+        (SIGNALS_MEASURED, "mmm"),
+    ] {
+        let case = measured.args.join(" ");
+        let server = measurement_lists_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let mut terminal = measured.open(&sandbox);
+        // Filtered down to the second row, which Enter shows.
+        terminal.press(filter);
+        terminal.wait_for(&format!("vendo {} list {filter}", measured.group));
+        terminal.press("\r");
+        terminal.wait_for("Back to the list");
+        terminal.wait_for("type to filter]");
+        let shown_once = sent(&server).await;
+        terminal.press("back\r");
+        terminal.wait_for(&measured.hint_end());
+        terminal.wait_for("\u{1b}[?25h");
+        // The same rows, the filter cleared, the cursor on the item just viewed; nothing sent.
+        assert_eq!(shown_from(&terminal, &measured.title()), measured.list(1), "{case}");
+        assert_eq!(sent(&server).await, shown_once, "{case}");
+        let back = format!("? vendo {} back", measured.group);
+        assert!(shown_lines(&terminal, (40, 120)).contains(&back), "{case}");
+        terminal.press("\u{1b}");
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{case}: {rest:?}");
+        assert_eq!(sent(&server).await, shown_once, "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn typing_filters_the_measurement_lists_by_any_column() {
+    for (measured, typed, rows) in [
+        (METHODOLOGIES_MEASURED, "SYSTEM", &[1, 2][..]),
+        (METHODOLOGIES_MEASURED, "position", &[2]),
+        (COHORTS_MEASURED, "1,204", &[0]),
+        (WEEKLY_MEASURED, "90", &[1]),
+        (SIGNALS_MEASURED, "spend history", &[1]),
+        (SIGNALS_MEASURED, "live", &[0, 2]),
+    ] {
+        let case = format!("{} {typed}", measured.args.join(" "));
+        let server = measurement_lists_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let mut terminal = measured.open(&sandbox);
+        terminal.press(typed);
+        terminal.wait_for(&format!("vendo {} list {typed}", measured.group));
+        terminal.wait_for("\u{1b}[?25h");
+        let expected: Vec<&str> = rows.iter().map(|at| measured.rows[*at]).collect();
+        assert_eq!(listed_rows(&terminal), marked(&expected), "{case}");
+        terminal.press("\u{1b}");
+        assert_eq!(terminal.finish().1, Some(0), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn esc_ctrl_c_or_ctrl_d_at_a_measurement_list_or_its_actions_leave_quietly() {
+    // As at the group menu (VE-3826): exit 0, nothing run, the title and `<canceled>` where the list or
+    // the menu was, and the cursor on the next line.
+    for measured in MEASURED {
+        let list = format!("vendo {} list", measured.group);
+        let actions = format!("vendo {}", measured.group);
+        for (step, key, title) in
+            [("list", "\u{1b}", &list), ("actions", "\u{3}", &actions), ("list after back", "\u{4}", &list)]
+        {
+            let case = format!("{} at the {step}", measured.args.join(" "));
+            let server = measurement_lists_stub().await;
+            let sandbox = Sandbox::new(&server.uri());
+            let mut terminal = if step == "list" { measured.open(&sandbox) } else { measured.menu_of(&sandbox, 0) };
+            if step == "list after back" {
+                terminal.press("back\r");
+                terminal.wait_for(&measured.hint_end());
+            }
+            terminal.press(key);
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            let rest = plain(&rest).to_lowercase();
+            assert!(!rest.contains("error") && !rest.contains("usage"), "{case}: {rest:?}");
+            let (shown, cursor) = screen(&terminal.screen, 40, 120);
+            let last = shown.iter().rposition(|line| !line.is_empty()).unwrap();
+            assert_eq!((shown[last].clone(), cursor), (format!("? {title} <canceled>"), (last + 1, 0)), "{case}");
+            let reads = if step == "list" { 1 } else { 1 + measured.item(0).len() };
+            let asked = sent(&server).await;
+            assert_eq!(asked.len(), reads, "{case}: {asked:#?}");
+            assert!(asked.iter().all(|request| request.starts_with("GET ")), "{case}: {asked:#?}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_cohort_that_cannot_be_read_ends_with_the_error_ltv_cohort_gives() {
+    // A 404, a 429 or the network: `ltv cohort`'s error, exit 1.
+    let server = MockServer::start().await;
+    serve(&server, "GET", "/api/measurement/ltv", 200, cohorts("monthly", "all", &MONTHLY)).await;
+    let missing = json!({ "error": "Cohort not found" });
+    Mock::given(path("/api/measurement/ltv/cohort/2026-07-01"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(missing).insert_header("x-request-id", "req_server_1"))
+        .mount(&server)
+        .await;
+    let sandbox = Sandbox::new(&server.uri());
+    let measured = COHORTS_MEASURED;
+    let mut terminal = measured.open(&sandbox);
+    terminal.press("\u{1b}[B\u{1b}[B");
+    terminal.wait_for(&format!("> {}", measured.rows[2]));
+    terminal.press("\r");
+    let answered = format!("{} {}", measured.title(), measured.answers[2]);
+    terminal.wait_for(&answered[2..]);
+    let (rest, code) = terminal.finish();
+    let typed = sandbox.run(&["measurement", "ltv", "cohort", "2026-07-01"]);
+    assert_eq!((code, typed.status.code()), (Some(1), Some(1)), "{rest:?}");
+    assert_eq!(after_answer(&terminal, &answered), printed_lines(&typed));
+    assert!(printed_lines(&typed)[0].starts_with("Error: "), "{:?}", printed_lines(&typed));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn where_the_list_cannot_open_and_with_json_or_output_the_measurement_lists_print_what_they_printed() {
+    // Byte for byte, as `vendo apps list` (above): piped (`output/` records it), with stdout piped from
+    // a terminal, and at a terminal with prompts off, on `TERM=dumb`, with stderr redirected or a
+    // write-only stdin, where it prints the table a terminal shows. `--json` and `--output` print what
+    // they print on a pipe; an empty `--output` the table. `signals list` has no `--output`.
+    for (measured, field) in [
+        (METHODOLOGIES_MEASURED, Some("clickPathModel")),
+        (COHORTS_MEASURED, Some("cohortPeriod")),
+        (WEEKLY_MEASURED, Some("cohort_size")),
+        (SIGNALS_MEASURED, None),
+    ] {
+        let args = measured.args;
+        let case = args.join(" ");
+        let server = measurement_lists_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let piped = sandbox.run(args);
+        let (reference, code) = OnTerminal::start_env(&sandbox, args, &[("CI", "1")]).finish();
+        assert_eq!(code, Some(0), "{case}: {reference:?}");
+        let reference = plain(&reference);
+        let bordered: Vec<String> = reference.lines().map(str::to_string).collect();
+        assert_eq!(table_cells(&bordered), cells(&piped.stdout), "{case}");
+        assert!(reference.starts_with("┌") && reference.ends_with(&format!("{}\n", measured.footer)), "{case}");
+        for (setting, code, screen) in where_no_list_opens(&sandbox, args) {
+            assert_eq!((code, screen), (Some(0), reference.clone()), "{case}: {setting}");
+        }
+        let (_controller, terminal) = pseudo_terminal();
+        let terminal = std::fs::File::from(terminal);
+        let out = sandbox.command(args).stdin(terminal.try_clone().unwrap()).stderr(terminal).output().unwrap();
+        assert_eq!((out.status.code(), text(&out.stdout)), (Some(0), text(&piped.stdout)), "{case}");
+        let mut flags = vec![vec!["--json"]];
+        flags.extend(field.map(|field| vec!["--output", field]));
+        for flags in flags {
+            let args: Vec<&str> = args.iter().copied().chain(flags.iter().copied()).collect();
+            let (screen, code) = OnTerminal::start(&sandbox, &args).finish();
+            let piped = sandbox.run(&args);
+            assert_eq!((code, plain(&screen)), (Some(0), text(&piped.stdout)), "{case} {flags:?}");
+        }
+        if field.is_some() {
+            let args: Vec<&str> = args.iter().chain(&["--output", ""]).copied().collect();
+            let (screen, code) = OnTerminal::start(&sandbox, &args).finish();
+            assert_eq!((code, plain(&screen)), (Some(0), reference.clone()), "{case} --output ''");
+        }
+        assert!(sent(&server).await.iter().all(|request| request == measured.listed), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_empty_measurement_list_prints_the_table_and_its_count_at_a_terminal_too() {
+    let server = MockServer::start().await;
+    serve(&server, "GET", "/api/measurement/methodologies", 200, json!({ "data": { "methodologies": [] } })).await;
+    serve(&server, "GET", "/api/measurement/ltv", 200, cohorts("monthly", "all", &[])).await;
+    serve(&server, "GET", "/api/measurement/signals", 200, json!({ "data": { "signals": [] } })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, footer) in [
+        (&["measurement", "methodologies", "list"], "0 methodologys"),
+        (&["measurement", "ltv", "list"], "0 cohorts"),
+        (&["measurement", "signals", "list"], "0 signals"),
+    ] {
+        let (reference, code) = OnTerminal::start_env(&sandbox, args, &[("CI", "1")]).finish();
+        assert_eq!(code, Some(0), "{args:?}");
+        let (screen, code) = OnTerminal::start(&sandbox, args).finish();
+        assert_eq!((code, plain(&screen)), (Some(0), plain(&reference)), "{args:?}");
+        assert!(plain(&screen).ends_with(&format!("{footer}\n")), "{args:?}: {screen:?}");
+        assert_eq!(text(&sandbox.run(args).stdout).lines().last(), Some(footer), "{args:?}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_measurement_list_and_an_items_actions_exit_as_ctrl_d_does_when_their_terminal_hangs_up() {
+    let server = measurement_lists_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let mut outcomes = Vec::new();
+    for (measured, step) in [(SIGNALS_MEASURED, "list"), (SIGNALS_MEASURED, "actions"), (COHORTS_MEASURED, "actions")] {
+        let mut terminal = OnTerminal::start_detached(&sandbox, measured.args);
+        terminal.wait_for(&measured.hint_end());
+        if step == "actions" {
+            terminal.press("\r");
+            terminal.wait_for("Back to the list");
+            terminal.wait_for("type to filter]");
+        }
+        let (exited, ended) = hang_up(&mut terminal);
+        outcomes.push((measured.group, step, exited, ended));
+    }
+    assert!(
+        outcomes.iter().all(|(_, _, exited, ended)| *exited && ended.code == Some(0) && ended.cpu < HUNG_UP_CPU),
+        "each should exit 0 within {HUNG_UP_EXIT:?}, using under {HUNG_UP_CPU:?} of processor time: {outcomes:#?}"
+    );
+    let cohort = COHORTS_MEASURED.item(0).remove(0);
+    let (signals, ltv) = (SIGNALS_MEASURED.listed, COHORTS_MEASURED.listed);
+    assert_eq!(sent(&server).await, [signals, signals, ltv, &cohort]);
+}
+
+// `vendo profile list`: no request; the profiles as its lines show them, to choose from. Enter shows
+// nothing (there is no `profile get`), then `switch` unless the profile is the saved active one.
+
+/// What the open profile list shows, the cursor on the row at `at`.
+fn profile_browse(rows: &[String], at: usize) -> Vec<String> {
+    let rows = rows.iter().enumerate().map(|(i, row)| format!("{} {row}", if i == at { '>' } else { ' ' }));
+    [vec!["? vendo profile list".to_string()], rows.collect(), vec![HINT.to_string()]].concat()
+}
+
+/// The action menu of a profile: `switch` when offered, then `back`, described as `vendo profile
+/// --help` lists them.
+fn profile_menu(sandbox: &Sandbox, switch: bool) -> Vec<String> {
+    let help = command_rows(sandbox, &["profile"]);
+    let about = help.iter().find_map(|row| row.strip_prefix("switch ")).unwrap().trim().to_string();
+    let rows = if switch {
+        vec![format!("switch  {about}"), "back    Back to the list".to_string()]
+    } else {
+        vec!["back  Back to the list".to_string()]
+    };
+    let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+    [vec!["? vendo profile".to_string()], marked(&rows), vec![HINT.to_string()]].concat()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn profile_list_at_a_terminal_lists_its_lines_to_choose_from_and_offers_switch_but_on_the_saved_profile() {
+    // `config list`, the old name (VE-3827), is titled as the tree names it. Enter shows nothing first
+    // and sends nothing; the saved active profile offers back only.
+    let server = MockServer::start().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let rows = profile_list_rows(&server.uri(), &["alpha", "beta"], "alpha");
+    for args in [&["profile", "list"][..], &["config", "list"]] {
+        let case = args.join(" ");
+        let piped = sandbox.run(args);
+        assert_eq!(cells(&piped.stdout), table_cells(&rows), "{case}: the lines the list shows");
+        for (at, switch) in [(0, false), (1, true)] {
+            let mut terminal = OnTerminal::start(&sandbox, args);
+            terminal.wait_for("type to filter]");
+            assert_eq!(shown_lines(&terminal, (40, 120)), profile_browse(&rows, 0), "{case}");
+            if at > 0 {
+                terminal.press("\u{1b}[B");
+            }
+            terminal.press("\r");
+            terminal.wait_for("Back to the list");
+            terminal.wait_for("type to filter]");
+            let name = ["alpha", "beta"][at];
+            let shown = shown_from(&terminal, &format!("? vendo profile list {name}"));
+            assert_eq!(shown[1..], profile_menu(&sandbox, switch), "{case} {name}: nothing shown first");
+            terminal.press("\u{1b}");
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+        }
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_chosen_profile_switch_runs_exactly_as_typed_with_the_profile_and_environment_the_list_had() {
+    // The marker follows `--profile` and VENDO_PROFILE; `switch` follows the saved activeProfile (alpha),
+    // so beta offers it however it is marked, and alpha never. What follows is what `profile switch beta`
+    // prints, typed with the same flags and environment (its VENDO_PROFILE note too).
+    let server = MockServer::start().await;
+    for (args, env, marked_on) in [
+        (&["profile", "list"][..], &[][..], "alpha"),
+        (&["profile", "list"], &[("VENDO_PROFILE", "beta")], "beta"),
+        (&["--profile", "beta", "profile", "list"], &[], "beta"),
+        (&["config", "list", "--profile=beta"], &[], "beta"),
+    ] {
+        let case = format!("{env:?} {}", args.join(" "));
+        let sandbox = Sandbox::new(&server.uri());
+        let rows = profile_list_rows(&server.uri(), &["alpha", "beta"], marked_on);
+        // alpha, the saved active profile: back only, whatever the marker.
+        let mut terminal = OnTerminal::start_env(&sandbox, args, env);
+        terminal.wait_for("type to filter]");
+        assert_eq!(shown_lines(&terminal, (40, 120)), profile_browse(&rows, 0), "{case}");
+        terminal.press("\r");
+        terminal.wait_for("Back to the list");
+        terminal.wait_for("type to filter]");
+        assert_eq!(shown_from(&terminal, "? vendo profile list alpha")[1..], profile_menu(&sandbox, false), "{case}");
+        terminal.press("\u{1b}");
+        assert_eq!(terminal.finish().1, Some(0), "{case}");
+        // beta: switch, as typed.
+        let mut terminal = OnTerminal::start_env(&sandbox, args, env);
+        terminal.wait_for("type to filter]");
+        terminal.press("bet\r");
+        terminal.wait_for("Back to the list");
+        terminal.wait_for("type to filter]");
+        terminal.press("\r");
+        let answered = "? vendo profile switch beta";
+        terminal.wait_for(&answered[2..]);
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{case}: {rest:?}");
+        assert_eq!(sandbox.config()["activeProfile"], "beta", "{case}");
+        let twin = Sandbox::new(&server.uri());
+        let globals: Vec<&str> =
+            args.iter().copied().filter(|arg| arg.starts_with("--profile") || *arg == "beta").collect();
+        let typed_args: Vec<&str> = globals.into_iter().chain(["profile", "switch", "beta"]).collect();
+        let typed = twin.command(&typed_args).envs(env.iter().copied()).output().unwrap();
+        assert_eq!(typed.status.code(), Some(0), "{case}");
+        assert_eq!(after_answer(&terminal, answered), printed_lines(&typed), "{case}");
+        assert_eq!(twin.config()["activeProfile"], "beta", "{case}");
+    }
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn back_esc_ctrl_c_and_ctrl_d_at_the_profile_list_or_a_profiles_actions() {
+    let server = MockServer::start().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let rows = profile_list_rows(&server.uri(), &["alpha", "beta"], "alpha");
+    // Back: the same rows, the filter cleared, the cursor on the profile just viewed.
+    let mut terminal = OnTerminal::start(&sandbox, &["profile", "list"]);
+    terminal.wait_for("type to filter]");
+    terminal.press("acct-beta");
+    terminal.wait_for("vendo profile list acct-beta");
+    terminal.press("\r");
+    terminal.wait_for("Back to the list");
+    terminal.wait_for("type to filter]");
+    terminal.press("back\r");
+    terminal.wait_for("vendo profile back");
+    terminal.wait_for("type to filter]");
+    terminal.wait_for("\u{1b}[?25h");
+    assert_eq!(shown_from(&terminal, "? vendo profile list"), profile_browse(&rows, 1));
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+    // Esc, Ctrl-C and Ctrl-D: exit 0, nothing switched, `<canceled>` where the list or menu was.
+    for (step, key, title) in [
+        ("list", "\u{1b}", "vendo profile list"),
+        ("actions", "\u{3}", "vendo profile"),
+        ("list after back", "\u{4}", "vendo profile list"),
+    ] {
+        let mut terminal = OnTerminal::start(&sandbox, &["profile", "list"]);
+        terminal.wait_for("type to filter]");
+        if step != "list" {
+            terminal.press("\u{1b}[B\r");
+            terminal.wait_for("Back to the list");
+            terminal.wait_for("type to filter]");
+        }
+        if step == "list after back" {
+            terminal.press("back\r");
+            terminal.wait_for("vendo profile back");
+            terminal.wait_for("type to filter]");
+        }
+        terminal.press(key);
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{step}: {rest:?}");
+        let (shown, cursor) = screen(&terminal.screen, 40, 120);
+        let last = shown.iter().rposition(|line| !line.is_empty()).unwrap();
+        assert_eq!((shown[last].clone(), cursor), (format!("? {title} <canceled>"), (last + 1, 0)), "{step}");
+    }
+    // A hang-up, at the list and at the actions.
+    let mut outcomes = Vec::new();
+    for step in ["list", "actions"] {
+        let mut terminal = OnTerminal::start_detached(&sandbox, &["profile", "list"]);
+        terminal.wait_for("type to filter]");
+        if step == "actions" {
+            terminal.press("\u{1b}[B\r");
+            terminal.wait_for("Back to the list");
+            terminal.wait_for("type to filter]");
+        }
+        let (exited, ended) = hang_up(&mut terminal);
+        outcomes.push((step, exited, ended));
+    }
+    assert!(
+        outcomes.iter().all(|(_, exited, ended)| *exited && ended.code == Some(0) && ended.cpu < HUNG_UP_CPU),
+        "each should exit 0 within {HUNG_UP_EXIT:?}, using under {HUNG_UP_CPU:?} of processor time: {outcomes:#?}"
+    );
+    assert_eq!(sent(&server).await, Vec::<String>::new());
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn where_the_list_cannot_open_with_json_or_with_no_profiles_profile_list_prints_what_it_printed() {
+    // Byte for byte what a pipe gets: at a terminal with prompts off, on `TERM=dumb`, with stderr
+    // redirected or a write-only stdin, with stdout piped, and with `--json`. With no profiles, its line
+    // that says so, at a terminal too.
+    let server = MockServer::start().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let none = Sandbox::new(&server.uri());
+    std::fs::write(none.home.path().join(".config/vendo/config.json"), r#"{"profiles":{}}"#).unwrap();
+    for args in [&["profile", "list"][..], &["config", "list"]] {
+        let case = args.join(" ");
+        let piped = sandbox.run(args);
+        let reference = text(&piped.stdout);
+        assert!(reference.contains("* alpha (active)"), "{case}: {reference}");
+        for (setting, code, screen) in where_no_list_opens(&sandbox, args) {
+            assert_eq!((code, screen), (Some(0), reference.clone()), "{case}: {setting}");
+        }
+        let (_controller, terminal) = pseudo_terminal();
+        let terminal = std::fs::File::from(terminal);
+        let out = sandbox.command(args).stdin(terminal.try_clone().unwrap()).stderr(terminal).output().unwrap();
+        assert_eq!((out.status.code(), text(&out.stdout)), (Some(0), reference.clone()), "{case}");
+        let args_json: Vec<&str> = args.iter().chain(&["--json"]).copied().collect();
+        let (screen, code) = OnTerminal::start(&sandbox, &args_json).finish();
+        assert_eq!((code, plain(&screen)), (Some(0), text(&sandbox.run(&args_json).stdout)), "{case} --json");
+        let empty = text(&none.run(args).stdout);
+        assert_eq!(empty, "No profiles configured. Run `vendo login` to create one.\n", "{case}");
+        let (screen, code) = OnTerminal::start(&none, args).finish();
+        assert_eq!((code, plain(&screen)), (Some(0), empty), "{case}: no profiles, at a terminal");
+    }
+    assert_eq!(sandbox.config()["activeProfile"], "alpha");
 }

@@ -7,12 +7,14 @@ use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
 
 use crate::{
+    browse,
+    client::Client,
     commands::pipeline_resource::js_number_value,
     context::Ctx,
     js_text::{cell, cell_or, length_of, template_or, time_ago_of},
     output::{
-        OutputMode, arg_error, bold, cyan, dim, format_number, format_usd, green, js_number, js_number_of,
-        js_number_string, js_string, js_template, js_truthy, print_count, print_count_of, print_field, print_json, red,
+        OutputMode, arg_error, bold, count_text, cyan, dim, format_number, format_usd, green, js_number, js_number_of,
+        js_number_string, js_string, js_template, js_truthy, print_count_of, print_field, print_json, red,
         resolve_output_mode, run_action, short_id, table, to_locale_number, yellow,
     },
     short_ids, web_app,
@@ -152,20 +154,26 @@ pub async fn methodologies_list(ctx: &Ctx, no_system: bool, json: bool, output: 
         print_field(&rows, output.as_deref().unwrap_or_default());
         return Ok(());
     }
-    let mut grid = table(&["ID", "Name", "Click Path", "Scope", "Version", "Updated"]);
-    for row in rows {
-        grid.add_row(vec![
-            dim(&short_id(&cell(row.get("id")))),
-            cell(row.get("name")),
-            cell(row.get("click_path_model")),
-            if truthy(row.get("is_system")) { cyan("system") } else { "account".to_string() },
-            js_template(row.get("version")),
-            time_ago_of(row.get("updated_at")),
-        ]);
-    }
-    println!("{grid}");
-    print_count(rows.len() as u64, "methodology");
-    Ok(())
+    // The table, or at a terminal the same rows to choose from (VE-3894).
+    let table = browse::Table {
+        header: &["ID", "Name", "Click Path", "Scope", "Version", "Updated"],
+        cells: rows.iter().map(methodology_cells).collect(),
+        footer: count_text(Some(&Value::from(rows.len())), "methodology"),
+    };
+    browse::shown(&client, browse::Group::Methodologies, rows, table, output.as_deref()).await
+}
+
+/// A row of the `methodologies list` table, its cells styled as the table shows them; a selectable
+/// list shows them plain (VE-3894).
+fn methodology_cells(row: &Value) -> Vec<String> {
+    vec![
+        dim(&short_id(&cell(row.get("id")))),
+        cell(row.get("name")),
+        cell(row.get("click_path_model")),
+        if truthy(row.get("is_system")) { cyan("system") } else { "account".to_string() },
+        js_template(row.get("version")),
+        time_ago_of(row.get("updated_at")),
+    ]
 }
 
 pub async fn methodologies_get(ctx: &Ctx, methodology_id: &str, json: bool) -> Result<()> {
@@ -289,8 +297,8 @@ pub async fn ltv_list(ctx: &Ctx, args: LtvListArgs) -> Result<()> {
     let mode = resolve_output_mode(args.json, args.output.as_deref());
     let client = ctx.client()?;
     let query = vec![
-        ("granularity", Some(args.granularity)),
-        ("segment_key", Some(args.segment)),
+        ("granularity", Some(args.granularity.clone())),
+        ("segment_key", Some(args.segment.clone())),
         ("from_period", args.from),
         ("to_period", args.to),
         ("limit", Some(args.limit)),
@@ -307,23 +315,31 @@ pub async fn ltv_list(ctx: &Ctx, args: LtvListArgs) -> Result<()> {
         print_field(&rows, args.output.as_deref().unwrap_or_default());
         return Ok(());
     }
-    let mut grid = table(&["Cohort", "Segment", "Size", "LTV 30d", "LTV 90d", "LTV 12m", "CAC", "CAC:LTV"]);
-    for row in rows {
-        let realised = |key: &str| row.get("realised").and_then(|r| r.get(key));
-        grid.add_row(vec![
-            cell(row.get("cohort_period")),
-            cell(row.get("segment_key")),
-            format_number(row.get("cohort_size")),
-            fmt_money(realised("ltv_30d")),
-            fmt_money(realised("ltv_90d")),
-            fmt_money(realised("ltv_12m")),
-            fmt_money(realised("cac")),
-            fmt_ratio(realised("cac_ltv_ratio")),
-        ]);
-    }
-    println!("{grid}");
-    print_count_of(res.pointer("/data/total_returned"), "cohort");
-    Ok(())
+    // The table, or at a terminal the same rows to choose from (VE-3894), each cohort shown as `ltv
+    // cohort` shows it with the same granularity and segment.
+    let table = browse::Table {
+        header: &["Cohort", "Segment", "Size", "LTV 30d", "LTV 90d", "LTV 12m", "CAC", "CAC:LTV"],
+        cells: rows.iter().map(cohort_cells).collect(),
+        footer: count_text(res.pointer("/data/total_returned"), "cohort"),
+    };
+    let group = browse::Group::Cohorts { granularity: args.granularity, segment: args.segment };
+    browse::shown(&client, group, rows, table, args.output.as_deref()).await
+}
+
+/// A row of the `ltv list` table, its money columns included; a selectable list shows it plain
+/// (VE-3894).
+fn cohort_cells(row: &Value) -> Vec<String> {
+    let realised = |key: &str| row.get("realised").and_then(|r| r.get(key));
+    vec![
+        cell(row.get("cohort_period")),
+        cell(row.get("segment_key")),
+        format_number(row.get("cohort_size")),
+        fmt_money(realised("ltv_30d")),
+        fmt_money(realised("ltv_90d")),
+        fmt_money(realised("ltv_12m")),
+        fmt_money(realised("cac")),
+        fmt_ratio(realised("cac_ltv_ratio")),
+    ]
 }
 
 pub async fn ltv_cohort(ctx: &Ctx, period: &str, granularity: String, segment: String, json: bool) -> Result<()> {
@@ -331,14 +347,27 @@ pub async fn ltv_cohort(ctx: &Ctx, period: &str, granularity: String, segment: S
         arg_error("cohort period must be YYYY-MM-DD", &["vendo measurement ltv cohort 2025-01-01"]);
     }
     let client = ctx.client()?;
-    let query = vec![("granularity", Some(granularity)), ("segment_key", Some(segment))];
-    let res = run_action("Fetching cohort...", web_app::cohort(&client, period, query)).await?;
     if json {
-        print_json(&res);
+        print_json(&fetch_cohort(&client, period, granularity, segment).await?);
         return Ok(());
     }
+    show_cohort(&client, period, granularity, segment).await.map(|_| ())
+}
+
+/// `GET /api/measurement/ltv/cohort/<period>` of `granularity` and `segment`, behind `ltv cohort`'s
+/// spinner.
+async fn fetch_cohort(client: &Client, period: &str, granularity: String, segment: String) -> Result<Value> {
+    let query = vec![("granularity", Some(granularity)), ("segment_key", Some(segment))];
+    Ok(run_action("Fetching cohort...", web_app::cohort(client, period, query)).await?)
+}
+
+/// What `ltv cohort` shows of the cohort `period` of `granularity` and `segment`, from its request
+/// behind its spinner; the cohort as the route sent it. A selectable `ltv list` shows it for the cohort
+/// chosen, with the list's granularity and segment (VE-3894).
+pub(crate) async fn show_cohort(client: &Client, period: &str, granularity: String, segment: String) -> Result<Value> {
+    let res = fetch_cohort(client, period, granularity, segment).await?;
     print!("{}", render_cohort(&res));
-    Ok(())
+    Ok(res)
 }
 
 /// The `ltv cohort` text view.
@@ -437,24 +466,31 @@ pub async fn signals_list(ctx: &Ctx, json: bool) -> Result<()> {
         return Ok(());
     }
     let rows = array_at(&res, "/data/signals");
-    let mut grid = table(&["Signal", "State", "Available", "Reason / Notes"]);
-    for row in rows {
-        let availability = |key: &str| row.get("availability").and_then(|a| a.get(key));
-        let available = match availability("available") {
-            None | Some(Value::Null) => dash(),
-            Some(v) if js_truthy(v) => green("yes"),
-            Some(_) => red("no"),
-        };
-        grid.add_row(vec![
-            cell(row.get("id")),
-            if row.get("state").and_then(Value::as_str) == Some("live") { green("live") } else { dim("stub") },
-            available,
-            cell_or(availability("reason"), dash),
-        ]);
-    }
-    println!("{grid}");
-    print_count(rows.len() as u64, "signal");
-    Ok(())
+    // The table, or at a terminal the same rows to choose from (VE-3894): the `click_path` signal
+    // offers its `click-path` command.
+    let table = browse::Table {
+        header: &["Signal", "State", "Available", "Reason / Notes"],
+        cells: rows.iter().map(signal_cells).collect(),
+        footer: count_text(Some(&Value::from(rows.len())), "signal"),
+    };
+    browse::shown(&client, browse::Group::Signals, rows, table, None).await
+}
+
+/// A row of the `signals list` table, its cells styled as the table shows them; a selectable list
+/// shows them plain (VE-3894).
+fn signal_cells(row: &Value) -> Vec<String> {
+    let availability = |key: &str| row.get("availability").and_then(|a| a.get(key));
+    let available = match availability("available") {
+        None | Some(Value::Null) => dash(),
+        Some(v) if js_truthy(v) => green("yes"),
+        Some(_) => red("no"),
+    };
+    vec![
+        cell(row.get("id")),
+        if row.get("state").and_then(Value::as_str) == Some("live") { green("live") } else { dim("stub") },
+        available,
+        cell_or(availability("reason"), dash),
+    ]
 }
 
 pub async fn click_path(ctx: &Ctx, sample_limit: Option<String>, json: bool) -> Result<()> {

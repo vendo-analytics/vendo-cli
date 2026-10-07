@@ -368,9 +368,12 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   fails when a required value has no row in `VALUES`. An agent that runs `vendo` on a pseudo-terminal without `CI` or
   `VENDO_NO_INPUT` now waits at the question where it got exit 2, as at the group menu and the y/N questions;
   `VENDO_NO_INPUT=1` turns it off. Since VE-3894 it also waits at `vendo apps list`, `sources list`, `destinations list`,
-  `jobs list`, `catalog list`, `dictionary list`, `metrics list` and `models list`, where it got the table and exit 0,
+  `jobs list`, `catalog list`, `dictionary list`, `metrics list`, `models list`, `measurement methodologies list`,
+  `measurement ltv list`, `measurement signals list` and `profile list` (`config list`), where it got the table (the
+  profile lines) and exit 0,
   a worse change than this one's (a run that succeeded now waits);
-  `VENDO_NO_INPUT=1`, `--json` or `--output` give the table back.
+  `VENDO_NO_INPUT=1`, `--json` or `--output` give the table back (`signals list` and `profile list` take no
+  `--output`).
 - Profile list (VE-3892, decided by Yalcin 2026-10-07, CLI 1.1): `--profile` typed with no name opens an arrow-key list
   of the saved profiles with type-to-filter where the group menu opens (`output::can_show_menu`, the same rule, the
   hang-up watch included): `ask::choose_profile`, a `choose_value` list (VE-3881) titled with the command as the tree
@@ -417,7 +420,10 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   Shop)`, `? vendo destinations list 9c0d1e2f... (Analytics BQ → Demo Pixel)`, a job by its short ID alone). Enter
   shows exactly what the group's `get` shows, from its code, spinner and requests (`apps::show`, `sources::show`,
   `integrations::show`, `jobs::show`, `catalog::show`, `dictionary::show`, `metrics::show`, `models::show`, which
-  `get` calls after its short-ID lookup; a source or destination with its active job, as `get` reads it), then the
+  `get` calls after its short-ID lookup; a source or destination with its active job, as `get` reads it; a
+  methodology `render_methodology` of the list's own row, as `methodologies get` reads the same route, so nothing is
+  sent; a cohort `measurement::show_cohort`, `ltv cohort`'s view, with the list's `--granularity` and `--segment`; a
+  signal or a profile nothing, as neither has a `get`), then the
   item's action menu: titled with the group (`vendo apps`), the actions that
   apply to the item as that request returned it, each with its description from the tree, then `back   Back to the
   list`, the cursor on the first and the keys typed while the item loaded thrown away. Apps: `pause` when active,
@@ -428,9 +434,15 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   for apps. Jobs: `tail` and `cancel` while queued, pending or running (`jobs/cancel.ts` cancels only those), nothing
   else, so a finished job shows its details and `back` only. Metrics: `activate` for a draft (the help's 'Activate a
   draft metric'), then `update` and `delete` (its y/N, then `Cancelled` on n, as typed). Platforms, dictionary entries
-  and models: nothing, so `back` only (never the hidden `catalog credential-schema`) (`browse::Group::actions`; only
-  visible commands of the
-  group that take the item's ID, never another group's or one such as `jobs tail --source`, which a unit test checks).
+  and models: nothing, so `back` only (never the hidden `catalog credential-schema`). Methodologies and cohorts:
+  nothing. Signals: the `click_path` row `click-path` (it runs `vendo measurement signals click-path`, which takes no
+  ID), the others nothing. Profiles: `switch` unless the profile is the saved `activeProfile`
+  (`ConfigStore::saved_active_profile`, not the `*`, which follows `--profile` and VENDO_PROFILE: with
+  VENDO_PROFILE=beta and alpha saved, beta offers switch, which saves it, and alpha does not, as switching to it would
+  change nothing); it runs as `profile switch [--] <name>` and prints what that prints, the VENDO_PROFILE note included
+  (`browse::Group::actions`; only visible commands of the
+  group that take the item's ID, but `click-path`, never another group's or one such as `jobs tail --source`, which a
+  unit test checks).
   A chosen action is answered as the command (`? vendo apps pause a1b2c3d4... (Menu Shop)`) and runs exactly as typed:
   `browse` keeps its words (`apps pause <full ID>`, the group as the tree names it, so `destinations pause <full ID>`
   from `vendo int list`; `browse::chosen`) and `main` parses them again after `--profile=<name>` and `--debug` as given
@@ -447,14 +459,21 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `--json` or `--output`, and built without the `menu` feature, the list command prints exactly what it printed (the
   `output/` snapshots are unchanged; `where_the_list_cannot_open_and_with_json_or_output_apps_list_prints_what_it_printed`,
   `…_sources_destinations_and_jobs_list_print_what_they_printed`,
-  `…_catalog_dictionary_metrics_and_models_list_print_what_they_printed`). `get`, the bare group's menu and every
-  action command work as before. So far `vendo apps list`, `sources list`,
+  `…_catalog_dictionary_metrics_and_models_list_print_what_they_printed`,
+  `…_the_measurement_lists_print_what_they_printed`,
+  `where_the_list_cannot_open_with_json_or_with_no_profiles_profile_list_prints_what_it_printed`). `get`, the bare
+  group's menu and every action command work as before. Every visible list command: `vendo apps list`, `sources list`,
   `destinations list` (`integrations list`, `int list`), `jobs list`, `catalog list` (titled `vendo catalog list`,
   a platform answered by its app type, the footer `2 ready · 1 more on request (vendo catalog list --all)` with the
   typed filters, or `N platforms` with `--all`), `dictionary list` (an entry answered by its full subject ID and
   display name, `· 57 events`; a description's line break a space, so a row stays one line; `dictionary search`, which
-  prints the same table, is unchanged), `metrics list` and `models list` (VE-3894's first three groups); the
-  measurement and profile lists follow. ❓ Open for Yalcin, built
+  prints the same table, is unchanged), `metrics list`, `models list`, `measurement methodologies list` (`·
+  3 methodologys`, the table's word as it is), `measurement ltv list` (a cohort answered by its period, every money
+  column in its row: VE-3881's cohort cells would hide them), `measurement signals list` (answered by its ID) and
+  `profile list` (`config list` titled `vendo profile list`): no request, its lines (`* alpha (active)`, the account ID
+  or `no account`, the base URL unless the default) split into cells, no footer, answered by the name; it has no
+  `browse::Table` (`browse::profiles` takes the cells and the code that prints the lines), and with no profiles it
+  prints `No profiles configured. …`, exit 0, at a terminal too. ❓ Open for Yalcin, built
   with cautious defaults: `get` kept everywhere (Yalcin's "we don't really need get" in the runs that built this,
   against the decision's "keep the actions";
   options: hide it from the group menu only, hide it everywhere as a hidden path, or remove it, which breaks scripts,
@@ -475,8 +494,11 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   request; proposed, not built), `activate` offered only for a draft metric (not an archived one), `update` offered
   for a metric though it fails without flags (`No updates provided`, exit 1), `dictionary search` left as a table,
   a failed details request ending with `get`'s error rather than returning to the list, agents on a
-  pseudo-terminal now waiting at the list (see Missing values), `--output ""` keeping the table, and the list
-  commands' `--help` unchanged.
+  pseudo-terminal now waiting at the list (see Missing values), `--output ""` keeping the table, the list
+  commands' `--help` unchanged, signals showing no details (the `click_path` row offers `click-path` as an action
+  rather than showing its view on Enter, which would send a request each time), a methodology, a cohort and the
+  mmm and survey signals offering back only, and a profile offering `switch` by the saved `activeProfile` and nothing
+  else (proposed, not built: that profile's `--profile <name> workspace` screen, and logging out of it).
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
   self-update (VE-3665; whoami and doctor are `workspace` since VE-3891); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).

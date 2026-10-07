@@ -32,6 +32,12 @@ pub fn shown_host(profile: &ProfileSummary) -> &str {
 }
 
 pub fn format_profile_label(profile: &ProfileSummary, annotate_active: bool) -> String {
+    profile_label_parts(profile, annotate_active).join("  ")
+}
+
+/// The parts of a profile's label, which it joins: the name (`alpha (active)`), the account ID (`no
+/// account` for none) and the base URL unless it is the default one.
+fn profile_label_parts(profile: &ProfileSummary, annotate_active: bool) -> Vec<String> {
     let mut parts = vec![
         if annotate_active && profile.active { format!("{} (active)", profile.name) } else { profile.name.clone() },
         profile.account_id.clone().unwrap_or_else(|| "no account".to_string()),
@@ -39,7 +45,17 @@ pub fn format_profile_label(profile: &ProfileSummary, annotate_active: bool) -> 
     if profile.base_url != DEFAULT_BASE_URL {
         parts.push(profile.base_url.clone());
     }
-    parts.join("  ")
+    parts
+}
+
+/// `vendo profile list`'s line of `profile` as the cells of a selectable list's row (VE-3894): the
+/// marker and the name (`* alpha (active)`, `  beta`), the account ID, and the base URL unless it is
+/// the default one. Plain: the list pads them.
+pub fn profile_list_cells(profile: &ProfileSummary) -> Vec<String> {
+    let mut parts = profile_label_parts(profile, true);
+    let marker = if profile.active { "*" } else { " " };
+    parts[0] = format!("{marker} {}", parts[0]);
+    parts
 }
 
 pub fn format_profile_list_line(profile: &ProfileSummary, annotate_active: bool, indent: &str) -> String {

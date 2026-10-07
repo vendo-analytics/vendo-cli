@@ -8,10 +8,11 @@ use anyhow::{Result, bail};
 use serde_json::{Value, json};
 
 use crate::{
+    browse,
     config::{ConfigValueUpdates, unknown_vendo_profile},
     context::Ctx,
     output::{bold, confirm, dim, green, message_error_json, print_error, print_error_json, print_json, print_success},
-    profile_display::{SwitchOptions, print_profile_list, profile_json, switch_profile_selection},
+    profile_display::{SwitchOptions, print_profile_list, profile_json, profile_list_cells, switch_profile_selection},
 };
 
 const NO_PROFILES: &str = "No profiles configured. Run `vendo login` to create one.";
@@ -98,14 +99,21 @@ pub fn profile_set(
     Ok(())
 }
 
-pub fn profile_list(ctx: &Ctx, json: bool) {
+pub async fn profile_list(ctx: &Ctx, json: bool) -> Result<()> {
     let profiles = ctx.store.profile_summaries();
     if json {
         // What the list shows, one object per line of it (VE-3831).
         print_json(&json!({ "profiles": profiles.iter().map(profile_json).collect::<Vec<_>>() }));
-        return;
+        return Ok(());
     }
-    print_profile_list(&profiles, true, "", NO_PROFILES);
+    // The lines, or at a terminal the same profiles to choose from (VE-3894), each offering `profile
+    // switch` unless it is the saved active profile.
+    let rows: Vec<Value> = profiles.iter().map(profile_json).collect();
+    let cells = profiles.iter().map(profile_list_cells).collect();
+    let print = || {
+        print_profile_list(&profiles, true, "", NO_PROFILES);
+    };
+    browse::profiles(|| ctx.store.saved_active_profile(), &rows, cells, print).await
 }
 
 pub fn profile_switch(ctx: &Ctx, profile: Option<String>, account: Option<String>, json: bool) -> Result<()> {
