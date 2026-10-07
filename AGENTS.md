@@ -205,9 +205,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     (`DoctorCheck::fix_without_override`; `--json`'s `remediation` keeps it). The fix for a rejected key (401/403)
     says to check the profile login saved with `vendo --profile <profile> workspace`. `vendo workspace` otherwise
     names the profile as it does for `--profile`, and with a VENDO_PROFILE no profile has it shows its screen instead
-    of the error: the profile's check, a warning, with that fix, and exit 1 only when a check fails, as the key's and
-    the account's do when that leaves no API key or account ID (with `VENDO_API_KEY` and `VENDO_ACCOUNT_ID` it can
-    exit 0). `--profile`, which wins over VENDO_PROFILE, works as before.
+    of the error: the profile's check, failing, with that fix, and exit 1, as for an unknown `--profile` (a sign-in
+    problem, VE-3891 exit codes below; it was a warning that could exit 0 with `VENDO_API_KEY` and
+    `VENDO_ACCOUNT_ID` until then). `--profile`, which wins over VENDO_PROFILE, works as before.
 - Workspace (VE-3891, decided by Yalcin 2026-10-07, CLI 1.1): `vendo workspace` is `whoami` and `doctor` in one
   command and one screen, each fact once (`rust/src/commands/workspace.rs`; the checks stay doctor's,
   `health::local_checks` and `health::auth_check`). First the account: the title is `/me`'s name and slug
@@ -225,15 +225,26 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   and account checks show only when they do not pass, as the lines above show their values, and doctor's title,
   `Summary:` line and `Suggested next steps` list (the fixes again) are gone. `/me` is asked only with a key and an
   account, as doctor asked it; signed out, with no key, offline or refused (401/403) it shows what the config has (no
-  title, no key ID; a value the CLI lacks has no line, its check says so) and the checks with their fixes, and like
-  doctor it exits 1 when a check fails, so `whoami` now does too (a binary off PATH fails a check). It prints
+  title, no key ID; a value the CLI lacks has no line, its check says so) and the checks with their fixes. Exit
+  codes (VE-3891 exit codes, decided by Yalcin 2026-10-07): `workspace`, `whoami`, `profile current` and `config
+  show` exit 1 only for a sign-in problem, as scripts use `vendo whoami` as a sign-in check: a check
+  `DoctorCheck::about_sign_in` names (`Selected profile` when the profile is not in the config, by `--profile`,
+  VENDO_PROFILE or `activeProfile`; `API key` and `Account ID` missing; `API auth` refused, 401/403 or another HTTP
+  error, or unreachable) failing. The setup checks (`CLI binary`, `PATH`, `Config file`, `Shell completions`) never
+  fail there: PATH's, the only one that can, is shown `[warn]` with its fix and is `"warn"` in `--json`'s `checks`
+  and `summary` (`workspace::only_sign_in_fails`). `vendo doctor` keeps doctor's rule: PATH's check fails, `[fail]`,
+  and any failing check exits 1; `cli::typed_as_doctor` tells it from the alias by the first command word, as clap
+  does not say which name was typed. No active profile at all stays a warning (a key and account from the
+  environment need none). It prints
   whoami's update notice. `--json` keeps every key both had, whoami's first: `/me`'s response as sent (`data`),
   `config` (`selectedProfile`, `apiKeySource`, `baseUrl`, `baseUrlSource`, `accountId`, `accountIdSource`), then
   doctor's `summary`, `checks` (`name`, `status`, `detail`, `remediation`, doctor's words), `suggestions`,
   `identity` and `shell`; `data` and `identity` only when `/me` answered, and no JSON error on stderr when it did not
   (doctor's way; whoami printed one). `whoami` and `doctor` are its hidden clap aliases, `profile current` and
   `config show` reach it through `MOVED`, and all print exactly what it prints, text, `--json`, `--help` and usage
-  errors (`whoami_doctor_and_their_old_paths_print_exactly_what_workspace_prints`). Hints that named `vendo whoami`
+  errors, except that `doctor` fails PATH's check and exits by its own rule
+  (`whoami_and_the_old_paths_print_exactly_what_workspace_prints_and_doctor_fails_setup_checks`; snapshots
+  `account__doctor` and `account__doctor_json`). Hints that named `vendo whoami`
   or `vendo doctor` (login's and status's next steps, profile switch's "Verify with", login's errors, the API-auth
   fixes) name `vendo workspace`. ❓ Open for Yalcin, built with cautious defaults: the description ("Show the current
   account, your profiles and setup checks"), the title's second part read as the slug, the account ID and key ID

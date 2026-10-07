@@ -3246,12 +3246,12 @@ async fn workspace_shows_the_profile_vendo_profile_selects_as_it_shows_the_flag(
     assert_eq!(doctor(Some("beta"), &[]), ("ok".into(), "beta".into(), Value::Null));
     assert_eq!(doctor(Some("beta"), &["--profile", "alpha"]), ("ok".into(), "alpha".into(), Value::Null));
     let fix = "VENDO_PROFILE=nope overrides the active profile in this shell: run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.";
-    assert_eq!(doctor(Some("nope"), &[]), ("warn".into(), "nope (not found in config)".into(), json!(fix)));
-    // An unknown --profile is as before.
+    assert_eq!(doctor(Some("nope"), &[]), ("fail".into(), "nope (not found in config)".into(), json!(fix)));
+    // An unknown --profile fails too, a sign-in problem (VE-3891 exit codes).
     let switch = "Run `vendo profile switch` to switch profiles, or `vendo login` to create one.";
     assert_eq!(
         doctor(None, &["--profile", "nope"]),
-        ("warn".into(), "nope (not found in config)".into(), json!(switch))
+        ("fail".into(), "nope (not found in config)".into(), json!(switch))
     );
 }
 
@@ -3277,8 +3277,8 @@ async fn an_unknown_vendo_profile_is_an_error_that_names_it_and_says_how_to_fix_
     }
     assert_eq!(sandbox.config(), saved);
     // `vendo workspace` (whoami's place, VE-3891) shows what it can instead, as doctor did: the
-    // profile's check, a warning, names it and says how to fix it, and with no key the key's check
-    // fails, exit 1. That VENDO_PROFILE overrides the active profile is said once, under the profile
+    // profile's check fails (a sign-in problem, VE-3891 exit codes), names it and says how to fix it,
+    // and with no key the key's check fails too, exit 1. That VENDO_PROFILE overrides the active profile is said once, under the profile
     // list, so the fix under the check leaves it out (VE-3891 review: each fact once).
     let out = workspace(&sandbox, &["workspace"]).env("VENDO_PROFILE", "nope").output().unwrap();
     assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
@@ -3292,7 +3292,7 @@ async fn an_unknown_vendo_profile_is_an_error_that_names_it_and_says_how_to_fix_
         "{shown}"
     );
     assert!(
-        shown.contains("\n  [warn] Selected profile: nope (not found in config)\n         Fix: Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.\n  [fail] API key: Missing\n"),
+        shown.contains("\n  [fail] Selected profile: nope (not found in config)\n         Fix: Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.\n  [fail] API key: Missing\n"),
         "{shown}"
     );
     assert_eq!(shown.matches("overrides the active profile").count(), 1, "{shown}");
@@ -3522,10 +3522,10 @@ async fn workspace_fixes_for_a_rejected_key_under_vendo_profile_say_it_overrides
 
 #[cfg(unix)]
 #[tokio::test]
-async fn an_unknown_vendo_profile_is_a_warning_on_the_workspace_screen_and_a_key_from_the_env_still_counts() {
-    // The profile's check is a warning, so with VENDO_API_KEY and VENDO_ACCOUNT_ID, which are still used,
-    // every other check passes and it exits 0: exit 1 comes from a check that fails, as the key's does
-    // without them (VE-3891 review).
+async fn an_unknown_vendo_profile_fails_on_the_workspace_screen_though_a_key_from_the_env_signs_in() {
+    // VENDO_API_KEY and VENDO_ACCOUNT_ID are still used, so /me answers and every other check passes,
+    // but a profile no config has is a sign-in problem, so it exits 1 (VE-3891 exit codes, Yalcin
+    // 2026-10-07, in place of the review's warning and exit 0).
     let server = MockServer::start().await;
     let me = json!({ "data": { "accountId": "acct-env", "accountName": "Env Account" } });
     serve(&server, "GET", "/api/v1/me", 200, me).await;
@@ -3544,16 +3544,16 @@ async fn an_unknown_vendo_profile_is_a_warning_on_the_workspace_screen_and_a_key
         cmd.output().unwrap()
     };
     let out = run(&["workspace"]);
-    assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), String::new()));
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
     let shown = text(&out.stdout);
     assert!(
-        shown.contains("\n  [warn] Selected profile: ghost (not found in config)\n         Fix: Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.\n  [ok] Zsh completions installed\n  [ok] Signed in as Env Account\n"),
+        shown.contains("\n  [fail] Selected profile: ghost (not found in config)\n         Fix: Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.\n  [ok] Zsh completions installed\n  [ok] Signed in as Env Account\n"),
         "{shown}"
     );
     assert_eq!(shown.matches("overrides the active profile").count(), 1, "{shown}");
     let out = run(&["workspace", "--json"]);
     let report: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!((out.status.code(), &report["summary"]), (Some(0), &json!({ "ok": 8, "warn": 1, "fail": 0 })));
+    assert_eq!((out.status.code(), &report["summary"]), (Some(1), &json!({ "ok": 8, "warn": 0, "fail": 1 })));
 }
 
 #[tokio::test]
@@ -7691,17 +7691,25 @@ fn workspace(sandbox: &Sandbox, words: &[&str]) -> Command {
     cmd
 }
 
-/// The checks a test's machine fails (see [`workspace`]): the binary and PATH on one line with
-/// both fixes, and zsh's completions. Each ends with its line end.
+/// The checks a test's machine does not pass (see [`workspace`]): the binary and PATH on one line
+/// with both fixes, a warning under `vendo workspace` as neither is about signing in (VE-3891 exit
+/// codes; `vendo doctor` fails it, [`as_doctor`]), and zsh's completions. Each ends with its line end.
 fn machine_checks() -> (String, String) {
     let bin = std::fs::canonicalize(env!("CARGO_BIN_EXE_vendo")).unwrap();
     let version = env!("CARGO_PKG_VERSION");
     let cli = format!(
-        "  [fail] CLI {version} at {} (standard install path is ~/.local/bin/vendo), not on PATH\n         Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.\n         Fix: Add `export PATH=\"$HOME/.local/bin:$PATH\"` to `~/.zshrc`, then restart your shell.\n",
+        "  [warn] CLI {version} at {} (standard install path is ~/.local/bin/vendo), not on PATH\n         Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.\n         Fix: Add `export PATH=\"$HOME/.local/bin:$PATH\"` to `~/.zshrc`, then restart your shell.\n",
         bin.display()
     );
     let zsh = "  [warn] Zsh completions are not installed yet\n         Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` to set them up, or run `vendo completions` for the manual steps.\n";
     (cli, zsh.to_string())
+}
+
+/// What `vendo doctor` prints where `vendo workspace` printed `shown` on a test's machine: the
+/// binary's and PATH's line fails (VE-3891 exit codes).
+fn as_doctor(shown: &str) -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    shown.replace(&format!("  [warn] CLI {version} at "), &format!("  [fail] CLI {version} at "))
 }
 
 /// `base_url` as the profile list shows it: without its scheme.
@@ -7801,12 +7809,16 @@ Checks
             host(&stub)
         )
     );
+    // Every check passes, so `vendo doctor`'s stricter rule (VE-3891 exit codes) prints the same, exit 0.
+    let doctor = installed.command(&["doctor"]).output().unwrap();
+    assert!((doctor.status.code(), &doctor.stdout, &doctor.stderr) == (out.status.code(), &out.stdout, &out.stderr));
 }
 
 #[tokio::test]
 async fn signed_out_workspace_shows_what_it_can_and_each_check_with_its_fix() {
     // No config file and no key: nothing is asked of the API, and the screen says what the CLI
-    // knows (the base URL it would use) and each check with its fix, exit 1 by doctor's rule.
+    // knows (the base URL it would use) and each check with its fix, exit 1 as no key is a sign-in
+    // problem (VE-3891 exit codes).
     let sandbox = Sandbox::new(CLOSED);
     std::fs::remove_file(sandbox.home.path().join(".config/vendo/config.json")).unwrap();
     let out = workspace(&sandbox, &["workspace"]).output().unwrap();
@@ -7893,7 +7905,8 @@ async fn workspace_json_keeps_every_key_whoami_and_doctor_printed() {
     let sandbox = Sandbox::new(&server.uri());
     let keys = |value: &Value| value.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
     let out = workspace(&sandbox, &["workspace", "--json"]).output().unwrap();
-    assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
+    // Signed in: off PATH is a warning (VE-3891 exit codes).
+    assert_eq!((out.status.code(), text(&out.stderr)), (Some(0), String::new()));
     let printed: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(keys(&printed), ["data", "config", "summary", "checks", "suggestions", "identity", "shell"]);
     // whoami's
@@ -7910,7 +7923,7 @@ async fn workspace_json_keeps_every_key_whoami_and_doctor_printed() {
         ["selectedProfile", "apiKeySource", "baseUrl", "baseUrlSource", "accountId", "accountIdSource"]
     );
     // doctor's
-    assert_eq!(printed["summary"], json!({ "ok": 6, "warn": 2, "fail": 1 }));
+    assert_eq!(printed["summary"], json!({ "ok": 6, "warn": 3, "fail": 0 }));
     let checks = printed["checks"].as_array().unwrap();
     let names: Vec<&str> = checks.iter().map(|check| check["name"].as_str().unwrap()).collect();
     assert_eq!(
@@ -7954,26 +7967,49 @@ async fn workspace_json_keeps_every_key_whoami_and_doctor_printed() {
 }
 
 #[tokio::test]
-async fn whoami_doctor_and_their_old_paths_print_exactly_what_workspace_prints() {
+async fn whoami_and_the_old_paths_print_exactly_what_workspace_prints_and_doctor_fails_setup_checks() {
     // Hidden aliases (VE-3891): clap's for `whoami` and `doctor`, MOVED for `profile current` and
-    // `config show`. Byte for byte, exit code and stderr too, signed in or not, text and --json.
+    // `config show`. whoami and the old paths print byte for byte what workspace prints, exit code and
+    // stderr too, signed in or not, text and --json. `doctor` keeps doctor's rule (VE-3891 exit codes,
+    // Yalcin 2026-10-07): the same screen, but a setup check that does not pass (here PATH) fails,
+    // `[fail]` and `"fail"`, and any failing check exits 1.
     let server = MockServer::start().await;
     serve(&server, "GET", "/api/v1/me", 200, json!({ "data": { "accountId": "acct-alpha", "accountName": "Acme" } }))
         .await;
     let refusing = MockServer::start().await;
     serve(&refusing, "GET", "/api/v1/me", 401, json!({ "error": { "message": "Invalid API key" } })).await;
-    let sandboxes =
-        [Sandbox::new(&server.uri()), Sandbox::without_api_keys(&server.uri()), Sandbox::new(&refusing.uri())];
+    let sandboxes = [
+        Sandbox::new(&server.uri()),
+        Sandbox::without_api_keys(&server.uri()),
+        Sandbox::new(&refusing.uri()),
+        Sandbox::new(CLOSED),
+    ];
     let run = |sandbox: &Sandbox, words: &[&str]| {
         let out = workspace(sandbox, words).output().unwrap();
         (out.status.code(), out.stdout, out.stderr)
     };
-    for sandbox in &sandboxes {
+    for (sandbox, code) in sandboxes.iter().zip([0, 1, 1, 1]) {
         for json in [&[][..], &["--json"]] {
             let expected = run(sandbox, &[&["workspace"][..], json].concat());
-            for old in [&["whoami"][..], &["doctor"], &["profile", "current"], &["config", "show"]] {
+            assert_eq!(expected.0, Some(code), "vendo workspace {json:?} on {}", text(&expected.1));
+            for old in [&["whoami"][..], &["profile", "current"], &["config", "show"]] {
                 let old = [old, json].concat();
                 assert!(run(sandbox, &old) == expected, "vendo {} differs from vendo workspace", old.join(" "));
+            }
+            let (doctor_code, stdout, stderr) = run(sandbox, &[&["doctor"][..], json].concat());
+            assert_eq!((doctor_code, &stderr), (Some(1), &expected.2), "vendo doctor {json:?}");
+            if json.is_empty() {
+                assert_eq!(text(&stdout), as_doctor(&text(&expected.1)));
+                assert_ne!(stdout, expected.1);
+            } else {
+                let mut shown: Value = serde_json::from_slice(&expected.1).unwrap();
+                let path = shown["checks"].as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "PATH").unwrap();
+                assert_eq!(path["status"], "warn");
+                path["status"] = json!("fail");
+                let summary = &mut shown["summary"];
+                summary["warn"] = json!(summary["warn"].as_u64().unwrap() - 1);
+                summary["fail"] = json!(summary["fail"].as_u64().unwrap() + 1);
+                assert_eq!(serde_json::from_slice::<Value>(&stdout).unwrap(), shown);
             }
         }
     }

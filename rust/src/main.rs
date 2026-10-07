@@ -114,7 +114,7 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             }
         },
         Command::Status { json } => health::status(ctx, json).await.map(|_| ok),
-        Command::Workspace { json } => workspace::run(ctx, json).await,
+        Command::Workspace { json, doctor } => workspace::run(ctx, json, doctor).await,
         Command::Apps { command } => match command {
             AppsCommand::List { state, app_type, role, limit, offset, json, output } => {
                 apps::list(ctx, apps::ListArgs { state, app_type, role, limit, offset, json, output }).await.map(|_| ok)

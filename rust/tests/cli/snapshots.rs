@@ -1375,10 +1375,14 @@ async fn account_and_profile_output() {
         assert_eq!(expected.0, Some(code), "vendo {}", new.join(" "));
         assert!(run(old) == expected, "vendo {} differs from vendo {}", old.join(" "), new.join(" "));
     };
-    for old in [&["whoami"][..], &["doctor"], &["profile", "current"], &["config", "show"]] {
-        same(&s, old, &["workspace"], 1);
-        same(&s, &[old, &["--json"]].concat(), &["workspace", "--json"], 1);
+    // Signed in on a machine off PATH: a warning, exit 0 (VE-3891 exit codes).
+    for old in [&["whoami"][..], &["profile", "current"], &["config", "show"]] {
+        same(&s, old, &["workspace"], 0);
+        same(&s, &[old, &["--json"]].concat(), &["workspace", "--json"], 0);
     }
+    // `doctor` keeps doctor's rule: off PATH fails, exit 1.
+    s.record_with("doctor", &["doctor"], machine);
+    s.record_with("doctor_json", &["doctor", "--json"], machine);
     same(&s, &["config", "list"], &["profile", "list"], 0);
     s.record("mcp", &["mcp"]);
     s.record("mcp_json", &["mcp", "--json"]);

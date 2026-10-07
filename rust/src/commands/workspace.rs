@@ -3,9 +3,16 @@
 //! the title, the account ID, profile, base URL and the API key masked with its key ID and scopes),
 //! the env overrides, the saved profiles with the active one marked, then doctor's checks
 //! ([`health::local_checks`], [`health::auth_check`]) with their fixes. Signed out, offline or with
-//! no key it shows what the config gives and the checks, and it exits 1 when a check fails, as
-//! doctor did. `whoami` and `doctor` are its hidden clap aliases, and `profile current` and
-//! `config show` run it through `MOVED` (`cli.rs`): each prints exactly what it prints.
+//! no key it shows what the config gives and the checks. `whoami` and `doctor` are its hidden clap
+//! aliases, and `profile current` and `config show` run it through `MOVED` (`cli.rs`): each prints
+//! what it prints.
+//!
+//! The exit code (VE-3891 exit codes, Yalcin 2026-10-07): `vendo workspace`, `whoami`, `profile
+//! current` and `config show` exit 1 only for a sign-in problem ([`DoctorCheck::about_sign_in`]: no
+//! key, no account, a profile no config has, `/me` refused or unreachable), as scripts read `vendo
+//! whoami`'s exit code as "signed in"; an install check that fails (PATH) is a warning there, `[warn]`
+//! with its fix and `"warn"` in `--json`. `vendo doctor` keeps doctor's rule: such a check fails,
+//! `[fail]`, and any failing check exits 1.
 //!
 //! `--json` keeps every key whoami's and doctor's JSON had, so their scripts keep working: `/me`'s
 //! response as sent (`data`) and `config` (whoami's), then `summary`, `checks`, `suggestions`,
@@ -26,7 +33,8 @@ use crate::{
     update_check,
 };
 
-pub async fn run(ctx: &Ctx, json: bool) -> Result<ExitCode> {
+/// `doctor`: run as `vendo doctor`, whose install checks fail rather than warn (see the module's docs).
+pub async fn run(ctx: &Ctx, json: bool, doctor: bool) -> Result<ExitCode> {
     // whoami's notice of a newer release, at most once a day.
     update_check::check(&ctx.update_cache_path()).await;
     let config = ctx.effective();
@@ -41,6 +49,9 @@ pub async fn run(ctx: &Ctx, json: bool) -> Result<ExitCode> {
         _ => None,
     };
     checks.push(health::auth_check(identity.as_ref(), ctx.store.vendo_profile()));
+    if !doctor {
+        only_sign_in_fails(&mut checks);
+    }
     let identity = identity.and_then(Result::ok);
     let failed = checks.iter().any(|check| check.status == CheckStatus::Fail);
     let exit = if failed { ExitCode::from(1) } else { ExitCode::SUCCESS };
@@ -55,6 +66,14 @@ pub async fn run(ctx: &Ctx, json: bool) -> Result<ExitCode> {
         println!("{line}");
     }
     Ok(exit)
+}
+
+/// `vendo workspace`'s rule: an install check that fails is a warning, so only a sign-in problem
+/// fails and exits 1 ([`DoctorCheck::about_sign_in`]).
+fn only_sign_in_fails(checks: &mut [DoctorCheck]) {
+    for check in checks.iter_mut().filter(|check| check.status == CheckStatus::Fail && !check.about_sign_in()) {
+        check.status = CheckStatus::Warn;
+    }
 }
 
 // ── --json ─────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 source: tests/cli/snapshots.rs
 ---
 $ vendo workspace
-exit: 1
+exit: 0
 --- stdout ---
 Demo Account (synthetic) · demo-account
   Account ID:  acct-alpha
@@ -15,7 +15,7 @@ Profiles
     beta   acct-bet…  [stub-host]
 
 Checks
-  [fail] CLI [version] at [bin] (standard install path is ~/.local/bin/vendo), not on PATH
+  [warn] CLI [version] at [bin] (standard install path is ~/.local/bin/vendo), not on PATH
          Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.
          Fix: Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc`, then restart your shell.
   [ok] Config ~/.config/vendo/config.json

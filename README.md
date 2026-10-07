@@ -50,8 +50,11 @@ vendo workspace    # the account and profile you are using, your profiles, and c
 vendo status       # account health: apps, sources, destinations and recent failures
 ```
 
-`vendo workspace` works signed out and offline too: it shows what it can and each check with its fix, and exits 1
-when a check fails. With `--json` it prints every key `vendo whoami --json` and `vendo doctor --json` did.
+`vendo workspace` works signed out and offline too: it shows what it can and each check with its fix. It exits 1
+only when you are not signed in (no API key or account, an unknown profile, a key the API refuses, or the API out of
+reach), so scripts can use it as a sign-in check; a setup problem such as the CLI not being on PATH is a warning.
+`vendo doctor` shows the same screen but exits 1 when any check fails, setup checks included. With `--json` it
+prints every key `vendo whoami --json` and `vendo doctor --json` did.
 
 **Without a browser** (servers, CI), create an API key in the Vendo web app under Settings → API keys and pass it
 with the account ID:

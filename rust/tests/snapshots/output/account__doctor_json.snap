@@ -1,8 +1,8 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-$ vendo workspace --json
-exit: 0
+$ vendo doctor --json
+exit: 1
 --- stdout ---
 {
   "data": {
@@ -28,8 +28,8 @@ exit: 0
   },
   "summary": {
     "ok": 6,
-    "warn": 3,
-    "fail": 0
+    "warn": 2,
+    "fail": 1
   },
   "checks": [
     {
@@ -40,7 +40,7 @@ exit: 0
     },
     {
       "name": "PATH",
-      "status": "warn",
+      "status": "fail",
       "detail": "[bin-dir] is not available in PATH",
       "remediation": "Add `export PATH=\"$HOME/.local/bin:$PATH\"` to `~/.zshrc`, then restart your shell."
     },

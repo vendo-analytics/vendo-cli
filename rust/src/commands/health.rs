@@ -195,6 +195,14 @@ fn check(name: &'static str, status: CheckStatus, detail: String, remediation: O
 }
 
 impl DoctorCheck {
+    /// Whether the check is about signing in (VE-3891 exit codes, Yalcin 2026-10-07): the profile,
+    /// the key, the base URL, the account and `/me`'s answer. The others (the binary, PATH, the
+    /// config file, completions) are about the install, which `vendo workspace` and its identity
+    /// aliases only warn about, as scripts read `vendo whoami`'s exit code as "signed in".
+    pub fn about_sign_in(&self) -> bool {
+        matches!(self.name, "Selected profile" | "API key" | "Base URL" | "Account ID" | "API auth")
+    }
+
     fn listed_as(mut self, line: String) -> Self {
         self.line = line;
         self
@@ -329,14 +337,16 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
     });
 
     // The profile, key, base URL and account: the workspace screen lists their values above the
-    // checks, so it lists their checks only when they do not pass.
+    // checks, so it lists their checks only when they do not pass. A profile no config has fails, as
+    // signing in needs it (VE-3891 exit codes, Yalcin 2026-10-07); having none selected is a warning,
+    // as a key and account from the environment need none.
     checks.push(match config.selected_profile.as_ref().filter(|name| !name.is_empty()) {
         Some(name) if config.selected_profile_exists => check("Selected profile", Ok, name.clone(), None),
         // Switching profiles does not help while VENDO_PROFILE names the missing one (Yalcin, 2026-10-06).
         Some(name) if config.selected_by_vendo_profile => {
             let mut check = check(
                 "Selected profile",
-                Warn,
+                Fail,
                 format!("{name} (not found in config)"),
                 Some(&format!(
                     "{}: run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.",
@@ -350,7 +360,7 @@ pub fn local_checks(env: &DoctorEnv, config: &EffectiveConfig) -> Vec<DoctorChec
         }
         Some(name) => check(
             "Selected profile",
-            Warn,
+            Fail,
             format!("{name} (not found in config)"),
             Some("Run `vendo profile switch` to switch profiles, or `vendo login` to create one."),
         ),
@@ -651,6 +661,10 @@ mod tests {
         assert_eq!(line("Selected profile"), "Selected profile: No active profile selected");
         assert_eq!((line("API key"), line("Account ID")), ("API key: Missing".into(), "Account ID: Missing".into()));
         assert_eq!(line("Shell completions"), "Bash completions are not installed yet");
+        // Which are about signing in (VE-3891 exit codes): `vendo workspace` exits 1 only for those.
+        let sign_in: Vec<&str> = checks.iter().filter(|c| c.about_sign_in()).map(|c| c.name).collect();
+        assert_eq!(sign_in, ["Selected profile", "API key", "Base URL", "Account ID"]);
+        assert!(auth_check(None, None).about_sign_in());
     }
 
     #[test]
@@ -810,14 +824,16 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_vendo_profile_is_a_warning_whose_fix_says_it_overrides_the_active_profile() {
-        // A warning, so it never makes `vendo workspace` exit 1 by itself (VE-3891 review).
+    fn an_unknown_vendo_profile_fails_with_a_fix_that_says_it_overrides_the_active_profile() {
+        // A sign-in problem, so `vendo workspace` exits 1 for it, a key from the environment or not
+        // (VE-3891 exit codes, Yalcin 2026-10-07).
         let home = tempfile::tempdir().unwrap();
         let mut config = config(Some("vendo_sk_abcdefghij"), Some("acct"), Some(("nope", false)), true);
         config.selected_by_vendo_profile = true;
         let checks = local_checks(&env(home.path(), "/opt/vendo/bin/vendo", "/usr/bin", Some("zsh")), &config);
         let profile = checks.iter().find(|c| c.name == "Selected profile").unwrap();
-        assert_eq!((profile.status, profile.detail.as_str()), (CheckStatus::Warn, "nope (not found in config)"));
+        assert_eq!((profile.status, profile.detail.as_str()), (CheckStatus::Fail, "nope (not found in config)"));
+        assert!(profile.about_sign_in());
         assert_eq!(
             profile.remediation.as_deref(),
             Some(
@@ -828,10 +844,12 @@ mod tests {
             profile.fix_without_override.as_deref(),
             Some("Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile.")
         );
-        // An unknown --profile has no VENDO_PROFILE note.
+        // An unknown --profile fails too, with no VENDO_PROFILE note.
         config.selected_by_vendo_profile = false;
         let checks = local_checks(&env(home.path(), "/opt/vendo/bin/vendo", "/usr/bin", Some("zsh")), &config);
         assert!(checks.iter().all(|c| c.fix_without_override.is_none()), "{checks:#?}");
+        let profile = checks.iter().find(|c| c.name == "Selected profile").unwrap();
+        assert_eq!(profile.status, CheckStatus::Fail);
     }
 
     #[test]

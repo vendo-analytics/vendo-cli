@@ -156,7 +156,8 @@ pub async fn parse(mut args: Vec<OsString>) -> Parsed {
         let json_word = json_word(&typed);
         let err = match cmd.clone().try_get_matches_from(typed.clone()) {
             Ok(matches) => {
-                let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|err| exit_with(err, json_word));
+                let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|err| exit_with(err, json_word));
+                typed_as_doctor(&cmd, &typed, &mut cli.command);
                 return Parsed { cli, json: json_flag(&matches) };
             }
             Err(err) => err,
@@ -177,6 +178,14 @@ pub async fn parse(mut args: Vec<OsString>) -> Parsed {
             }
         }
         exit_with(err, json_word)
+    }
+}
+
+/// `vendo doctor` is `workspace`'s hidden alias (VE-3891), and clap does not say which name was
+/// typed: the first command word says it, so `doctor` keeps doctor's exit code.
+fn typed_as_doctor(root: &clap::Command, typed: &[OsString], command: &mut Command) {
+    if let Command::Workspace { doctor, .. } = command {
+        *doctor = command_words(root, typed).path.first().is_some_and(|word| word == "doctor");
     }
 }
 
@@ -573,6 +582,10 @@ pub enum Command {
         /// Output raw JSON
         #[arg(long)]
         json: bool,
+        /// Typed as `vendo doctor`, which keeps doctor's exit code: any failing check, setup checks
+        /// too, exits 1 (VE-3891 exit codes, Yalcin 2026-10-07). Set by [`parse`], never a flag.
+        #[arg(skip)]
+        doctor: bool,
     },
     /// Manage apps
     Apps {
@@ -2415,14 +2428,42 @@ mod tests {
             Command::Profile { command: ProfileCommand::List { json: false } }
         ));
         assert_eq!(switch_args(parse(&["vendo", "config", "use", "beta"]).unwrap()), (Some("beta".into()), None));
-        let Command::Workspace { json } = parse(&["vendo", "profile", "current", "--json"]).unwrap().command else {
+        let Command::Workspace { json, .. } = parse(&["vendo", "profile", "current", "--json"]).unwrap().command else {
             panic!()
         };
         assert!(json);
-        assert!(matches!(parse(&["vendo", "config", "show"]).unwrap().command, Command::Workspace { json: false }));
+        assert!(matches!(parse(&["vendo", "config", "show"]).unwrap().command, Command::Workspace { json: false, .. }));
         // whoami and doctor are workspace's hidden aliases (VE-3891).
-        assert!(matches!(parse(&["vendo", "whoami", "--json"]).unwrap().command, Command::Workspace { json: true }));
-        assert!(matches!(parse(&["vendo", "doctor"]).unwrap().command, Command::Workspace { json: false }));
+        assert!(matches!(
+            parse(&["vendo", "whoami", "--json"]).unwrap().command,
+            Command::Workspace { json: true, .. }
+        ));
+        assert!(matches!(parse(&["vendo", "doctor"]).unwrap().command, Command::Workspace { json: false, .. }));
+        // Only `doctor` keeps doctor's exit code (VE-3891 exit codes), however the globals sit.
+        let doctor = |args: &[&str]| {
+            let cmd = command();
+            let typed = rewrite_hidden_paths(&cmd, os(args));
+            let mut parsed = Cli::from_arg_matches(&cmd.clone().try_get_matches_from(typed.clone()).unwrap()).unwrap();
+            typed_as_doctor(&cmd, &typed, &mut parsed.command);
+            let Command::Workspace { doctor, .. } = parsed.command else { panic!("{args:?}") };
+            doctor
+        };
+        for args in [
+            &["vendo", "doctor"][..],
+            &["vendo", "--debug", "doctor", "--json"],
+            &["vendo", "--profile", "doctor", "doctor"],
+        ] {
+            assert!(doctor(args), "{args:?}");
+        }
+        for args in [
+            &["vendo", "workspace"][..],
+            &["vendo", "whoami"],
+            &["vendo", "profile", "current"],
+            &["vendo", "config", "show"],
+            &["vendo", "--profile", "doctor", "workspace"],
+        ] {
+            assert!(!doctor(args), "{args:?}");
+        }
         let Command::Logout { all, yes, .. } = parse(&["vendo", "config", "reset", "--yes"]).unwrap().command else {
             panic!()
         };
