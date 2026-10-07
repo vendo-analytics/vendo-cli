@@ -259,7 +259,10 @@ export function registerIntegrationsCommand(program: Command): void {
       '--from <date>',
       'Window start — ISO datetime or YYYY-MM-DD (default: 7 days before --to)',
     )
-    .option('--to <date>', 'Window end — ISO datetime or YYYY-MM-DD (default: now)')
+    .option(
+      '--to <date>',
+      'Window end — ISO datetime or YYYY-MM-DD (default: now)',
+    )
     .option('--json', 'Output raw JSON')
     .action(
       async (
@@ -306,9 +309,7 @@ export function registerIntegrationsCommand(program: Command): void {
 
         printSuccess(summary.headline);
         console.log(
-          c.dim(
-            `Window: ${window.requestedStart} → ${window.requestedEnd}`,
-          ),
+          c.dim(`Window: ${window.requestedStart} → ${window.requestedEnd}`),
         );
         for (const jobId of summary.jobIds) {
           console.log(`  Import job: ${jobId}`);
@@ -353,16 +354,11 @@ export function registerIntegrationsCommand(program: Command): void {
   });
 
   // integrations delete
-  registerDeleteCommand(
-    cmd,
-    RESOURCE,
-    'Delete an integration (soft delete)',
-    [
-      'vendo integrations delete <integrationId>',
-      'vendo int delete <integrationId> --yes',
-      'vendo integrations delete <integrationId> --dry-run',
-    ],
-  );
+  registerDeleteCommand(cmd, RESOURCE, 'Delete an integration (soft delete)', [
+    'vendo integrations delete <integrationId>',
+    'vendo int delete <integrationId> --yes',
+    'vendo integrations delete <integrationId> --dry-run',
+  ]);
 
   // integrations create
   const createCmd = cmd

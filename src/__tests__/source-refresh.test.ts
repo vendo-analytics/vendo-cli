@@ -61,12 +61,12 @@ describe('resolveRefreshWindow', () => {
   });
 
   it('rejects an empty or reversed window', () => {
-    expect(() =>
-      resolveRefreshWindow('2026-07-03', '2026-07-01', NOW),
-    ).toThrow(/earlier than/);
-    expect(() =>
-      resolveRefreshWindow('2026-07-01', '2026-07-01', NOW),
-    ).toThrow(/earlier than/);
+    expect(() => resolveRefreshWindow('2026-07-03', '2026-07-01', NOW)).toThrow(
+      /earlier than/,
+    );
+    expect(() => resolveRefreshWindow('2026-07-01', '2026-07-01', NOW)).toThrow(
+      /earlier than/,
+    );
   });
 });
 

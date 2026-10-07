@@ -95,7 +95,11 @@ const listBody = {
 } satisfies ApiResponse<DictionaryItem[]>;
 
 const lookupBody = {
-  data: { subjectId: columnItem.subjectId, found: true, definition: columnItem },
+  data: {
+    subjectId: columnItem.subjectId,
+    found: true,
+    definition: columnItem,
+  },
 } satisfies ApiResponse<DictionaryLookup>;
 
 const missingBody = {
@@ -199,9 +203,9 @@ describe('dictionary contract with vendo-web-v2', () => {
     expect(JSON.parse(await run('list', '--json'))).toEqual(listBody);
     stdout = [];
     respondWith(lookupBody);
-    expect(JSON.parse(await run('get', columnItem.subjectId, '--json'))).toEqual(
-      lookupBody,
-    );
+    expect(
+      JSON.parse(await run('get', columnItem.subjectId, '--json')),
+    ).toEqual(lookupBody);
   });
 
   it('get sends subject_id to the lookup route and prints every field', async () => {

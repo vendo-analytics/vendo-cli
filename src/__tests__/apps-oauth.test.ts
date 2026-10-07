@@ -59,7 +59,10 @@ async function createViaOAuth(
   vi.useFakeTimers({ toFake: ['setTimeout'] });
   let port = 0;
   post.mockImplementation(
-    async (_path: string, body: { oauthAssist: { httpCallbackPort: number } }) => {
+    async (
+      _path: string,
+      body: { oauthAssist: { httpCallbackPort: number } },
+    ) => {
       port = body.oauthAssist.httpCallbackPort;
       return {
         data: {
@@ -186,7 +189,9 @@ describe('apps create OAuth callback', () => {
         idle.destroy();
       }
     }, []);
-    expect(output).toEqual([expect.stringContaining('App app-9 created via OAuth.')]);
+    expect(output).toEqual([
+      expect.stringContaining('App app-9 created via OAuth.'),
+    ]);
   });
 
   it('settles on a GET that carries a status', async () => {
