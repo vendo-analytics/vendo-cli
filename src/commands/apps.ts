@@ -97,7 +97,6 @@ function permissionsFromRoles(roles: string[]): string[] {
   return perms.length > 0 ? perms : [...SOURCE_PERMISSIONS];
 }
 
-
 interface CatalogDefaultPermissions {
   source?: string[];
   destination?: string[];
@@ -231,7 +230,6 @@ export function registerAppsCommand(program: Command): void {
     'vendo apps list --output id',
   ]);
 
-
   // apps diagnose — one-call account triage (VE-2537).
   const diagnoseCmd = cmd
     .command('diagnose')
@@ -247,9 +245,10 @@ export function registerAppsCommand(program: Command): void {
               '/sources',
               { limit: 100 },
             ),
-            getClient().get<
-              { id: string; destinationAppId?: string | null }[]
-            >('/integrations', { limit: 100 }),
+            getClient().get<{ id: string; destinationAppId?: string | null }[]>(
+              '/integrations',
+              { limit: 100 },
+            ),
           ]),
       );
 
@@ -283,10 +282,7 @@ export function registerAppsCommand(program: Command): void {
         if (roles.includes('source') && !(sourceCounts.get(app.id) ?? 0)) {
           orphaned.push({ app, missing: 'source' });
         }
-        if (
-          roles.includes('destination') &&
-          !(destCounts.get(app.id) ?? 0)
-        ) {
+        if (roles.includes('destination') && !(destCounts.get(app.id) ?? 0)) {
           orphaned.push({ app, missing: 'destination' });
         }
       }
@@ -329,7 +325,10 @@ export function registerAppsCommand(program: Command): void {
       console.log();
     });
 
-  addExamples(diagnoseCmd, ['vendo apps diagnose', 'vendo apps diagnose --json']);
+  addExamples(diagnoseCmd, [
+    'vendo apps diagnose',
+    'vendo apps diagnose --json',
+  ]);
 
   // apps get
   const getCmd = cmd
@@ -353,7 +352,9 @@ export function registerAppsCommand(program: Command): void {
       console.log(`  ID:          ${app.id}`);
       console.log(`  Type:        ${app.appType}`);
       console.log(`  Capability:  ${roleLabel(app)}`);
-      console.log(`  Permissions: ${(app.permissions ?? []).join(', ') || '—'}`);
+      console.log(
+        `  Permissions: ${(app.permissions ?? []).join(', ') || '—'}`,
+      );
       console.log(`  State:       ${colorStatus(app.state)}`);
       console.log(
         `  Status:      ${accessStatusLabel(app)}${

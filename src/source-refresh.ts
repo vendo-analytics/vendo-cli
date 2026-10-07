@@ -95,7 +95,8 @@ export function summarizeEnsureSourceData(
       return {
         tone: 'success',
         headline:
-          result.message ?? 'Source data already available — nothing to import.',
+          result.message ??
+          'Source data already available — nothing to import.',
         jobIds,
       };
     case 'importing':
@@ -117,7 +118,9 @@ export function summarizeEnsureSourceData(
     default:
       return {
         tone: 'info',
-        headline: result.message ?? `Availability status: ${result.status ?? 'unknown'}`,
+        headline:
+          result.message ??
+          `Availability status: ${result.status ?? 'unknown'}`,
         jobIds,
       };
   }

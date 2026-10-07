@@ -287,9 +287,7 @@ describe('config', () => {
       expect(resolveLoginBaseUrl({ env: 'staging' })).toBe(STAGING_BASE_URL);
       expect(resolveLoginBaseUrl({ env: 'stg' })).toBe(STAGING_BASE_URL);
       expect(resolveLoginBaseUrl({ env: 'prod' })).toBe(DEFAULT_BASE_URL);
-      expect(resolveLoginBaseUrl({ env: 'Production' })).toBe(
-        DEFAULT_BASE_URL,
-      );
+      expect(resolveLoginBaseUrl({ env: 'Production' })).toBe(DEFAULT_BASE_URL);
     });
 
     it('rejects unknown environments', () => {

@@ -54,55 +54,55 @@ export function registerLoginCommand(program: Command): void {
         env?: string;
         baseUrl?: string;
       }) => {
-      // Resolve the target instance up front so a typo'd --env / --base-url
-      // fails here instead of opening a browser at the wrong instance
-      // (VE-1563: a plain login silently targeted prod).
-      let baseUrl: string;
-      try {
-        baseUrl = resolveLoginBaseUrl(opts);
-      } catch (err) {
-        exitWithError(err);
-      }
-
-      // Headless path: both --api-key and --account provided
-      if (opts.apiKey || opts.account) {
-        if (!opts.apiKey || !opts.account) {
-          exitWithError(
-            'Both --api-key and --account are required for headless login.\n' +
-              c.dim('  Example: vendo login --api-key <key> --account <id>'),
-          );
+        // Resolve the target instance up front so a typo'd --env / --base-url
+        // fails here instead of opening a browser at the wrong instance
+        // (VE-1563: a plain login silently targeted prod).
+        let baseUrl: string;
+        try {
+          baseUrl = resolveLoginBaseUrl(opts);
+        } catch (err) {
+          exitWithError(err);
         }
 
-        const identity = await runAction('Validating credentials...', () =>
-          validateCredentials(opts.apiKey!, opts.account!, baseUrl),
-        );
+        // Headless path: both --api-key and --account provided
+        if (opts.apiKey || opts.account) {
+          if (!opts.apiKey || !opts.account) {
+            exitWithError(
+              'Both --api-key and --account are required for headless login.\n' +
+                c.dim('  Example: vendo login --api-key <key> --account <id>'),
+            );
+          }
 
-        const profileName =
-          identity.accountSlug ?? identity.accountName ?? opts.account;
+          const identity = await runAction('Validating credentials...', () =>
+            validateCredentials(opts.apiKey!, opts.account!, baseUrl),
+          );
 
-        saveProfile(profileName, {
-          apiKey: opts.apiKey,
-          accountId: opts.account,
-          ...(baseUrl !== DEFAULT_BASE_URL && { baseUrl }),
-        });
+          const profileName =
+            identity.accountSlug ?? identity.accountName ?? opts.account;
 
-        printLoginSuccess({
-          account: profileName,
-          accountId: opts.account,
-          baseUrl,
-        });
-        process.exit(0);
-      }
+          saveProfile(profileName, {
+            apiKey: opts.apiKey,
+            accountId: opts.account,
+            ...(baseUrl !== DEFAULT_BASE_URL && { baseUrl }),
+          });
 
-      // Interactive browser path (existing)
-      try {
-        const result = await runBrowserLogin(baseUrl);
-        printLoginSuccess(result);
-        process.exit(0);
-      } catch (err) {
-        exitWithError(err);
-      }
-    },
+          printLoginSuccess({
+            account: profileName,
+            accountId: opts.account,
+            baseUrl,
+          });
+          process.exit(0);
+        }
+
+        // Interactive browser path (existing)
+        try {
+          const result = await runBrowserLogin(baseUrl);
+          printLoginSuccess(result);
+          process.exit(0);
+        } catch (err) {
+          exitWithError(err);
+        }
+      },
     );
 
   addExamples(cmd, [

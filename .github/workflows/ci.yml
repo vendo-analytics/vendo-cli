@@ -40,6 +40,10 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm lint
 
+      # Formatted once (VE-3926); fix with `pnpm format:fix`.
+      - name: Formatting
+        run: pnpm format
+
       - name: Test
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm test

@@ -106,7 +106,9 @@ export function registerStateActionCommand(
         return;
       }
 
-      printSuccess(`${capitalize(singular)} ${shortId(id)} ${action.pastTense}.`);
+      printSuccess(
+        `${capitalize(singular)} ${shortId(id)} ${action.pastTense}.`,
+      );
     });
 
   addExamples(cmd, action.examples);
