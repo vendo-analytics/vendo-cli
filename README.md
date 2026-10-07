@@ -139,16 +139,17 @@ included, and the y/N of `delete` and `jobs cancel` still apply.
 
   | Item | Actions offered |
   | --- | --- |
-  | App | pause (while active) or resume (while inactive), update, delete |
-  | Source | sync (while active), pause or resume, update, delete |
-  | Destination | sync (while active), refresh-source (when it has a source app), pause or resume, update, delete |
+  | App | pause (while active) or resume (while inactive), delete |
+  | Source | sync (while active), pause or resume, delete |
+  | Destination | sync (while active), refresh-source (when it has a source app), pause or resume, delete |
   | Job | tail and cancel, while it is queued, pending or running |
-  | Metric | activate (while a draft), update, delete |
+  | Metric | activate (while a draft), delete |
   | The `click_path` signal | click-path |
   | Profile | switch, unless it is the active profile |
 
   A platform, a dictionary entry, a model, a methodology or a cohort shows its details and `back`. The action runs
-  as if you had typed it and the CLI ends there. `vendo dictionary search` prints its table as before, and with
+  as if you had typed it and the CLI ends there. To change an item, type `vendo <group> update <id>` with the flags
+  to change; the list does not offer it, as it needs at least one. `vendo dictionary search` prints its table as before, and with
   `--json` or `--output` every list command prints what it did before.
 
 These lists and menus open only when stdin, stdout and stderr are all terminals, `TERM` is not `dumb` and prompts

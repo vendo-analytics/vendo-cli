@@ -8434,7 +8434,6 @@ fn app_actions(actions: &[&str]) -> Vec<String> {
     let about = |action: &str| match action {
         "pause" => "Pause an app",
         "resume" => "Resume a paused app",
-        "update" => "Update an app",
         "delete" => "Delete an app (soft delete)",
         _ => "Back to the list",
     };
@@ -8479,16 +8478,14 @@ async fn apps_list_at_a_terminal_lists_the_tables_rows_to_choose_from_with_its_f
 #[cfg(unix)]
 #[tokio::test]
 async fn enter_shows_the_app_as_apps_get_does_then_the_actions_that_apply_to_its_state() {
-    // Active: pause; inactive: resume; any other state: neither. Then update, delete and back, each
-    // with its description as `vendo apps --help` lists it.
+    // Active: pause; inactive: resume; any other state: neither. Then delete and back, each with its
+    // description as `vendo apps --help` lists it. Never update, which needs a flag (VE-3894).
     let server = apps_stub("acct-alpha", apps_to_browse()).await;
     let sandbox = Sandbox::new(&server.uri());
     let help = command_rows(&sandbox, &["apps"]);
-    for (at, id, actions) in [
-        (0, MENU_APP, &["pause", "update", "delete"][..]),
-        (1, CHOOSE_PIXEL, &["resume", "update", "delete"]),
-        (2, OLD_APP, &["update", "delete"]),
-    ] {
+    for (at, id, actions) in
+        [(0, MENU_APP, &["pause", "delete"][..]), (1, CHOOSE_PIXEL, &["resume", "delete"]), (2, OLD_APP, &["delete"])]
+    {
         let before = sent(&server).await.len();
         let mut terminal = OnTerminal::start(&sandbox, &["apps", "list"]);
         terminal.wait_for("type to filter · 3 apps]");
@@ -8552,10 +8549,8 @@ async fn a_chosen_action_runs_exactly_as_the_typed_command_and_the_cli_ends_with
     let cases = [
         Case(0, "Menu Shop", "\r", "pause", None, &["apps", "pause", MENU_APP]),
         Case(1, "Demo Pixel", "\r", "resume", None, &["apps", "resume", CHOOSE_PIXEL]),
-        // No change to make: it fails after the choice as when typed, exit 1 (VE-3881's Q13).
-        Case(2, "Old Shop", "upd\r", "update", None, &["apps", "update", OLD_APP]),
         // The y/N of a delete (VE-3823) asks as when typed: n sends nothing, y deletes.
-        Case(0, "Menu Shop", "\u{1b}[B\u{1b}[B\r", "delete", Some("n\n"), &[]),
+        Case(0, "Menu Shop", "\u{1b}[B\r", "delete", Some("n\n"), &[]),
         Case(1, "Demo Pixel", "DELETE\r", "delete", Some("y\n"), &["apps", "delete", CHOOSE_PIXEL, "--yes"]),
     ];
     for Case(at, name, keys, action, answer, typed_args) in cases {
@@ -9057,7 +9052,7 @@ const SOURCES_BROWSED: Browsed = Browsed {
     ],
     names: ["Menu Shop", "Analytics BQ", ""],
     footer: "3 sources",
-    actions: [&["sync", "pause", "update", "delete"], &["resume", "update", "delete"], &["update", "delete"]],
+    actions: [&["sync", "pause", "delete"], &["resume", "delete"], &["delete"]],
 };
 
 const DESTINATIONS_BROWSED: Browsed = Browsed {
@@ -9070,11 +9065,7 @@ const DESTINATIONS_BROWSED: Browsed = Browsed {
     ],
     names: ["Menu Shop → Analytics BQ", "Analytics BQ → Demo Pixel", "— → Demo Pixel"],
     footer: "3 destinations",
-    actions: [
-        &["sync", "refresh-source", "pause", "update", "delete"],
-        &["refresh-source", "resume", "update", "delete"],
-        &["update", "delete"],
-    ],
+    actions: [&["sync", "refresh-source", "pause", "delete"], &["refresh-source", "resume", "delete"], &["delete"]],
 };
 
 const JOBS_BROWSED: Browsed = Browsed {
@@ -9257,7 +9248,8 @@ async fn sources_destinations_and_jobs_list_at_a_terminal_list_the_tables_rows_f
 #[tokio::test]
 async fn enter_on_a_source_destination_or_job_shows_it_as_get_does_then_the_actions_that_apply_to_it() {
     // A source or destination: sync when active, refresh-source with a source app (destinations),
-    // pause when active, resume when inactive, neither in another state, then update and delete. A
+    // pause when active, resume when inactive, neither in another state, then delete (never update,
+    // which needs a flag, VE-3894). A
     // job: tail and cancel while queued or running, nothing once it failed. Then back, each described
     // as the group's help describes it.
     for browsed in PIPELINE_BROWSED {
@@ -9306,8 +9298,6 @@ async fn a_chosen_source_destination_or_job_action_runs_exactly_as_typed_and_the
         Case(SOURCES_BROWSED, &["sources", "list"], 0, "\r", "sync", None, &["sources", "sync", SOURCE_SHOP]),
         Case(SOURCES_BROWSED, &["sources", "list"], 0, "pause\r", "pause", None, &["sources", "pause", SOURCE_SHOP]),
         Case(SOURCES_BROWSED, &["sources", "list"], 1, "\r", "resume", None, &["sources", "resume", SOURCE_BQ]),
-        // No change to make: it fails after the choice as when typed, exit 1 (VE-3881's Q13).
-        Case(SOURCES_BROWSED, &["sources", "list"], 2, "\r", "update", None, &["sources", "update", SOURCE_BARE]),
         // The y/N of a delete (VE-3823) asks as when typed: n sends nothing, y deletes.
         Case(SOURCES_BROWSED, &["sources", "list"], 0, "delete\r", "delete", Some("n\n"), &[]),
         Case(
@@ -9665,7 +9655,7 @@ async fn an_empty_source_destination_or_job_list_prints_the_table_and_its_count_
 // `vendo catalog list`, `vendo dictionary list`, `vendo metrics list` and `vendo models list` at a
 // terminal, as `vendo apps list` above: the rows their tables show, from the same request, to choose
 // from. Enter shows the item as its group's `get` does, then the actions that apply to it: a draft
-// metric `activate`, every metric `update` and `delete`; a platform, a dictionary entry or a model
+// metric `activate`, every metric `delete` (never `update`, which needs a flag); a platform, a dictionary entry or a model
 // nothing (never the hidden `catalog credential-schema`); then `back`. `dictionary search`, which
 // prints the same table, prints it as before.
 
@@ -9769,7 +9759,7 @@ const METRICS_SELECTABLE: Selectable = Selectable {
     ],
     answers: &["6a798897... (ROAS)", "798897a6... (Total Revenue)", "8897a6b5... (CTR)"],
     footer: "3 metrics",
-    actions: &[&["update", "delete"], &["activate", "update", "delete"], &["update", "delete"]],
+    actions: &[&["delete"], &["activate", "delete"], &["delete"]],
 };
 
 const MODELS_SELECTABLE: Selectable = Selectable {
@@ -9906,7 +9896,7 @@ async fn catalog_dictionary_metrics_and_models_list_at_a_terminal_list_the_table
 #[cfg(unix)]
 #[tokio::test]
 async fn enter_on_a_platform_dictionary_entry_metric_or_model_shows_it_as_get_does_then_the_actions_that_apply() {
-    // A draft metric: activate, update, delete; any other metric update and delete; a platform, a
+    // A draft metric: activate, delete; any other metric delete (never update, VE-3894); a platform, a
     // dictionary entry or a model nothing but back. Each described as the group's help describes it.
     for selectable in SELECTABLE {
         for at in 0..selectable.ids.len() {
@@ -9943,9 +9933,6 @@ async fn a_chosen_metric_action_runs_exactly_as_typed_and_the_cli_ends_with_its_
     struct Case(usize, &'static str, &'static str, Option<&'static str>, &'static [&'static str]);
     let cases = [
         Case(1, "\r", "activate", None, &["metrics", "activate", METRIC_REVENUE]),
-        // No change to make: it fails after the choice as when typed, exit 1 (VE-3881's Q13).
-        Case(0, "\r", "update", None, &["metrics", "update", METRIC_ROAS]),
-        Case(1, "update\r", "update", None, &["metrics", "update", METRIC_REVENUE]),
         // The y/N of a delete (VE-3823) asks as when typed: n sends nothing, y deletes.
         Case(0, "delete\r", "delete", Some("n\n"), &[]),
         Case(2, "delete\r", "delete", Some("y\n"), &["metrics", "delete", METRIC_CTR, "--yes"]),
@@ -9982,7 +9969,8 @@ async fn a_chosen_metric_action_runs_exactly_as_typed_and_the_cli_ends_with_its_
         after.retain(|line| !line.contains("(y/N)"));
         assert_eq!(after, printed_lines(&typed), "{case}");
     }
-    // What those were: activate's PATCH, update's usage of its flags (nothing sent), delete's DELETE.
+    // What those were: activate's PATCH and delete's DELETE. `update`, no longer offered (VE-3894), still
+    // fails when typed without a flag, nothing sent.
     let server = catalog_dictionary_metrics_and_models_stub().await;
     let sandbox = Sandbox::new(&server.uri());
     let out = sandbox.run(&["metrics", "update", METRIC_ROAS]);

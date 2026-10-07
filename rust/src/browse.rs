@@ -284,15 +284,16 @@ mod menu {
         /// The commands of the group that apply to `item`, as `get`'s request returned it, in the order
         /// the action menu lists them. Apps, sources and destinations: `pause` when active, `resume`
         /// when inactive (neither for any other state; vendo-web-v2 `lib/vendo/apps/queries.ts`,
-        /// active|inactive, and the routes do not refuse by state), then `update` and `delete`, always
-        /// (the API refuses to delete an app still in use, with the next step, VE-3756). Sources and
+        /// active|inactive, and the routes do not refuse by state), then `delete`, always (the API
+        /// refuses to delete an app still in use, with the next step, VE-3756). Never `update`, which
+        /// needs at least one flag and from the menu could only fail with "pass at least one flag"
+        /// (VE-3894, Yalcin 2026-10-07): it stays a typed command. Sources and
         /// destinations first `sync` when active (`sources/sync.ts` and `integrations/sync.ts` refuse
         /// it otherwise), destinations then `refresh-source` when they have a source app
         /// (`lib/server/source-refresh.ts` refuses it without one, `no_source_app`). Jobs: `tail` and
         /// `cancel` while queued, pending or running (`jobs/cancel.ts` cancels only those; a finished
         /// job's tail would repeat what `get` showed), nothing otherwise. Metrics: `activate` for a draft
-        /// (the help's 'Activate a draft metric'; not an archived one), then `update` and `delete`,
-        /// always. Platforms, dictionary entries and models: nothing (their groups have no command that
+        /// (the help's 'Activate a draft metric'; not an archived one), then `delete`, always. Platforms, dictionary entries and models: nothing (their groups have no command that
         /// changes one; the hidden `catalog credential-schema` is never offered, and creating an app with
         /// a platform is another group's command). Methodologies and cohorts: nothing (the CLI has no
         /// command that changes one; `ltv customer` takes a customer). Signals: the `click_path` signal
@@ -310,7 +311,7 @@ mod menu {
                 Some("inactive") => Some("resume"),
                 _ => None,
             };
-            let lifecycle = pause_or_resume.into_iter().chain(["update", "delete"]);
+            let lifecycle = pause_or_resume.into_iter().chain(["delete"]);
             match self {
                 Group::Apps => lifecycle.collect(),
                 Group::Sources => sync.into_iter().chain(lifecycle).collect(),
@@ -326,7 +327,7 @@ mod menu {
                 }
                 Group::Metrics => {
                     let draft = (item.status() == "draft").then_some("activate");
-                    draft.into_iter().chain(["update", "delete"]).collect()
+                    draft.into_iter().chain(["delete"]).collect()
                 }
                 Group::Signals => {
                     if item.text("id").as_deref() == Some("click_path") {
@@ -480,23 +481,23 @@ mod tests {
     }
 
     #[test]
-    fn an_app_offers_pause_when_active_resume_when_inactive_then_update_and_delete() {
+    fn an_app_offers_pause_when_active_resume_when_inactive_then_delete_and_never_update() {
         let actions = |state: serde_json::Value| Group::Apps.actions(&json!({ "state": state }));
-        assert_eq!(actions(json!("active")), ["pause", "update", "delete"]);
-        assert_eq!(actions(json!("inactive")), ["resume", "update", "delete"]);
+        assert_eq!(actions(json!("active")), ["pause", "delete"]);
+        assert_eq!(actions(json!("inactive")), ["resume", "delete"]);
         for other in [json!("deleted"), json!("paused"), json!(null), json!(1)] {
-            assert_eq!(actions(other.clone()), ["update", "delete"], "{other}");
+            assert_eq!(actions(other.clone()), ["delete"], "{other}");
         }
-        assert_eq!(Group::Apps.actions(&json!(null)), ["update", "delete"]);
+        assert_eq!(Group::Apps.actions(&json!(null)), ["delete"]);
     }
 
     #[test]
-    fn a_source_offers_sync_and_pause_when_active_resume_when_inactive_then_update_and_delete() {
+    fn a_source_offers_sync_and_pause_when_active_resume_when_inactive_then_delete() {
         let actions = |state: serde_json::Value| Group::Sources.actions(&json!({ "state": state }));
-        assert_eq!(actions(json!("active")), ["sync", "pause", "update", "delete"]);
-        assert_eq!(actions(json!("inactive")), ["resume", "update", "delete"]);
+        assert_eq!(actions(json!("active")), ["sync", "pause", "delete"]);
+        assert_eq!(actions(json!("inactive")), ["resume", "delete"]);
         for other in [json!("deleted"), json!("paused"), json!("ACTIVE"), json!(null), json!(1)] {
-            assert_eq!(actions(other.clone()), ["update", "delete"], "{other}");
+            assert_eq!(actions(other.clone()), ["delete"], "{other}");
         }
     }
 
@@ -506,14 +507,14 @@ mod tests {
             Group::Destinations.actions(&json!({ "state": state, "sourceAppId": source_app }))
         };
         let app = json!("a1b2c3d4-0000-4000-8000-000000000001");
-        assert_eq!(actions("active", app.clone()), ["sync", "refresh-source", "pause", "update", "delete"]);
-        assert_eq!(actions("inactive", app.clone()), ["refresh-source", "resume", "update", "delete"]);
-        assert_eq!(actions("deleted", app), ["refresh-source", "update", "delete"]);
+        assert_eq!(actions("active", app.clone()), ["sync", "refresh-source", "pause", "delete"]);
+        assert_eq!(actions("inactive", app.clone()), ["refresh-source", "resume", "delete"]);
+        assert_eq!(actions("deleted", app), ["refresh-source", "delete"]);
         for none in [json!(null), json!("")] {
-            assert_eq!(actions("active", none.clone()), ["sync", "pause", "update", "delete"], "{none}");
-            assert_eq!(actions("inactive", none.clone()), ["resume", "update", "delete"], "{none}");
+            assert_eq!(actions("active", none.clone()), ["sync", "pause", "delete"], "{none}");
+            assert_eq!(actions("inactive", none.clone()), ["resume", "delete"], "{none}");
         }
-        assert_eq!(Group::Destinations.actions(&json!({ "state": "deleted" })), ["update", "delete"]);
+        assert_eq!(Group::Destinations.actions(&json!({ "state": "deleted" })), ["delete"]);
     }
 
     #[test]
@@ -531,11 +532,11 @@ mod tests {
     }
 
     #[test]
-    fn a_metric_offers_activate_only_as_a_draft_then_update_and_delete() {
+    fn a_metric_offers_activate_only_as_a_draft_then_delete() {
         let actions = |status: serde_json::Value| Group::Metrics.actions(&json!({ "status": status }));
-        assert_eq!(actions(json!("draft")), ["activate", "update", "delete"]);
+        assert_eq!(actions(json!("draft")), ["activate", "delete"]);
         for other in [json!("active"), json!("archived"), json!("Draft"), json!(""), json!(null), json!(1)] {
-            assert_eq!(actions(other.clone()), ["update", "delete"], "{other}");
+            assert_eq!(actions(other.clone()), ["delete"], "{other}");
         }
     }
 
@@ -654,13 +655,14 @@ mod tests {
             }
         }
         // Every action the rules name is offered for some item.
-        let lifecycle = ["delete", "pause", "resume", "update"];
+        // Never `update`, which needs a flag (VE-3894).
+        let lifecycle = ["delete", "pause", "resume"];
         let expected = [
             ("apps", &lifecycle[..]),
-            ("sources", &["delete", "pause", "resume", "sync", "update"]),
-            ("destinations", &["delete", "pause", "refresh-source", "resume", "sync", "update"]),
+            ("sources", &["delete", "pause", "resume", "sync"]),
+            ("destinations", &["delete", "pause", "refresh-source", "resume", "sync"]),
             ("jobs", &["cancel", "tail"]),
-            ("metrics", &["activate", "delete", "update"]),
+            ("metrics", &["activate", "delete"]),
             ("measurement signals", &["click-path"]),
             ("profile", &["switch"]),
         ];

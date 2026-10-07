@@ -438,13 +438,15 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   item's action menu: titled with the group (`vendo apps`), the actions that
   apply to the item as that request returned it, each with its description from the tree, then `back   Back to the
   list`, the cursor on the first and the keys typed while the item loaded thrown away. Apps: `pause` when active,
-  `resume` when inactive, neither for another state, then `update` and `delete`. Sources and destinations: first
+  `resume` when inactive, neither for another state, then `delete`. Never `update` (Yalcin, 2026-10-07): it needs at
+  least one flag, so from the menu it could only fail with "pass at least one flag"; `vendo <group> update <id>
+  --flag …` stays a typed command, unchanged. Sources and destinations: first
   `sync` when active (vendo-web-v2 `sources/sync.ts` and `integrations/sync.ts` refuse it otherwise), for a destination
   then `refresh-source` when `get` returned a `sourceAppId` (`lib/server/source-refresh.ts` refuses it without one,
-  `no_source_app`; it runs with its default window, the last 7 days), then pause or resume, `update` and `delete` as
+  `no_source_app`; it runs with its default window, the last 7 days), then pause or resume and `delete` as
   for apps. Jobs: `tail` and `cancel` while queued, pending or running (`jobs/cancel.ts` cancels only those), nothing
   else, so a finished job shows its details and `back` only. Metrics: `activate` for a draft (the help's 'Activate a
-  draft metric'), then `update` and `delete` (its y/N, then `Cancelled` on n, as typed). Platforms, dictionary entries
+  draft metric'), then `delete` (its y/N, then `Cancelled` on n, as typed). Platforms, dictionary entries
   and models: nothing, so `back` only (never the hidden `catalog credential-schema`). Methodologies and cohorts:
   nothing. Signals: the `click_path` row `click-path` (it runs `vendo measurement signals click-path`, which takes no
   ID), the others nothing. Profiles: `switch` unless the profile is the saved `activeProfile`
@@ -458,8 +460,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `browse` keeps its words (`apps pause <full ID>`, the group as the tree names it, so `destinations pause <full ID>`
   from `vendo int list`; `browse::chosen`) and `main` parses them again after `--profile=<name>` and `--debug` as given
   (`action_args`; VENDO_PROFILE and VENDO_DEBUG carry over in the environment), so a delete's or cancel's y/N
-  (VE-3823) asks, the full ID needs no short-ID lookup, `update` with no flags fails as typed (`Nothing to update —
-  pass at least one flag.`, exit 1), a source's `sync` while its job runs says `Sync already in progress`, `tail`
+  (VE-3823) asks, the full ID needs no short-ID lookup, a source's `sync` while its job runs says `Sync already in progress`, `tail`
   follows the job (clearing the screen as typed), and the CLI ends with the action's exit code. Back opens the list
   again with no request, the cursor on the item just viewed and the filter cleared; the action menu's line is taken back
   (`output::take_back_answer`, as Ctrl-C clears a menu, with no line in its place: answered `back` it read as a command,
@@ -492,7 +493,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   options: hide it from the group menu only, hide it everywhere as a hidden path, or remove it, which breaks scripts,
   agents and VE-3881's questions), the table's own cells in a row (all columns, wider rows that wrap on 80 columns,
   no header; VE-3881's narrower cells would drop Status and Last Sync), the CLI ending after an action rather than
-  returning to the list, `update` offered though it fails without flags, the action menu's title, rows, answers and
+  returning to the list, the action menu's title, rows, answers and
   order with the cursor on the first action (a double Enter after it opens runs pause, resume, sync, refresh-source or
   tail, which ask no y/N; option: start on `back`), the footer as today's words in the hint (`· 57 apps` while 20 rows
   show; option `20 of 57 apps`), an empty list printing the table and count (option: VE-3881's `No apps to choose
