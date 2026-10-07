@@ -4,12 +4,13 @@ use anyhow::Result;
 use serde_json::{Value, json};
 
 use crate::{
-    client::payload,
+    browse,
+    client::{Client, payload},
     context::Ctx,
     jobs::Job,
     output::{
-        OutputMode, bold, cyan, dim, green, js_if, js_join, js_template, js_truthy, print_count, print_field,
-        print_json, resolve_output_mode, run_action, table,
+        OutputMode, bold, count_text, cyan, dim, green, js_if, js_join, js_template, js_truthy, print_field,
+        print_json, resolve_output_mode, run_action,
     },
 };
 
@@ -81,39 +82,49 @@ pub async fn list(
         OutputMode::Json => print_json(&res),
         OutputMode::Field => print_field(&rows, output.as_deref().unwrap_or_default()),
         OutputMode::Table => {
-            let mut grid = table(&["App Type", "Name", "Category", "Roles", "Availability"]);
-            for item in &rows {
-                let t = |key: &str| Job(item).text(key).unwrap_or_default();
-                grid.add_row(vec![
-                    cyan(&t("appType")),
-                    t("displayName"),
-                    t("category"),
-                    roles(item),
-                    availability(item),
-                ]);
-            }
-            println!("{grid}");
             // `--all` shows every entry, so it keeps the plain count line.
-            match if all { None } else { ready_footer(&res, category.as_deref(), role.as_deref()) } {
-                Some(footer) => println!("{}", dim(&footer)),
-                None => print_count(rows.len() as u64, "platform"),
-            }
+            let footer = if all { None } else { ready_footer(&res, category.as_deref(), role.as_deref()) };
+            // The table, or at a terminal the same rows to choose from (VE-3894).
+            let table = browse::Table {
+                header: &["App Type", "Name", "Category", "Roles", "Availability"],
+                cells: rows.iter().map(platform_cells).collect(),
+                footer: footer.unwrap_or_else(|| count_text(Some(&Value::from(rows.len())), "platform")),
+            };
+            browse::shown(&client, browse::Group::Catalog, &rows, table, output.as_deref()).await?;
         }
     }
     Ok(())
 }
 
+/// A row of the `catalog list` table, its cells styled as the table shows them; a selectable list
+/// shows them plain (VE-3894).
+fn platform_cells(item: &Value) -> Vec<String> {
+    let t = |key: &str| Job(item).text(key).unwrap_or_default();
+    vec![cyan(&t("appType")), t("displayName"), t("category"), roles(item), availability(item)]
+}
+
 pub async fn get(ctx: &Ctx, app_type: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
-    let res = run_action("Fetching catalog entry...", client.get(&format!("/catalog/{app_type}"), &[])).await?;
     if json {
-        print_json(&res);
+        print_json(&fetch(&client, app_type).await?);
         return Ok(());
     }
+    show(&client, app_type).await.map(|_| ())
+}
+
+/// `GET /catalog/<appType>`, behind `catalog get`'s spinner.
+async fn fetch(client: &Client, app_type: &str) -> Result<Value> {
+    Ok(run_action("Fetching catalog entry...", client.get(&format!("/catalog/{app_type}"), &[])).await?)
+}
+
+/// What `catalog get` shows of the platform `app_type`, from its request behind its spinner; the entry
+/// as the API sent it. A selectable list shows it for the platform chosen (VE-3894).
+pub(crate) async fn show(client: &Client, app_type: &str) -> Result<Value> {
+    let res = fetch(client, app_type).await?;
     for line in catalog_lines(payload(&res)) {
         println!("{line}");
     }
-    Ok(())
+    Ok(payload(&res).clone())
 }
 
 /// The `catalog get` view, with the TS CLI's `${…}` rendering and truthiness checks.

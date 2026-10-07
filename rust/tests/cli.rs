@@ -9602,3 +9602,566 @@ async fn an_empty_source_destination_or_job_list_prints_the_table_and_its_count_
         assert_eq!(text(&sandbox.run(args).stdout).lines().last(), Some(footer), "{args:?}");
     }
 }
+
+// ── VE-3894: catalog, dictionary, metrics and models ─────────────────────────
+// `vendo catalog list`, `vendo dictionary list`, `vendo metrics list` and `vendo models list` at a
+// terminal, as `vendo apps list` above: the rows their tables show, from the same request, to choose
+// from. Enter shows the item as its group's `get` does, then the actions that apply to it: a draft
+// metric `activate`, every metric `update` and `delete`; a platform, a dictionary entry or a model
+// nothing (never the hidden `catalog credential-schema`); then `back`. `dictionary search`, which
+// prints the same table, prints it as before.
+
+/// The events a selectable list shows: one whose description has a line break, one with no
+/// description, one with no name.
+fn dictionary_to_browse() -> Vec<Value> {
+    let mut checkout = dictionary_item(EVENT_CHECKOUT, "event", json!("Checkout Completed"));
+    checkout["description"] = json!("A customer placed an order.\nPaid orders only.");
+    let mut page = dictionary_item(EVENT_PAGE, "event", json!("Page Viewed"));
+    page["description"] = Value::Null;
+    vec![checkout, page, dictionary_item(EVENT_UNNAMED, "event", Value::Null)]
+}
+
+/// [`jobs_models_metrics_and_catalog_stub`] (the catalog, [`models_to_choose`], [`metrics_to_choose`],
+/// each item for every request about one), with [`dictionary_to_browse`] in acct-alpha for any list
+/// of the dictionary and each entry's lookup.
+async fn catalog_dictionary_metrics_and_models_stub() -> MockServer {
+    use wiremock::matchers::{method, query_param};
+    let server = jobs_models_metrics_and_catalog_stub().await;
+    let items = dictionary_to_browse();
+    for item in &items {
+        let id = item["subjectId"].as_str().unwrap();
+        let found = json!({ "data": { "subjectId": id, "found": true, "definition": item } });
+        Mock::given(method("GET"))
+            .and(path(format!("{V1}/dictionary/lookup")))
+            .and(query_param("subject_id", id))
+            .respond_with(ResponseTemplate::new(200).set_body_json(found))
+            .mount(&server)
+            .await;
+    }
+    serve(&server, "GET", &format!("{V1}/dictionary"), 200, page_of(items, 0, false)).await;
+    server
+}
+
+/// A list command of VE-3894's third group as its selectable list shows
+/// [`catalog_dictionary_metrics_and_models_stub`]'s items.
+#[derive(Clone, Copy, Debug)]
+struct Selectable {
+    /// The group as the tree names it.
+    group: &'static str,
+    /// The items' IDs as `get` takes them, in the list's order.
+    ids: &'static [&'static str],
+    /// The items as the list shows them: the table's cells as plain text on one line, padded per column.
+    rows: &'static [&'static str],
+    /// How an answered line names each item.
+    answers: &'static [&'static str],
+    /// The table's footer, which follows the list's hint.
+    footer: &'static str,
+    /// The actions each item offers before `back`.
+    actions: &'static [&'static [&'static str]],
+}
+
+const CATALOG_SELECTABLE: Selectable = Selectable {
+    group: "catalog",
+    ids: &["bigquery", "shopify"],
+    rows: &["bigquery  BigQuery  ads  source  ready", "shopify   Shopify   ads  source  ready"],
+    answers: &["bigquery", "shopify"],
+    footer: "2 ready · 1 more on request (vendo catalog list --all)",
+    actions: &[&[], &[]],
+};
+
+/// `vendo catalog list --all`: the platform on request too, and the plain count.
+const CATALOG_ALL_SELECTABLE: Selectable = Selectable {
+    ids: &["bigquery", "shopify", "hubspot"],
+    rows: &[
+        "bigquery  BigQuery  ads  source  ready",
+        "shopify   Shopify   ads  source  ready",
+        "hubspot   HubSpot   ads  source  on request",
+    ],
+    answers: &["bigquery", "shopify", "hubspot"],
+    footer: "3 platforms",
+    actions: &[&[], &[], &[]],
+    ..CATALOG_SELECTABLE
+};
+
+const DICTIONARY_SELECTABLE: Selectable = Selectable {
+    group: "dictionary",
+    ids: &[EVENT_CHECKOUT, EVENT_PAGE, EVENT_UNNAMED],
+    // The line break of the first description is a space: one row, one line.
+    rows: &[
+        "9f8e7d6c5b4a39281706f5e4d3c2b1a0  Checkout Completed  A customer placed an order. Paid orders only.",
+        "0a1b2c3d4e5f60718293a4b5c6d7e8f9  Page Viewed         —",
+        "1b2c3d4e5f60718293a4b5c6d7e8f9a0  —                   Synthetic entry",
+    ],
+    answers: &[
+        "9f8e7d6c5b4a39281706f5e4d3c2b1a0 (Checkout Completed)",
+        "0a1b2c3d4e5f60718293a4b5c6d7e8f9 (Page Viewed)",
+        "1b2c3d4e5f60718293a4b5c6d7e8f9a0",
+    ],
+    footer: "3 events",
+    actions: &[&[], &[], &[]],
+};
+
+const METRICS_SELECTABLE: Selectable = Selectable {
+    group: "metrics",
+    ids: &[METRIC_ROAS, METRIC_REVENUE, METRIC_CTR],
+    rows: &[
+        "6a798897...  ROAS           multiplier  active  —",
+        "798897a6...  Total Revenue  currency    draft   —",
+        "8897a6b5...  CTR            percentage  active  —",
+    ],
+    answers: &["6a798897... (ROAS)", "798897a6... (Total Revenue)", "8897a6b5... (CTR)"],
+    footer: "3 metrics",
+    actions: &[&["update", "delete"], &["activate", "update", "delete"], &["update", "delete"]],
+};
+
+const MODELS_SELECTABLE: Selectable = Selectable {
+    group: "models",
+    ids: &[MODEL_ORDERS, MODEL_LTV],
+    rows: &["4c5b6a79...  orders_clean  sql   yes  —", "5b6a7988...  ltv_forecast  bqml  no   —"],
+    answers: &["4c5b6a79... (orders_clean)", "5b6a7988... (ltv_forecast)"],
+    footer: "2 models",
+    actions: &[&[], &[]],
+};
+
+const SELECTABLE: [Selectable; 4] = [CATALOG_SELECTABLE, DICTIONARY_SELECTABLE, METRICS_SELECTABLE, MODELS_SELECTABLE];
+
+impl Selectable {
+    /// The open list's title.
+    fn title(self) -> String {
+        format!("? vendo {} list", self.group)
+    }
+
+    /// The end of the list's hint: the table's footer.
+    fn hint_end(self) -> String {
+        format!("type to filter · {}]", self.footer)
+    }
+
+    /// What the open list shows with the cursor on the row at `at`.
+    fn list(self, at: usize) -> Vec<String> {
+        let rows = self.rows.iter().enumerate().map(|(i, row)| format!("{} {row}", if i == at { '>' } else { ' ' }));
+        let hint = format!("[↑↓ to move, enter to select, {}", self.hint_end());
+        [vec![self.title()], rows.collect(), vec![hint]].concat()
+    }
+
+    /// The request `vendo <group> get <id>` sends for the item at `at`, and Enter too.
+    fn item(self, at: usize) -> String {
+        let id = self.ids[at];
+        match self.group {
+            "catalog" => format!("GET {CATALOG}/{id}"),
+            "dictionary" => format!("GET {V1}/dictionary/lookup?subject_id={id}"),
+            "metrics" => format!("GET /api/metrics/{id}"),
+            _ => format!("GET {V1}/models/{id}"),
+        }
+    }
+
+    /// The action menu of the item at `at`: its actions, then `back`, each described as
+    /// `vendo <group> --help` lists it.
+    fn menu(self, sandbox: &Sandbox, at: usize) -> Vec<String> {
+        let help = command_rows(sandbox, &[self.group]);
+        let about = |action: &str| match action {
+            "back" => "Back to the list".to_string(),
+            _ => help
+                .iter()
+                .find_map(|row| row.strip_prefix(action).filter(|about| about.starts_with(' ')))
+                .map(|about| about.trim().to_string())
+                .unwrap_or_else(|| panic!("{action}: {help:#?}")),
+        };
+        let names: Vec<&str> = self.actions[at].iter().copied().chain(["back"]).collect();
+        let width = names.iter().map(|name| name.len()).max().unwrap();
+        let rows: Vec<String> = names.iter().map(|name| format!("{name:<width$}  {}", about(name))).collect();
+        let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+        [vec![format!("? vendo {}", self.group)], marked(&rows), vec![HINT.to_string()]].concat()
+    }
+
+    /// Opens `vendo <args>`, this list, and waits for it.
+    fn open(self, sandbox: &Sandbox, args: &[&str]) -> OnTerminal {
+        let mut terminal = OnTerminal::start(sandbox, args);
+        terminal.wait_for(&self.hint_end());
+        terminal
+    }
+
+    /// Opens `vendo <group> list`, chooses the row at `at` and waits for its action menu.
+    fn menu_of(self, sandbox: &Sandbox, at: usize) -> OnTerminal {
+        let mut terminal = self.open(sandbox, &[self.group, "list"]);
+        if at > 0 {
+            terminal.press(&"\u{1b}[B".repeat(at));
+            terminal.wait_for(&format!("> {}", self.rows[at]));
+        }
+        terminal.press("\r");
+        terminal.wait_for("Back to the list");
+        terminal.wait_for("type to filter]");
+        terminal
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn catalog_dictionary_metrics_and_models_list_at_a_terminal_list_the_tables_rows_from_the_same_request() {
+    // Titled with the command, every row the table shows (its cells, plain, on one line), the first
+    // marked, the table's footer after the hint (the catalog's `2 ready · 1 more on request …`). The
+    // flags go into the request as typed: the table's request, and nothing more.
+    let cases: [(Selectable, &[&str], String); 8] = [
+        (CATALOG_SELECTABLE, &["catalog", "list"], format!("GET {CATALOG}")),
+        (CATALOG_ALL_SELECTABLE, &["catalog", "list", "--all"], format!("GET {CATALOG}?include_request_access=true")),
+        (DICTIONARY_SELECTABLE, &["dictionary", "list"], format!("GET {V1}/dictionary?type=event&limit=20&offset=0")),
+        (
+            DICTIONARY_SELECTABLE,
+            &["dictionary", "list", "--query", "order", "--limit", "5"],
+            format!("GET {V1}/dictionary?type=event&q=order&limit=5&offset=0"),
+        ),
+        (METRICS_SELECTABLE, &["metrics", "list"], "GET /api/metrics?limit=20&offset=0".to_string()),
+        (
+            METRICS_SELECTABLE,
+            &["metrics", "list", "--status", "draft", "--offset", "3"],
+            "GET /api/metrics?status=draft&limit=20&offset=3".to_string(),
+        ),
+        (MODELS_SELECTABLE, &["models", "list"], format!("GET {V1}/models?limit=20&offset=0")),
+        (MODELS_SELECTABLE, &["models", "list", "--valid"], format!("GET {V1}/models?limit=20&offset=0&is_valid=true")),
+    ];
+    for (selectable, args, request) in cases {
+        let case = args.join(" ");
+        let server = catalog_dictionary_metrics_and_models_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let piped = sandbox.run(args);
+        assert_eq!(sent(&server).await, std::slice::from_ref(&request), "{case}");
+        let mut terminal = selectable.open(&sandbox, args);
+        let shown = shown_lines(&terminal, (40, 120));
+        assert_eq!(shown, selectable.list(0), "{case}");
+        let table = table_cells(&printed_lines(&piped));
+        assert_eq!(table.last().unwrap(), &[selectable.footer], "{case}");
+        if selectable.group != "dictionary" {
+            let listed: Vec<String> = shown[1..shown.len() - 1].iter().map(|row| row[2..].to_string()).collect();
+            assert_eq!(table_cells(&listed), table[1..table.len() - 1], "{case}: the table's rows");
+        } else {
+            // The table breaks the description over two lines; the list keeps the row on one.
+            let piped = text(&piped.stdout);
+            assert!(piped.contains("A customer placed an order.") && piped.contains("Paid orders only."), "{piped}");
+            assert!(!piped.contains("order. Paid"), "{piped}");
+        }
+        terminal.press("\u{1b}");
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{case}: {rest:?}");
+        assert_eq!(sent(&server).await, [request.clone(), request], "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn enter_on_a_platform_dictionary_entry_metric_or_model_shows_it_as_get_does_then_the_actions_that_apply() {
+    // A draft metric: activate, update, delete; any other metric update and delete; a platform, a
+    // dictionary entry or a model nothing but back. Each described as the group's help describes it.
+    for selectable in SELECTABLE {
+        for at in 0..selectable.ids.len() {
+            let case = format!("{} {}", selectable.group, selectable.ids[at]);
+            let server = catalog_dictionary_metrics_and_models_stub().await;
+            let sandbox = Sandbox::new(&server.uri());
+            let mut terminal = selectable.menu_of(&sandbox, at);
+            let asked = sent(&server).await;
+            assert_eq!(asked.len(), 2, "{case}: {asked:#?}");
+            assert_eq!(asked[1], selectable.item(at), "{case}");
+            // What `vendo <group> get <full id>` sends and prints on a pipe.
+            let typed = sandbox.run(&[selectable.group, "get", selectable.ids[at]]);
+            assert_eq!(sent(&server).await[2..], [selectable.item(at)], "{case}");
+            let shown = shown_from(&terminal, &format!("{} {}", selectable.title(), selectable.answers[at]));
+            let menu = selectable.menu(&sandbox, at);
+            let details = &shown[1..shown.len() - menu.len()];
+            let details: Vec<String> = details.iter().filter(|line| !line.is_empty()).cloned().collect();
+            assert_eq!(details, printed_lines(&typed), "{case}");
+            assert_eq!(shown[shown.len() - menu.len()..], menu, "{case}");
+            assert!(!menu.iter().any(|row| row.contains("credential-schema")), "{case}");
+            terminal.press("\u{1b}");
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            assert_eq!(sent(&server).await.len(), 3, "{case}: nothing more sent");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_chosen_metric_action_runs_exactly_as_typed_and_the_cli_ends_with_its_exit_code() {
+    /// The row chosen, the keys that choose the action, the action, what the y/N question is answered
+    /// (none when it asks none), and the same command typed with the full ID (none when nothing is sent).
+    struct Case(usize, &'static str, &'static str, Option<&'static str>, &'static [&'static str]);
+    let cases = [
+        Case(1, "\r", "activate", None, &["metrics", "activate", METRIC_REVENUE]),
+        // No change to make: it fails after the choice as when typed, exit 1 (VE-3881's Q13).
+        Case(0, "\r", "update", None, &["metrics", "update", METRIC_ROAS]),
+        Case(1, "update\r", "update", None, &["metrics", "update", METRIC_REVENUE]),
+        // The y/N of a delete (VE-3823) asks as when typed: n sends nothing, y deletes.
+        Case(0, "delete\r", "delete", Some("n\n"), &[]),
+        Case(2, "delete\r", "delete", Some("y\n"), &["metrics", "delete", METRIC_CTR, "--yes"]),
+    ];
+    let selectable = METRICS_SELECTABLE;
+    for Case(at, keys, action, answer, typed_args) in cases {
+        let case = format!("{action} {} {answer:?}", selectable.ids[at]);
+        let server = catalog_dictionary_metrics_and_models_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let mut terminal = selectable.menu_of(&sandbox, at);
+        terminal.press(keys);
+        let answered = format!("? vendo metrics {action} {}", selectable.answers[at]);
+        terminal.wait_for(&answered[2..]);
+        if let Some(answer) = answer {
+            terminal.wait_for("(y/N) ");
+            terminal.press(answer);
+        }
+        let (rest, code) = terminal.finish();
+        let asked = sent(&server).await;
+        assert_eq!(asked[..2], ["GET /api/metrics?limit=20&offset=0".to_string(), selectable.item(at)], "{case}");
+        if typed_args.is_empty() {
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            assert_eq!(asked.len(), 2, "{case}: {asked:#?}");
+            let question = format!("Delete metric {}? This cannot be undone. (y/N) n", &selectable.rows[at][..11]);
+            assert_eq!(after_answer(&terminal, &answered), [question, "Cancelled".to_string()], "{case}");
+            continue;
+        }
+        // The list and the item, then what the typed command sends, and nothing else.
+        let typed = sandbox.run(typed_args);
+        let typed_sent = sent(&server).await[asked.len()..].to_vec();
+        assert_eq!(asked[2..], typed_sent, "{case}");
+        assert_eq!(code, typed.status.code(), "{case}: {rest:?}");
+        let mut after = after_answer(&terminal, &answered);
+        after.retain(|line| !line.contains("(y/N)"));
+        assert_eq!(after, printed_lines(&typed), "{case}");
+    }
+    // What those were: activate's PATCH, update's usage of its flags (nothing sent), delete's DELETE.
+    let server = catalog_dictionary_metrics_and_models_stub().await;
+    let sandbox = Sandbox::new(&server.uri());
+    let out = sandbox.run(&["metrics", "update", METRIC_ROAS]);
+    assert_eq!((out.status.code(), printed_lines(&out)), (Some(1), vec!["Error: No updates provided".to_string()]));
+    sandbox.run(&["metrics", "activate", METRIC_REVENUE]);
+    sandbox.run(&["metrics", "delete", METRIC_CTR, "--yes"]);
+    assert_eq!(
+        sent(&server).await,
+        [
+            format!("PATCH /api/metrics/{METRIC_REVENUE} {{\"status\":\"active\"}}"),
+            format!("DELETE /api/metrics/{METRIC_CTR}"),
+        ]
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn back_opens_the_platform_dictionary_metric_or_model_list_again_on_the_item_with_no_request() {
+    for (selectable, filter) in [
+        (CATALOG_SELECTABLE, "shopify"),
+        (DICTIONARY_SELECTABLE, "page viewed"),
+        (METRICS_SELECTABLE, "revenue"),
+        (MODELS_SELECTABLE, "bqml"),
+    ] {
+        let server = catalog_dictionary_metrics_and_models_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let mut terminal = selectable.open(&sandbox, &[selectable.group, "list"]);
+        // Filtered down to the second row, which Enter shows.
+        terminal.press(filter);
+        terminal.wait_for(&format!("vendo {} list {filter}", selectable.group));
+        terminal.press("\r");
+        terminal.wait_for("Back to the list");
+        terminal.wait_for("type to filter]");
+        let shown_once = sent(&server).await;
+        terminal.press("back\r");
+        terminal.wait_for(&selectable.hint_end());
+        terminal.wait_for("\u{1b}[?25h");
+        // The same rows, the filter cleared, the cursor on the item just viewed; nothing sent.
+        assert_eq!(shown_from(&terminal, &selectable.title()), selectable.list(1), "{}", selectable.group);
+        assert_eq!(sent(&server).await, shown_once, "{}", selectable.group);
+        let back = format!("? vendo {} back", selectable.group);
+        assert!(shown_lines(&terminal, (40, 120)).contains(&back), "{}", selectable.group);
+        terminal.press("\u{1b}");
+        let (rest, code) = terminal.finish();
+        assert_eq!(code, Some(0), "{}: {rest:?}", selectable.group);
+        assert_eq!(sent(&server).await, shown_once, "{}", selectable.group);
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn typing_filters_the_platforms_dictionary_entries_metrics_and_models_by_any_column() {
+    for (selectable, args, typed, rows) in [
+        (CATALOG_ALL_SELECTABLE, &["catalog", "list", "--all"][..], "on request", &[2][..]),
+        (CATALOG_SELECTABLE, &["catalog", "list"], "SHOP", &[1]),
+        // The description's second line, on the row's one line.
+        (DICTIONARY_SELECTABLE, &["dictionary", "list"], "paid orders", &[0]),
+        (DICTIONARY_SELECTABLE, &["dictionary", "list"], "synthetic", &[2]),
+        (METRICS_SELECTABLE, &["metrics", "list"], "draft", &[1]),
+        (METRICS_SELECTABLE, &["metrics", "list"], "percentage", &[2]),
+        (MODELS_SELECTABLE, &["models", "list"], "yes", &[0]),
+    ] {
+        let case = format!("{} {typed}", args.join(" "));
+        let server = catalog_dictionary_metrics_and_models_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let mut terminal = selectable.open(&sandbox, args);
+        terminal.press(typed);
+        terminal.wait_for(&format!("vendo {} list {typed}", selectable.group));
+        terminal.wait_for("\u{1b}[?25h");
+        let expected: Vec<&str> = rows.iter().map(|at| selectable.rows[*at]).collect();
+        assert_eq!(listed_rows(&terminal), marked(&expected), "{case}");
+        terminal.press("\u{1b}");
+        assert_eq!(terminal.finish().1, Some(0), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn esc_ctrl_c_or_ctrl_d_at_a_platform_dictionary_metric_or_model_list_or_its_actions_leave_quietly() {
+    // As at the group menu (VE-3826): exit 0, nothing run, the title and `<canceled>` where the list or
+    // the menu was, and the cursor on the next line.
+    for selectable in SELECTABLE {
+        let list = format!("vendo {} list", selectable.group);
+        let actions = format!("vendo {}", selectable.group);
+        for (step, key, title, reads) in
+            [("list", "\u{1b}", &list, 1), ("actions", "\u{3}", &actions, 2), ("list after back", "\u{4}", &list, 2)]
+        {
+            let case = format!("{} at the {step}", selectable.group);
+            let server = catalog_dictionary_metrics_and_models_stub().await;
+            let sandbox = Sandbox::new(&server.uri());
+            let mut terminal = if step == "list" {
+                selectable.open(&sandbox, &[selectable.group, "list"])
+            } else {
+                selectable.menu_of(&sandbox, 0)
+            };
+            if step == "list after back" {
+                terminal.press("back\r");
+                terminal.wait_for(&selectable.hint_end());
+            }
+            terminal.press(key);
+            let (rest, code) = terminal.finish();
+            assert_eq!(code, Some(0), "{case}: {rest:?}");
+            let rest = plain(&rest).to_lowercase();
+            assert!(!rest.contains("error") && !rest.contains("usage"), "{case}: {rest:?}");
+            let (shown, cursor) = screen(&terminal.screen, 40, 120);
+            let last = shown.iter().rposition(|line| !line.is_empty()).unwrap();
+            assert_eq!((shown[last].clone(), cursor), (format!("? {title} <canceled>"), (last + 1, 0)), "{case}");
+            let asked = sent(&server).await;
+            assert_eq!(asked.len(), reads, "{case}: {asked:#?}");
+            assert!(asked.iter().all(|request| request.starts_with("GET ")), "{case}: {asked:#?}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_platform_dictionary_entry_metric_or_model_that_cannot_be_read_ends_with_the_error_get_gives() {
+    // Deleted since the list loaded (or a 429, or the network): `get`'s error, exit 1.
+    for selectable in SELECTABLE {
+        let last = selectable.ids.len() - 1;
+        let server = MockServer::start().await;
+        let request = selectable.item(last);
+        let route = request.trim_start_matches("GET ").split('?').next().unwrap().to_string();
+        let missing = match selectable.group {
+            "metrics" => json!({ "error": "Metric not found" }),
+            _ => json!({ "error": { "code": "NOT_FOUND", "message": "Not found" } }),
+        };
+        Mock::given(path(route))
+            .respond_with(
+                ResponseTemplate::new(404).set_body_json(missing).insert_header("x-request-id", "req_server_1"),
+            )
+            .mount(&server)
+            .await;
+        let stub = catalog_dictionary_metrics_and_models_stub().await;
+        // The list as the full stub sends it.
+        let listed = Sandbox::new(&stub.uri()).run(&[selectable.group, "list", "--json"]);
+        let body: Value = serde_json::from_slice(&listed.stdout).unwrap();
+        let body = match selectable.group {
+            // `metrics list --json` prints the CLI's envelope; the route sends `metrics` and `total`.
+            "metrics" => json!({ "metrics": body["data"], "total": body["meta"]["pagination"]["total"] }),
+            _ => body,
+        };
+        let list = match selectable.group {
+            "catalog" => CATALOG.to_string(),
+            "dictionary" => format!("{V1}/dictionary"),
+            "metrics" => "/api/metrics".to_string(),
+            _ => format!("{V1}/models"),
+        };
+        serve(&server, "GET", &list, 200, body).await;
+        let sandbox = Sandbox::new(&server.uri());
+        let mut terminal = selectable.open(&sandbox, &[selectable.group, "list"]);
+        terminal.press(&"\u{1b}[B".repeat(last));
+        terminal.wait_for(&format!("> {}", selectable.rows[last]));
+        terminal.press("\r");
+        let answered = format!("{} {}", selectable.title(), selectable.answers[last]);
+        terminal.wait_for(&answered[2..]);
+        let (rest, code) = terminal.finish();
+        let typed = sandbox.run(&[selectable.group, "get", selectable.ids[last]]);
+        assert_eq!((code, typed.status.code()), (Some(1), Some(1)), "{}: {rest:?}", selectable.group);
+        assert_eq!(after_answer(&terminal, &answered), printed_lines(&typed), "{}", selectable.group);
+        assert!(printed_lines(&typed)[0].starts_with("Error: "), "{:?}", printed_lines(&typed));
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn where_the_list_cannot_open_and_with_json_or_output_catalog_dictionary_metrics_and_models_list_print_what_they_printed()
+ {
+    // Byte for byte, as `vendo apps list` (above): piped (`output/` records it), with stdout piped from
+    // a terminal, and at a terminal with prompts off, on `TERM=dumb`, with stderr redirected or a
+    // write-only stdin, where it prints the table a terminal shows. `--json` and `--output` print what
+    // they print on a pipe; an empty `--output` the table. `dictionary search` prints its table at a
+    // terminal too.
+    for (args, footer, field) in [
+        (&["catalog", "list"][..], "2 ready · 1 more on request (vendo catalog list --all)", "appType"),
+        (&["catalog", "list", "--all"], "3 platforms", "appType"),
+        (&["dictionary", "list"], "3 events", "subjectId"),
+        (&["dictionary", "search", "order"], "3 events", "subjectId"),
+        (&["metrics", "list"], "3 metrics", "id"),
+        (&["models", "list"], "2 models", "id"),
+    ] {
+        let case = args.join(" ");
+        let server = catalog_dictionary_metrics_and_models_stub().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let piped = sandbox.run(args);
+        let (reference, code) = OnTerminal::start_env(&sandbox, args, &[("CI", "1")]).finish();
+        assert_eq!(code, Some(0), "{case}: {reference:?}");
+        let reference = plain(&reference);
+        let bordered: Vec<String> = reference.lines().map(str::to_string).collect();
+        assert_eq!(table_cells(&bordered), cells(&piped.stdout), "{case}");
+        assert!(reference.starts_with("┌") && reference.ends_with(&format!("{footer}\n")), "{case}: {reference}");
+        for (setting, code, screen) in where_no_list_opens(&sandbox, args) {
+            assert_eq!((code, screen), (Some(0), reference.clone()), "{case}: {setting}");
+        }
+        if args[1] == "search" {
+            let (screen, code) = OnTerminal::start(&sandbox, args).finish();
+            assert_eq!((code, plain(&screen)), (Some(0), reference.clone()), "{case}: at a terminal");
+        }
+        let (_controller, terminal) = pseudo_terminal();
+        let terminal = std::fs::File::from(terminal);
+        let out = sandbox.command(args).stdin(terminal.try_clone().unwrap()).stderr(terminal).output().unwrap();
+        assert_eq!((out.status.code(), text(&out.stdout)), (Some(0), text(&piped.stdout)), "{case}");
+        for flags in [&["--json"][..], &["--output", field]] {
+            let args: Vec<&str> = args.iter().chain(flags).copied().collect();
+            let (screen, code) = OnTerminal::start(&sandbox, &args).finish();
+            let piped = sandbox.run(&args);
+            assert_eq!((code, plain(&screen)), (Some(0), text(&piped.stdout)), "{case} {flags:?}");
+        }
+        let args: Vec<&str> = args.iter().chain(&["--output", ""]).copied().collect();
+        let (screen, code) = OnTerminal::start(&sandbox, &args).finish();
+        assert_eq!((code, plain(&screen)), (Some(0), reference.clone()), "{case} --output ''");
+        assert!(sent(&server).await.iter().all(|request| request.starts_with("GET ")), "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_empty_platform_dictionary_metric_or_model_list_prints_the_table_and_its_count_at_a_terminal_too() {
+    let server = MockServer::start().await;
+    let none = json!({ "data": [], "meta": { "total": 0, "selfServeTotal": 0, "requestAccessTotal": 0 } });
+    serve(&server, "GET", CATALOG, 200, none).await;
+    for list in ["dictionary", "models"] {
+        serve(&server, "GET", &format!("{V1}/{list}"), 200, page_of(Vec::new(), 0, false)).await;
+    }
+    serve(&server, "GET", "/api/metrics", 200, json!({ "metrics": [], "total": 0 })).await;
+    let sandbox = Sandbox::new(&server.uri());
+    for (args, footer) in [
+        (&["catalog", "list"], "0 ready"),
+        (&["dictionary", "list"], "0 events"),
+        (&["metrics", "list"], "0 metrics"),
+        (&["models", "list"], "0 models"),
+    ] {
+        let (reference, code) = OnTerminal::start_env(&sandbox, args, &[("CI", "1")]).finish();
+        assert_eq!(code, Some(0), "{args:?}");
+        let (screen, code) = OnTerminal::start(&sandbox, args).finish();
+        assert_eq!((code, plain(&screen)), (Some(0), plain(&reference)), "{args:?}");
+        assert!(plain(&screen).ends_with(&format!("{footer}\n")), "{args:?}: {screen:?}");
+        assert_eq!(text(&sandbox.run(args).stdout).lines().last(), Some(footer), "{args:?}");
+    }
+}

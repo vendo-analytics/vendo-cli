@@ -367,8 +367,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   commands, the hidden `catalog credential-schema` and the `integrations`/`int` aliases too); `ask.rs`'s coverage test
   fails when a required value has no row in `VALUES`. An agent that runs `vendo` on a pseudo-terminal without `CI` or
   `VENDO_NO_INPUT` now waits at the question where it got exit 2, as at the group menu and the y/N questions;
-  `VENDO_NO_INPUT=1` turns it off. Since VE-3894 it also waits at `vendo apps list`, `sources list`, `destinations list`
-  and `jobs list`, where it got the table and exit 0, a worse change than this one's (a run that succeeded now waits);
+  `VENDO_NO_INPUT=1` turns it off. Since VE-3894 it also waits at `vendo apps list`, `sources list`, `destinations list`,
+  `jobs list`, `catalog list`, `dictionary list`, `metrics list` and `models list`, where it got the table and exit 0,
+  a worse change than this one's (a run that succeeded now waits);
   `VENDO_NO_INPUT=1`, `--json` or `--output` give the table back.
 - Profile list (VE-3892, decided by Yalcin 2026-10-07, CLI 1.1): `--profile` typed with no name opens an arrow-key list
   of the saved profiles with type-to-filter where the group menu opens (`output::can_show_menu`, the same rule, the
@@ -415,8 +416,9 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   follows the hint (`· 57 apps`), and an item is answered as VE-3881 answers it (`? vendo apps list a1b2c3d4... (Menu
   Shop)`, `? vendo destinations list 9c0d1e2f... (Analytics BQ → Demo Pixel)`, a job by its short ID alone). Enter
   shows exactly what the group's `get` shows, from its code, spinner and requests (`apps::show`, `sources::show`,
-  `integrations::show`, `jobs::show`, which `get` calls after its short-ID lookup; a source or destination with its
-  active job, as `get` reads it), then the item's action menu: titled with the group (`vendo apps`), the actions that
+  `integrations::show`, `jobs::show`, `catalog::show`, `dictionary::show`, `metrics::show`, `models::show`, which
+  `get` calls after its short-ID lookup; a source or destination with its active job, as `get` reads it), then the
+  item's action menu: titled with the group (`vendo apps`), the actions that
   apply to the item as that request returned it, each with its description from the tree, then `back   Back to the
   list`, the cursor on the first and the keys typed while the item loaded thrown away. Apps: `pause` when active,
   `resume` when inactive, neither for another state, then `update` and `delete`. Sources and destinations: first
@@ -424,7 +426,10 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   then `refresh-source` when `get` returned a `sourceAppId` (`lib/server/source-refresh.ts` refuses it without one,
   `no_source_app`; it runs with its default window, the last 7 days), then pause or resume, `update` and `delete` as
   for apps. Jobs: `tail` and `cancel` while queued, pending or running (`jobs/cancel.ts` cancels only those), nothing
-  else, so a finished job shows its details and `back` only (`browse::Group::actions`; only visible commands of the
+  else, so a finished job shows its details and `back` only. Metrics: `activate` for a draft (the help's 'Activate a
+  draft metric'), then `update` and `delete` (its y/N, then `Cancelled` on n, as typed). Platforms, dictionary entries
+  and models: nothing, so `back` only (never the hidden `catalog credential-schema`) (`browse::Group::actions`; only
+  visible commands of the
   group that take the item's ID, never another group's or one such as `jobs tail --source`, which a unit test checks).
   A chosen action is answered as the command (`? vendo apps pause a1b2c3d4... (Menu Shop)`) and runs exactly as typed:
   `browse` keeps its words (`apps pause <full ID>`, the group as the tree names it, so `destinations pause <full ID>`
@@ -441,9 +446,15 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   terminal, with prompts off, on `TERM=dumb`, with stderr redirected, stdout piped or a write-only stdin, with
   `--json` or `--output`, and built without the `menu` feature, the list command prints exactly what it printed (the
   `output/` snapshots are unchanged; `where_the_list_cannot_open_and_with_json_or_output_apps_list_prints_what_it_printed`,
-  `…_sources_destinations_and_jobs_list_print_what_they_printed`). `get`, the bare group's menu and every action
-  command work as before. So far `vendo apps list`, `sources list`, `destinations list` (`integrations list`,
-  `int list`) and `jobs list` (VE-3894's first two groups); the other list commands follow. ❓ Open for Yalcin, built
+  `…_sources_destinations_and_jobs_list_print_what_they_printed`,
+  `…_catalog_dictionary_metrics_and_models_list_print_what_they_printed`). `get`, the bare group's menu and every
+  action command work as before. So far `vendo apps list`, `sources list`,
+  `destinations list` (`integrations list`, `int list`), `jobs list`, `catalog list` (titled `vendo catalog list`,
+  a platform answered by its app type, the footer `2 ready · 1 more on request (vendo catalog list --all)` with the
+  typed filters, or `N platforms` with `--all`), `dictionary list` (an entry answered by its full subject ID and
+  display name, `· 57 events`; a description's line break a space, so a row stays one line; `dictionary search`, which
+  prints the same table, is unchanged), `metrics list` and `models list` (VE-3894's first three groups); the
+  measurement and profile lists follow. ❓ Open for Yalcin, built
   with cautious defaults: `get` kept everywhere (Yalcin's "we don't really need get" in the runs that built this,
   against the decision's "keep the actions";
   options: hide it from the group menu only, hide it everywhere as a hidden path, or remove it, which breaks scripts,
@@ -458,7 +469,12 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   resume (nor sync) for a state other than active and inactive, `tail` offered only for a queued, pending or running
   job (a finished one's would repeat what `get` showed), `refresh-source` run with its default window rather than
   asking for `--from` and `--to`, no actions of another group (`jobs tail --source`, `jobs list --source` from a
-  source), a failed details request ending with `get`'s error rather than returning to the list, agents on a
+  source), no 'Create an app with this platform' on a catalog platform (it is `apps create`, another group's command:
+  without `--credentials-file` it starts the browser sign-in, which cannot work for a credential platform such as
+  BigQuery, its `--role` defaults to source, wrong for a destination-only platform, and the API refuses a platform on
+  request; proposed, not built), `activate` offered only for a draft metric (not an archived one), `update` offered
+  for a metric though it fails without flags (`No updates provided`, exit 1), `dictionary search` left as a table,
+  a failed details request ending with `get`'s error rather than returning to the list, agents on a
   pseudo-terminal now waiting at the list (see Missing values), `--output ""` keeping the table, and the list
   commands' `--help` unchanged.
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,

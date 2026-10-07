@@ -11,12 +11,14 @@ use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value, json};
 
 use crate::{
+    browse,
+    client::Client,
     commands::pipeline_resource::read_json,
     context::Ctx,
     js_text::{cell, time_ago_of},
     output::{
-        OutputMode, bold, confirm, cyan, dim, green, js_template, js_truthy, print_count_of, print_field, print_json,
-        red, resolve_output_mode, run_action, short_id, table, yellow,
+        OutputMode, bold, confirm, count_text, cyan, dim, green, js_template, js_truthy, print_field, print_json, red,
+        resolve_output_mode, run_action, short_id, yellow,
     },
     short_ids::{Listing, resolve},
     web_app,
@@ -75,33 +77,53 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
         }
         OutputMode::Field => print_field(&rows, args.output.as_deref().unwrap_or_default()),
         OutputMode::Table => {
-            let mut grid = table(&["ID", "Name", "Format", "Status", "Updated"]);
-            for metric in &rows {
-                grid.add_row(vec![
-                    dim(&short_id(&cell(metric.get("id")))),
-                    cell(metric.get("name")),
-                    cell(metric.get("format")),
-                    status_cell(metric.get("status")),
-                    time_ago_of(metric.get("updated_at")),
-                ]);
-            }
-            println!("{grid}");
-            print_count_of(res.get("total"), "metric");
+            // The table, or at a terminal the same rows to choose from (VE-3894).
+            let table = browse::Table {
+                header: &["ID", "Name", "Format", "Status", "Updated"],
+                cells: rows.iter().map(metric_cells).collect(),
+                footer: count_text(res.get("total"), "metric"),
+            };
+            browse::shown(&client, browse::Group::Metrics, &rows, table, args.output.as_deref()).await?;
         }
     }
     Ok(())
 }
 
+/// A row of the `metrics list` table, its cells styled as the table shows them; a selectable list
+/// shows them plain (VE-3894).
+fn metric_cells(metric: &Value) -> Vec<String> {
+    vec![
+        dim(&short_id(&cell(metric.get("id")))),
+        cell(metric.get("name")),
+        cell(metric.get("format")),
+        status_cell(metric.get("status")),
+        time_ago_of(metric.get("updated_at")),
+    ]
+}
+
 pub async fn get(ctx: &Ctx, metric_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
     let metric_id = resolve(&client, Listing::Metrics, metric_id).await?;
-    let res = run_action("Fetching metric...", web_app::metrics_get(&client, &metric_id)).await?;
     if json {
-        print_json(&data_of_metric(&res));
+        print_json(&data_of_metric(&fetch(&client, &metric_id).await?));
         return Ok(());
     }
-    print!("{}", render_metric(res.get("metric").unwrap_or(&Value::Null)));
-    Ok(())
+    show(&client, &metric_id).await.map(|_| ())
+}
+
+/// The web app's `GET /api/metrics/<id>`, behind `metrics get`'s spinner.
+async fn fetch(client: &Client, id: &str) -> Result<Value> {
+    Ok(run_action("Fetching metric...", web_app::metrics_get(client, id)).await?)
+}
+
+/// What `metrics get` shows of the metric `id`, a full ID (no short-ID lookup), from its request
+/// behind its spinner; the metric as the route sent it. A selectable list shows it for the metric
+/// chosen and reads the actions that apply from it (VE-3894).
+pub(crate) async fn show(client: &Client, id: &str) -> Result<Value> {
+    let res = fetch(client, id).await?;
+    let metric = res.get("metric").unwrap_or(&Value::Null);
+    print!("{}", render_metric(metric));
+    Ok(metric.clone())
 }
 
 /// The `metrics get` text view (the TS action's `console.log` lines).

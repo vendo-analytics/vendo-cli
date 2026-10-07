@@ -289,11 +289,11 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
         Command::Dictionary { command } => match command {
             DictionaryCommand::List { subject_type, query, limit, offset, json, output } => {
                 let args = dictionary_cmd::PageArgs { subject_type, query, limit, offset, json, output };
-                dictionary_cmd::page(ctx, "Fetching dictionary...", args).await.map(|_| ok)
+                dictionary_cmd::page(ctx, "Fetching dictionary...", args, true).await.map(|_| ok)
             }
             DictionaryCommand::Search { query, subject_type, limit, offset, json, output } => {
                 let args = dictionary_cmd::PageArgs { subject_type, query: Some(query), limit, offset, json, output };
-                dictionary_cmd::page(ctx, "Searching dictionary...", args).await.map(|_| ok)
+                dictionary_cmd::page(ctx, "Searching dictionary...", args, false).await.map(|_| ok)
             }
             DictionaryCommand::Get { subject_id, json } => {
                 dictionary_cmd::get(ctx, &subject_id, json).await.map(|_| ok)

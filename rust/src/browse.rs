@@ -24,7 +24,9 @@
 //! and when the terminal refuses the first list.
 //!
 //! So far: `vendo apps list`, `vendo sources list`, `vendo destinations list` (its hidden
-//! `integrations list` and `int list` too) and `vendo jobs list` ([`Group`]).
+//! `integrations list` and `int list` too), `vendo jobs list`, `vendo catalog list`, `vendo dictionary
+//! list` (not `dictionary search`, which prints the same table), `vendo metrics list` and `vendo models
+//! list` ([`Group`]).
 
 use std::{
     ffi::OsString,
@@ -68,6 +70,14 @@ pub enum Group {
     Destinations,
     /// `vendo jobs list`.
     Jobs,
+    /// `vendo catalog list`: the platforms, by their app type.
+    Catalog,
+    /// `vendo dictionary list`: the entries of one subject type, by their subject ID.
+    Dictionary,
+    /// `vendo metrics list`: the web app's metrics.
+    Metrics,
+    /// `vendo models list`.
+    Models,
 }
 
 /// The words of the action chosen for an item, kept by the list (`menu::browse`) for `main` to parse
@@ -134,7 +144,7 @@ mod menu {
     use crate::{
         ask::{Listed, named, padded},
         client::Client,
-        commands::{apps, integrations, jobs, sources},
+        commands::{apps, catalog, dictionary, integrations, jobs, metrics, models, sources},
         jobs::{ACTIVE_JOB_STATUSES, Job},
         output::{self, ValueRow, short_id},
     };
@@ -150,23 +160,40 @@ mod menu {
                 Group::Sources => "sources",
                 Group::Destinations => "destinations",
                 Group::Jobs => "jobs",
+                Group::Catalog => "catalog",
+                Group::Dictionary => "dictionary",
+                Group::Metrics => "metrics",
+                Group::Models => "models",
             }
         }
 
-        /// The item's full ID, which its actions take.
+        /// The item's full ID, which `get` and its actions take: a platform's app type, a dictionary
+        /// entry's subject ID, any other item's `id`.
         fn id(self, row: &Value) -> String {
-            Job(row).id()
+            match self {
+                Group::Catalog => Job(row).text("appType").unwrap_or_default(),
+                Group::Dictionary => Job(row).text("subjectId").unwrap_or_default(),
+                _ => Job(row).id(),
+            }
         }
 
         /// How the answered line names the item, as VE-3881's lists name it: `a1b2c3d4... (Menu Shop)`,
         /// `9c0d1e2f... (Analytics BQ → Demo Pixel)`, a job by its short ID alone, on one line as its row
-        /// is ([`one_line`]).
+        /// is ([`one_line`]). A platform by its app type alone, a dictionary entry by its subject ID (not
+        /// a short ID, in full) and its display name: `<subject ID> (Checkout Completed)`.
         fn answer(self, row: &Value) -> String {
             let listed = match self {
                 Group::Apps => Listed::Apps,
                 Group::Sources => Listed::Sources,
                 Group::Destinations => Listed::Destinations,
                 Group::Jobs => Listed::Jobs,
+                Group::Metrics => Listed::Metrics,
+                Group::Models => Listed::Models,
+                Group::Catalog => return one_line(&self.id(row)),
+                Group::Dictionary => {
+                    let name = Job(row).text("displayName").unwrap_or_default();
+                    return one_line(&named(self.id(row), &name));
+                }
             };
             one_line(&named(short_id(&self.id(row)), &listed.name(row)))
         }
@@ -180,6 +207,10 @@ mod menu {
                 Group::Sources => sources::show(client, &id).await,
                 Group::Destinations => integrations::show(client, &id).await,
                 Group::Jobs => jobs::show(client, &id).await,
+                Group::Catalog => catalog::show(client, &id).await,
+                Group::Dictionary => dictionary::show(client, &id).await,
+                Group::Metrics => metrics::show(client, &id).await,
+                Group::Models => models::show(client, &id).await,
             }
         }
 
@@ -192,7 +223,11 @@ mod menu {
         /// it otherwise), destinations then `refresh-source` when they have a source app
         /// (`lib/server/source-refresh.ts` refuses it without one, `no_source_app`). Jobs: `tail` and
         /// `cancel` while queued, pending or running (`jobs/cancel.ts` cancels only those; a finished
-        /// job's tail would repeat what `get` showed), nothing otherwise. Only visible commands of the
+        /// job's tail would repeat what `get` showed), nothing otherwise. Metrics: `activate` for a draft
+        /// (the help's 'Activate a draft metric'; not an archived one), then `update` and `delete`,
+        /// always. Platforms, dictionary entries and models: nothing (their groups have no command that
+        /// changes one; the hidden `catalog credential-schema` is never offered, and creating an app with
+        /// a platform is another group's command). Only visible commands of the
         /// group that take the item's ID: never a hidden one, another group's (`jobs tail --source`) or
         /// one that takes no ID.
         pub(super) fn actions(self, item: &Value) -> Vec<&'static str> {
@@ -218,6 +253,11 @@ mod menu {
                     let active = ACTIVE_JOB_STATUSES.split(',').any(|active| active == status);
                     if active { vec!["tail", "cancel"] } else { Vec::new() }
                 }
+                Group::Metrics => {
+                    let draft = (item.status() == "draft").then_some("activate");
+                    draft.into_iter().chain(["update", "delete"]).collect()
+                }
+                Group::Catalog | Group::Dictionary | Group::Models => Vec::new(),
             }
         }
 
@@ -301,7 +341,16 @@ mod tests {
 
     use super::{Group, menu::one_line};
 
-    const GROUPS: [Group; 4] = [Group::Apps, Group::Sources, Group::Destinations, Group::Jobs];
+    const GROUPS: [Group; 8] = [
+        Group::Apps,
+        Group::Sources,
+        Group::Destinations,
+        Group::Jobs,
+        Group::Catalog,
+        Group::Dictionary,
+        Group::Metrics,
+        Group::Models,
+    ];
 
     #[test]
     fn a_cell_is_shown_plain_on_one_line() {
@@ -364,6 +413,23 @@ mod tests {
     }
 
     #[test]
+    fn a_metric_offers_activate_only_as_a_draft_then_update_and_delete() {
+        let actions = |status: serde_json::Value| Group::Metrics.actions(&json!({ "status": status }));
+        assert_eq!(actions(json!("draft")), ["activate", "update", "delete"]);
+        for other in [json!("active"), json!("archived"), json!("Draft"), json!(""), json!(null), json!(1)] {
+            assert_eq!(actions(other.clone()), ["update", "delete"], "{other}");
+        }
+    }
+
+    #[test]
+    fn a_platform_a_dictionary_entry_or_a_model_offers_nothing_but_back() {
+        let item = json!({ "status": "draft", "state": "active", "availability": "self_serve", "isValid": true });
+        for group in [Group::Catalog, Group::Dictionary, Group::Models] {
+            assert!(group.actions(&item).is_empty(), "{group:?}");
+        }
+    }
+
+    #[test]
     fn an_action_runs_as_typed_with_the_full_id() {
         let row = json!({ "id": "a1b2c3d4-0000-4000-8000-000000000001", "displayName": "Menu Shop" });
         let words: Vec<String> =
@@ -390,7 +456,8 @@ mod tests {
         // source's or destination's latest job instead), named as the group's IDs are (`<sourceId>`).
         let tree = crate::cli::command();
         let states = [json!("active"), json!("inactive"), json!("deleted"), json!(null)];
-        let statuses = [json!("running"), json!("queued"), json!("pending"), json!("failed"), json!(null)];
+        let statuses =
+            [json!("running"), json!("queued"), json!("pending"), json!("failed"), json!("draft"), json!(null)];
         let mut offered = std::collections::BTreeSet::new();
         for group in GROUPS {
             let commands = group.path().split(' ').try_fold(&tree, |command, word| command.find_subcommand(word));
@@ -419,6 +486,7 @@ mod tests {
             ("sources", &["delete", "pause", "resume", "sync", "update"]),
             ("destinations", &["delete", "pause", "refresh-source", "resume", "sync", "update"]),
             ("jobs", &["cancel", "tail"]),
+            ("metrics", &["activate", "delete", "update"]),
         ];
         let expected = expected.iter().flat_map(|(group, actions)| actions.iter().map(move |action| (*group, *action)));
         assert_eq!(offered, expected.collect());

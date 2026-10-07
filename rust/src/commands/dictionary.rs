@@ -6,13 +6,14 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::{
-    client::payload,
+    browse,
+    client::{Client, payload},
     context::Ctx,
     dictionary::{self, Item, Lookup},
     js_text::{cell, time_ago_of},
     output::{
-        OutputMode, bold, cyan, dim, js_color_status, js_join, js_string, js_template, js_truthy, print_field,
-        print_json, print_list_count, resolve_output_mode, run_action, table,
+        OutputMode, bold, cyan, dim, js_color_status, js_join, js_string, js_template, js_truthy, list_count,
+        print_field, print_json, print_list_count, resolve_output_mode, run_action, table,
     },
 };
 
@@ -53,8 +54,9 @@ pub struct PageArgs {
     pub output: Option<String>,
 }
 
-/// `list` and `search`: one page of one subject type.
-pub async fn page(ctx: &Ctx, label: &str, args: PageArgs) -> Result<()> {
+/// `list` and `search`: one page of one subject type. `selectable`: at a terminal, `list` shows the
+/// table's rows to choose from (VE-3894); `search` prints its table as before.
+pub async fn page(ctx: &Ctx, label: &str, args: PageArgs, selectable: bool) -> Result<()> {
     let mode = resolve_output_mode(args.json, args.output.as_deref());
     let client = ctx.client()?;
     let res =
@@ -64,17 +66,19 @@ pub async fn page(ctx: &Ctx, label: &str, args: PageArgs) -> Result<()> {
     match mode {
         OutputMode::Json => print_json(&res),
         OutputMode::Field => print_field(&rows, args.output.as_deref().unwrap_or_default()),
+        OutputMode::Table if selectable => {
+            // The table, or at a terminal the same rows to choose from (VE-3894).
+            let table = browse::Table {
+                header: &HEADER,
+                cells: rows.iter().map(entry_cells).collect(),
+                footer: list_count(&res, rows.len(), &args.subject_type),
+            };
+            browse::shown(&client, browse::Group::Dictionary, &rows, table, args.output.as_deref()).await?;
+        }
         OutputMode::Table => {
-            // Events, properties, groups, metrics and audiences are identified by their
-            // semantic registry ID, so the first column is the ID `get` takes, not a name.
-            let mut grid = table(&["Subject ID", "Display", "Description"]);
+            let mut grid = table(&HEADER);
             for row in &rows {
-                let item = Item(row);
-                grid.add_row(vec![
-                    cyan(&cell(item.subject_id())),
-                    dash_cell(item.display_name()),
-                    dash_cell(item.description()),
-                ]);
+                grid.add_row(entry_cells(row));
             }
             println!("{grid}");
             print_list_count(&res, rows.len(), &args.subject_type);
@@ -83,13 +87,36 @@ pub async fn page(ctx: &Ctx, label: &str, args: PageArgs) -> Result<()> {
     Ok(())
 }
 
+/// Events, properties, groups, metrics and audiences are identified by their semantic registry ID,
+/// so the first column is the ID `get` takes, not a name.
+const HEADER: [&str; 3] = ["Subject ID", "Display", "Description"];
+
+/// A row of the `dictionary list` and `search` table, its cells styled as the table shows them; a
+/// selectable list shows them plain, on one line (VE-3894).
+fn entry_cells(row: &Value) -> Vec<String> {
+    let item = Item(row);
+    vec![cyan(&cell(item.subject_id())), dash_cell(item.display_name()), dash_cell(item.description())]
+}
+
 pub async fn get(ctx: &Ctx, subject_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
-    let res = run_action("Fetching dictionary entry...", dictionary::get(&client, subject_id)).await?;
     if json {
-        print_json(&res);
+        print_json(&fetch(&client, subject_id).await?);
         return Ok(());
     }
+    show(&client, subject_id).await.map(|_| ())
+}
+
+/// The lookup of `subject_id`, behind `dictionary get`'s spinner.
+async fn fetch(client: &Client, subject_id: &str) -> Result<Value> {
+    Ok(run_action("Fetching dictionary entry...", dictionary::get(client, subject_id)).await?)
+}
+
+/// What `dictionary get` shows of the entry `subject_id`, from its request behind its spinner: the
+/// definition, or that there is none; the response as the API sent it. A selectable list shows it
+/// for the entry chosen (VE-3894).
+pub(crate) async fn show(client: &Client, subject_id: &str) -> Result<Value> {
+    let res = fetch(client, subject_id).await?;
     let lookup = Lookup(res.get("data").unwrap_or(&Value::Null));
     match lookup.definition().filter(|d| lookup.found().is_some_and(js_truthy) && js_truthy(d)) {
         Some(definition) => print!("{}", render_definition(Item(definition))),
@@ -98,7 +125,7 @@ pub async fn get(ctx: &Ctx, subject_id: &str, json: bool) -> Result<()> {
             println!("{}", dim(&format!("No dictionary entry for {subject_id}")));
         }
     }
-    Ok(())
+    Ok(res)
 }
 
 /// The `dictionary get` text view (the TS `printDefinition`).

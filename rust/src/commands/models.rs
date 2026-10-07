@@ -9,12 +9,13 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::{
-    client::payload,
+    browse,
+    client::{Client, payload},
     context::Ctx,
     js_text::{cell, time_ago_of},
     output::{
-        OutputMode, bold, dim, green, js_string, js_template, js_truthy, print_field, print_json, print_list_count,
-        red, resolve_output_mode, run_action, short_id, table,
+        OutputMode, bold, dim, green, js_string, js_template, js_truthy, list_count, print_field, print_json, red,
+        resolve_output_mode, run_action, short_id,
     },
     short_ids::{Listing, resolve},
 };
@@ -52,33 +53,52 @@ pub async fn list(ctx: &Ctx, args: ListArgs) -> Result<()> {
         OutputMode::Json => print_json(&res),
         OutputMode::Field => print_field(&rows, args.output.as_deref().unwrap_or_default()),
         OutputMode::Table => {
-            let mut grid = table(&["ID", "Name", "Type", "Valid", "Last Validated"]);
-            for model in &rows {
-                grid.add_row(vec![
-                    dim(&short_id(&cell(model.get("id")))),
-                    cell(model.get("name")),
-                    cell(model.get("modelType")),
-                    if model.get("isValid").is_some_and(js_truthy) { green("yes") } else { red("no") },
-                    time_ago_of(model.get("lastValidatedAt")),
-                ]);
-            }
-            println!("{grid}");
-            print_list_count(&res, rows.len(), "model");
+            // The table, or at a terminal the same rows to choose from (VE-3894).
+            let table = browse::Table {
+                header: &["ID", "Name", "Type", "Valid", "Last Validated"],
+                cells: rows.iter().map(model_cells).collect(),
+                footer: list_count(&res, rows.len(), "model"),
+            };
+            browse::shown(&client, browse::Group::Models, &rows, table, args.output.as_deref()).await?;
         }
     }
     Ok(())
 }
 
+/// A row of the `models list` table, its cells styled as the table shows them; a selectable list
+/// shows them plain (VE-3894).
+fn model_cells(model: &Value) -> Vec<String> {
+    vec![
+        dim(&short_id(&cell(model.get("id")))),
+        cell(model.get("name")),
+        cell(model.get("modelType")),
+        if model.get("isValid").is_some_and(js_truthy) { green("yes") } else { red("no") },
+        time_ago_of(model.get("lastValidatedAt")),
+    ]
+}
+
 pub async fn get(ctx: &Ctx, model_id: &str, json: bool) -> Result<()> {
     let client = ctx.client()?;
     let model_id = resolve(&client, Listing::Models, model_id).await?;
-    let res = run_action("Fetching model...", client.get(&format!("/models/{model_id}"), &[])).await?;
     if json {
-        print_json(&res);
+        print_json(&fetch(&client, &model_id).await?);
         return Ok(());
     }
+    show(&client, &model_id).await.map(|_| ())
+}
+
+/// `GET /models/<id>`, behind `models get`'s spinner.
+async fn fetch(client: &Client, id: &str) -> Result<Value> {
+    Ok(run_action("Fetching model...", client.get(&format!("/models/{id}"), &[])).await?)
+}
+
+/// What `models get` shows of the model `id`, a full ID (no short-ID lookup), from its request behind
+/// its spinner; the model as the API sent it. A selectable list shows it for the model chosen
+/// (VE-3894).
+pub(crate) async fn show(client: &Client, id: &str) -> Result<Value> {
+    let res = fetch(client, id).await?;
     print!("{}", render_model(payload(&res)));
-    Ok(())
+    Ok(payload(&res).clone())
 }
 
 /// The `models get` text view (the TS action's `console.log` lines).
