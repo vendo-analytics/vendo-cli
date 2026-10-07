@@ -117,7 +117,8 @@ included, and the y/N of `delete` and `jobs cancel` still apply.
 
 - **A group without its command** (`vendo apps`) opens a menu of the group's commands.
 - **A missing value.** A command typed without a value it requires asks for it, instead of stopping with a usage
-  error. An ID opens a list of the items, as the group's `list` shows them (500 at most):
+  error. An ID opens a list of the items the group's `list` returns (500 at most), each with its short ID and a few
+  columns that tell them apart:
   `vendo apps get` lists your apps, `vendo jobs cancel` your jobs, `vendo catalog get` the platforms ready to
   connect. A name, a search, a date or a file path is a one-line question: `vendo apps create` asks for the
   platform from a list, then for the name. Optional values are not asked for. The answer shows as the command so
