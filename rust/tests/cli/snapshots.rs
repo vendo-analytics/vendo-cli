@@ -612,7 +612,7 @@ fn every_output_snapshot_has_a_group() {
 /// summary.
 const JSON_NOT_RECORDED: [(&str, &str); 2] = [
     ("jobs watch", "polls `GET /jobs` until Ctrl-C, so its NDJSON never ends for a snapshot to record"),
-    ("self-update", "downloads the installer from GitHub Releases and replaces the binary it runs from"),
+    ("update", "downloads the installer from GitHub Releases and replaces the binary it runs from"),
 ];
 
 /// The command `words` (as typed after `vendo`) runs, as `vendo commands --json` writes its `path`:

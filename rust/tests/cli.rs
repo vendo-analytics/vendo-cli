@@ -226,7 +226,7 @@ fn empty_profile_names_and_accounts_are_unset() {
     assert!(config["profiles"].get("").is_none());
 }
 
-/// `self-update` runs `bash -lc "curl … | bash"`: a fake `bash` first on PATH
+/// `update` (`self-update` until VE-4109) runs `bash -lc "curl … | bash"`: a fake `bash` first on PATH
 /// records the installer's VENDO_VERSION instead, so nothing is downloaded.
 #[cfg(unix)]
 fn self_update_version(args: &[&str]) -> String {
@@ -239,9 +239,10 @@ fn self_update_version(args: &[&str]) -> String {
 #[cfg(unix)]
 #[test]
 fn self_update_passes_only_a_non_empty_version() {
+    assert_eq!(self_update_version(&["update", "--version", "0.3.0"]), "0.3.0");
+    assert_eq!(self_update_version(&["update", "--version", ""]), "unset");
+    assert_eq!(self_update_version(&["update"]), "unset");
     assert_eq!(self_update_version(&["self-update", "--version", "0.3.0"]), "0.3.0");
-    assert_eq!(self_update_version(&["self-update", "--version", ""]), "unset");
-    assert_eq!(self_update_version(&["self-update"]), "unset");
 }
 
 #[tokio::test]
@@ -2905,7 +2906,7 @@ fn logout_json_names_the_profiles_it_removed() {
     assert_eq!((ok_output(&out), text(&out.stderr)), (String::new(), not_logged_in));
 }
 
-// ── --json on login, jobs watch and tail, completions and self-update ──
+// ── --json on login, jobs watch and tail, completions and update ──
 
 /// `login --json`'s summary: its keys from before VE-4109, then `workspace`, what `vendo workspace
 /// --json` prints for the profile login saved or checked ([`workspace_json`]).
@@ -3220,7 +3221,7 @@ fn fake_installer(sandbox: &Sandbox, script: &str, args: &[&str]) -> Output {
 fn self_update_json_prints_the_versions_and_paths_and_the_installer_on_stderr() {
     let sandbox = Sandbox::new(CLOSED);
     let installs = "echo \"Installing vendo\"\nmkdir -p \"$HOME/.local/bin\"\nprintf '#!/bin/sh\\necho 9.9.9\\n' > \"$HOME/.local/bin/vendo\"\nchmod +x \"$HOME/.local/bin/vendo\"\n";
-    let out = fake_installer(&sandbox, installs, &["self-update", "--json"]);
+    let out = fake_installer(&sandbox, installs, &["update", "--json"]);
     let install_path = sandbox.home.path().join(".local/bin/vendo");
     let binary = std::fs::canonicalize(env!("CARGO_BIN_EXE_vendo")).unwrap();
     let expected = json!({
@@ -3232,17 +3233,42 @@ fn self_update_json_prints_the_versions_and_paths_and_the_installer_on_stderr() 
     assert_eq!(ok_output(&out), format!("{}\n", serde_json::to_string_pretty(&expected).unwrap()));
     assert_eq!(text(&out.stderr), "Installing vendo\n");
     // Without --json, as before.
-    let out = fake_installer(&sandbox, installs, &["self-update"]);
+    let out = fake_installer(&sandbox, installs, &["update"]);
     assert!(ok_output(&out).starts_with("Installing vendo\nDone: Vendo CLI updated.\n"), "{}", text(&out.stdout));
     // A failed installer: its exit code, as before, and the JSON error last on stderr.
-    let out = fake_installer(&sandbox, "echo 'download failed' >&2\nexit 3\n", &["self-update", "--json"]);
+    let out = fake_installer(&sandbox, "echo 'download failed' >&2\nexit 3\n", &["update", "--json"]);
     assert_eq!((out.status.code(), text(&out.stdout)), (Some(3), String::new()));
     assert!(text(&out.stderr).starts_with("download failed\n"), "{}", text(&out.stderr));
     let error = error_shape("The installer exited with code 3.", Value::Null, Value::Null, Value::Null);
     assert_eq!(json_error(&out), error);
     // A version the installed binary does not print is null.
-    let out = fake_installer(&sandbox, "rm -f \"$HOME/.local/bin/vendo\"\n", &["self-update", "--json"]);
+    let out = fake_installer(&sandbox, "rm -f \"$HOME/.local/bin/vendo\"\n", &["update", "--json"]);
     assert_eq!(serde_json::from_str::<Value>(&ok_output(&out)).unwrap()["version"], Value::Null);
+}
+
+#[cfg(unix)]
+#[test]
+fn self_update_prints_exactly_what_update_prints() {
+    // `self-update` is `update`'s hidden alias since VE-4109 (Yalcin 2026-10-10): the same output, flags,
+    // help, usage errors and exit codes.
+    let sandbox = Sandbox::new(CLOSED);
+    let installs = "echo \"Installing ${VENDO_VERSION-latest}\"\nmkdir -p \"$HOME/.local/bin\"\nprintf '#!/bin/sh\\necho 9.9.9\\n' > \"$HOME/.local/bin/vendo\"\nchmod +x \"$HOME/.local/bin/vendo\"\n";
+    let fails = "echo 'download failed' >&2\nexit 3\n";
+    let output = |out: std::process::Output| (out.status.code(), text(&out.stdout), text(&out.stderr));
+    for script in [installs, fails] {
+        for flags in [&[][..], &["--json"], &["--version", "1.2.3"], &["--version", "1.2.3", "--json"]] {
+            let run = |name: &str| output(fake_installer(&sandbox, script, &[&[name][..], flags].concat()));
+            let update = run("update");
+            assert_eq!(run("self-update"), update, "{flags:?}");
+        }
+    }
+    for flags in [&["--help"][..], &["--bogus"], &["--version"], &["--json", "--version"], &["-V"]] {
+        let update = output(sandbox.run(&[&["update"][..], flags].concat()));
+        assert_eq!(output(sandbox.run(&[&["self-update"][..], flags].concat())), update, "{flags:?}");
+    }
+    // Listed as `update`; `self-update` is in no help.
+    let root = text(&sandbox.run(&["--help"]).stdout);
+    assert!(root.contains("\n  update ") && !root.contains("self-update"), "{root}");
 }
 
 // ── VENDO_PROFILE ──

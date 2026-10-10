@@ -90,7 +90,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   is the one identity and setup command (VE-3891, below; `whoami` until then) and `config` moved under `profile`;
   `profile set` is described as "Set values on the active profile" (Yalcin, 2026-10-06). Old paths keep working,
   hidden, printing exactly what their command prints: clap hidden aliases where clap allows (`config` = `profile`,
-  `use` = `profile switch`, `whoami` and `doctor` = `workspace`), `MOVED` in `cli.rs` where it does not
+  `use` = `profile switch`, `whoami` and `doctor` = `workspace`, `self-update` = `update` since VE-4109, decided by
+  Yalcin 2026-10-10), `MOVED` in `cli.rs` where it does not
   (`profile current`/`config show` → `workspace`, `config reset` → `logout --all`). Give a new hidden path a
   byte-identity test.
 - Login (VE-3825, CLI 1.1): `vendo login` does what `init` did, and `init` is its hidden clap alias. It signs in
@@ -195,7 +196,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     prints the JSON error, still exit 0),
     `jobs watch` (NDJSON: each poll's `GET /jobs` response on one line when it changed, a failed poll as the JSON
     error on stderr), `completions <shell>` (`{"shell","script"}`; bare, `{"shell","installed"}`, null for a shell
-    it does not know) and `self-update` (the installer's output on stderr, then
+    it does not know) and `update` (`self-update` until VE-4109; the installer's output on stderr, then
     `{"previousVersion","version","installPath","binaryPath"}`; a failed installer is the JSON error with its code).
     `rust/src/watch.rs`'s `JsonScreen` owns the two job shapes.
   - Short IDs: wherever a command takes the full ID of an app, source, destination, job, metric, model or
@@ -538,7 +539,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   mmm and survey signals offering back only, and a profile offering `switch` by the saved `activeProfile` and nothing
   else (proposed, not built: that profile's `--profile <name> workspace` screen, and logging out of it).
 - Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
-  self-update (VE-3665; whoami and doctor are `workspace` since VE-3891); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
+  self-update (VE-3665; whoami and doctor are `workspace` since VE-3891, self-update is `update` since VE-4109); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).
   `rust/src/web_app.rs` is the one place that knows the web-app routes (`/api/metrics`, `/api/measurement/*`),
   which go out as raw paths with no account prefix. `rust/src/dictionary.rs` pins the dictionary field and
@@ -580,7 +581,7 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
     Locally: `cargo install cargo-deny --locked`, then `cargo deny check` from `rust/`. Allow a new licence or
     ignore an advisory only with a reason in `deny.toml`.
 - `cli-vX.Y.Z` tags run `release.yml`: the TypeScript binaries, published as a normal release that becomes
-  "latest", which is what `install.sh`, `vendo self-update` and the update notice install. Stays until VE-3669.
+  "latest", which is what `install.sh`, `vendo update` and the update notice install. Stays until VE-3669.
 - `cli-vX.Y.Z-rc.N` tags run `release-rc.yml`: the Rust binaries for linux-x64, linux-arm64, darwin-arm64 and
   darwin-x64 (cross-compiled on Apple silicon), same asset names and `.sha256` files, published as a GitHub
   pre-release that never becomes "latest". The workflow checks the tag matches `rust/Cargo.toml`, runs
@@ -600,4 +601,4 @@ logout, init, doctor, status, whoami, profile, config, completions, self-update)
   it compares against is deleted at 1.0.0 (VE-3669).
 - Installing a release candidate: `VENDO_VERSION=cli-vX.Y.Z-rc.N bash install.sh` from a checkout,
   `curl -fsSL https://app2.vendodata.com/install.sh | VENDO_VERSION=cli-vX.Y.Z-rc.N bash` from anywhere, or
-  `vendo self-update --version cli-vX.Y.Z-rc.N`.
+  `vendo update --version cli-vX.Y.Z-rc.N` (`vendo self-update` on the TypeScript CLI and on 1.1.0-rc.3 or earlier).

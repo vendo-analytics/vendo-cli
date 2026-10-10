@@ -367,6 +367,6 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             version::run(json);
             Ok(ok)
         }
-        Command::SelfUpdate { install_version, json } => health::self_update(ctx, install_version, json),
+        Command::Update { install_version, json } => health::self_update(ctx, install_version, json),
     }
 }

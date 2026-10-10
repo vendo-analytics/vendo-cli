@@ -1091,7 +1091,7 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
-(self-update)
+(update)
 _arguments "${_arguments_options[@]}" : \
 '--version=[Install a specific version]:version:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
@@ -1589,7 +1589,7 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
-(self-update)
+(update)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1627,7 +1627,7 @@ _vendo_commands() {
 'completions:Generate shell completion script (bash, zsh, fish)' \
 'commands:List every command, or with --json the command tree with arguments and flags' \
 'version:Print version' \
-'self-update:Update the Vendo CLI using the hosted installer' \
+'update:Update the Vendo CLI using the hosted installer' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'vendo commands' commands "$@"
@@ -1825,7 +1825,7 @@ _vendo__subcmd__help_commands() {
 'completions:Generate shell completion script (bash, zsh, fish)' \
 'commands:List every command, or with --json the command tree with arguments and flags' \
 'version:Print version' \
-'self-update:Update the Vendo CLI using the hosted installer' \
+'update:Update the Vendo CLI using the hosted installer' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'vendo help commands' commands "$@"
@@ -2224,11 +2224,6 @@ _vendo__subcmd__help__subcmd__profile__subcmd__switch_commands() {
     local commands; commands=()
     _describe -t commands 'vendo help profile switch commands' commands "$@"
 }
-(( $+functions[_vendo__subcmd__help__subcmd__self-update_commands] )) ||
-_vendo__subcmd__help__subcmd__self-update_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo help self-update commands' commands "$@"
-}
 (( $+functions[_vendo__subcmd__help__subcmd__sources_commands] )) ||
 _vendo__subcmd__help__subcmd__sources_commands() {
     local commands; commands=(
@@ -2287,6 +2282,11 @@ _vendo__subcmd__help__subcmd__sources__subcmd__update_commands() {
 _vendo__subcmd__help__subcmd__status_commands() {
     local commands; commands=()
     _describe -t commands 'vendo help status commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__help__subcmd__update_commands] )) ||
+_vendo__subcmd__help__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help update commands' commands "$@"
 }
 (( $+functions[_vendo__subcmd__help__subcmd__version_commands] )) ||
 _vendo__subcmd__help__subcmd__version_commands() {
@@ -2515,11 +2515,6 @@ _vendo__subcmd__profile__subcmd__switch_commands() {
     local commands; commands=()
     _describe -t commands 'vendo profile switch commands' commands "$@"
 }
-(( $+functions[_vendo__subcmd__self-update_commands] )) ||
-_vendo__subcmd__self-update_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo self-update commands' commands "$@"
-}
 (( $+functions[_vendo__subcmd__sources_commands] )) ||
 _vendo__subcmd__sources_commands() {
     local commands; commands=(
@@ -2578,6 +2573,11 @@ _vendo__subcmd__sources__subcmd__update_commands() {
 _vendo__subcmd__status_commands() {
     local commands; commands=()
     _describe -t commands 'vendo status commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__update_commands] )) ||
+_vendo__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo update commands' commands "$@"
 }
 (( $+functions[_vendo__subcmd__version_commands] )) ||
 _vendo__subcmd__version_commands() {

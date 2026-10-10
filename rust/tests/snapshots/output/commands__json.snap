@@ -3769,8 +3769,8 @@ exit: 0
       "commands": []
     },
     {
-      "name": "self-update",
-      "path": "self-update",
+      "name": "update",
+      "path": "update",
       "description": "Update the Vendo CLI using the hosted installer",
       "aliases": [],
       "arguments": [],

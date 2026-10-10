@@ -3,7 +3,7 @@ source: tests/cli/snapshots.rs
 ---
 Update the Vendo CLI using the hosted installer
 
-Usage: vendo self-update [OPTIONS]
+Usage: vendo update [OPTIONS]
 
 Options:
       --version <version>  Install a specific version
@@ -15,5 +15,5 @@ Global options:
       --debug           Enable verbose request diagnostics
 
 Examples:
-  $ vendo self-update
-  $ vendo self-update --version 0.3.0
+  $ vendo update
+  $ vendo update --version 0.3.0

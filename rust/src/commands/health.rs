@@ -1,4 +1,4 @@
-//! `status`, the setup checks of `vendo workspace` (doctor's, VE-3891) and `self-update` (ports of
+//! `status`, the setup checks of `vendo workspace` (doctor's, VE-3891) and `update` (ports of
 //! the matching files in `src/commands/`).
 
 use std::{
@@ -485,7 +485,7 @@ fn format_source(source: Source) -> &'static str {
     }
 }
 
-// ── self-update ────────────────────────────────────────────────────────────
+// ── update (`self-update` until VE-4109) ─────────────────────────────────
 
 const INSTALL_URL: &str = "https://app2.vendodata.com/install.sh";
 

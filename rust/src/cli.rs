@@ -59,7 +59,7 @@ pub const HELP_SECTIONS: [(&str, &[&str]); 4] = [
     ("Getting started", &["login", "logout", "workspace", "status", "help", "version"]),
     ("Data pipeline", &["apps", "sources", "destinations", "jobs"]),
     ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement"]),
-    ("Account", &["profile", "mcp", "completions", "self-update"]),
+    ("Account", &["profile", "mcp", "completions", "update"]),
 ];
 
 /// The root help fits 80 columns: a description that would go further wraps onto lines of its own
@@ -517,8 +517,8 @@ pub enum Invocation {
 
 /// What commander did before any command saw its arguments. `-V` or
 /// `--version` anywhere before `--` prints the version, unless it is the value
-/// of `--profile` or `self-update --version <v>` (which installs that version:
-/// an accepted difference, commander printed the version). A `--` before the
+/// of `--profile` or `update --version <v>` (`self-update`, its hidden alias since VE-4109; it installs
+/// that version: an accepted difference, commander printed the version). A `--` before the
 /// command name is dropped, so `vendo -- workspace` runs `workspace`.
 pub fn preprocess(args: Vec<OsString>) -> Invocation {
     let mut out = Vec::with_capacity(args.len());
@@ -526,7 +526,7 @@ pub fn preprocess(args: Vec<OsString>) -> Invocation {
     out.extend(iter.next());
     let mut command: Option<OsString> = None;
     while let Some(arg) = iter.next() {
-        let in_self_update = command.as_ref().is_some_and(|c| c == "self-update");
+        let in_update = command.as_ref().is_some_and(|c| c == "update" || c == "self-update");
         match arg.to_str() {
             Some("--") => {
                 if command.is_some() {
@@ -536,7 +536,7 @@ pub fn preprocess(args: Vec<OsString>) -> Invocation {
                 break;
             }
             Some("-V") => return Invocation::Version,
-            Some("--version") if !in_self_update => return Invocation::Version,
+            Some("--version") if !in_update => return Invocation::Version,
             Some("--version" | "--profile") => {
                 out.push(arg);
                 out.extend(iter.next());
@@ -709,8 +709,9 @@ pub enum Command {
         json: bool,
     },
     /// Update the Vendo CLI using the hosted installer
-    #[command(after_help = "Examples:\n  $ vendo self-update\n  $ vendo self-update --version 0.3.0")]
-    SelfUpdate {
+    // `self-update` until VE-4109 (Yalcin 2026-10-10), now its hidden alias: it prints exactly what `update` prints.
+    #[command(aliases = ["self-update"], after_help = "Examples:\n  $ vendo update\n  $ vendo update --version 0.3.0")]
+    Update {
         /// Install a specific version
         #[arg(long = "version", value_name = "version")]
         install_version: Option<String>,
@@ -2050,6 +2051,7 @@ mod tests {
             &["vendo", "jobs", "list", "-V"],
             &["vendo", "--profile", "x", "status", "--json", "--version"],
             &["vendo", "self-update", "-V"],
+            &["vendo", "update", "-V"],
         ] {
             assert_eq!(preprocess(os(args)), Invocation::Version, "{args:?}");
         }
@@ -2057,15 +2059,17 @@ mod tests {
 
     #[test]
     fn version_is_a_value_where_an_option_takes_it() {
-        // `self-update --version <v>` installs that version (an accepted difference).
-        let args = os(&["vendo", "self-update", "--version", "0.3.0"]);
-        assert_eq!(preprocess(args.clone()), Invocation::Run(args.clone()));
-        let Command::SelfUpdate { install_version, .. } =
-            parse(&["vendo", "self-update", "--version", "0.3.0"]).unwrap().command
-        else {
-            panic!()
-        };
-        assert_eq!(install_version.as_deref(), Some("0.3.0"));
+        // `update --version <v>` installs that version (an accepted difference), as `self-update`, its
+        // hidden alias, does (VE-4109).
+        for old in ["self-update", "update"] {
+            let args = os(&["vendo", old, "--version", "0.3.0"]);
+            assert_eq!(preprocess(args.clone()), Invocation::Run(args), "{old}");
+            let Command::Update { install_version, .. } = parse(&["vendo", old, "--version", "0.3.0"]).unwrap().command
+            else {
+                panic!("{old}")
+            };
+            assert_eq!(install_version.as_deref(), Some("0.3.0"));
+        }
         // `--profile --version` names a profile, as commander reads it.
         let args = os(&["vendo", "--profile", "--version", "whoami"]);
         assert_eq!(preprocess(args.clone()), Invocation::Run(args));

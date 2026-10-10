@@ -96,7 +96,7 @@ Account:
   mcp               Show how to connect an MCP client (Claude, Cursor, Windsurf)
                     to Vendo
   completions       Generate shell completion script (bash, zsh, fish)
-  self-update       Update the Vendo CLI using the hosted installer
+  update            Update the Vendo CLI using the hosted installer
 
 Options:
       --profile <name>  Use a specific account profile (or set VENDO_PROFILE)

@@ -67,14 +67,14 @@ _vendo() {
             vendo,profile)
                 cmd="vendo__subcmd__profile"
                 ;;
-            vendo,self-update)
-                cmd="vendo__subcmd__self__subcmd__update"
-                ;;
             vendo,sources)
                 cmd="vendo__subcmd__sources"
                 ;;
             vendo,status)
                 cmd="vendo__subcmd__status"
+                ;;
+            vendo,update)
+                cmd="vendo__subcmd__update"
                 ;;
             vendo,version)
                 cmd="vendo__subcmd__version"
@@ -196,14 +196,14 @@ _vendo() {
             vendo__subcmd__help,profile)
                 cmd="vendo__subcmd__help__subcmd__profile"
                 ;;
-            vendo__subcmd__help,self-update)
-                cmd="vendo__subcmd__help__subcmd__self__subcmd__update"
-                ;;
             vendo__subcmd__help,sources)
                 cmd="vendo__subcmd__help__subcmd__sources"
                 ;;
             vendo__subcmd__help,status)
                 cmd="vendo__subcmd__help__subcmd__status"
+                ;;
+            vendo__subcmd__help,update)
+                cmd="vendo__subcmd__help__subcmd__update"
                 ;;
             vendo__subcmd__help,version)
                 cmd="vendo__subcmd__help__subcmd__version"
@@ -503,7 +503,7 @@ _vendo() {
 
     case "${cmd}" in
         vendo)
-            opts="-V -h --profile --debug --version --help login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement mcp completions commands version self-update help"
+            opts="-V -h --profile --debug --version --help login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement mcp completions commands version update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1283,7 +1283,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__help)
-            opts="login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement mcp completions commands version self-update help"
+            opts="login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement mcp completions commands version update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2220,20 +2220,6 @@ _vendo() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        vendo__subcmd__help__subcmd__self__subcmd__update)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
         vendo__subcmd__help__subcmd__sources)
             opts="list get sync pause resume delete create update"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -2361,6 +2347,20 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__help__subcmd__status)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        vendo__subcmd__help__subcmd__update)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -3266,28 +3266,6 @@ _vendo() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        vendo__subcmd__self__subcmd__update)
-            opts="-h --version --json --profile --debug --help"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                --version)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --profile)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
         vendo__subcmd__sources)
             opts="-h --profile --debug --help list get sync pause resume delete create update"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
@@ -3545,6 +3523,28 @@ _vendo() {
                 return 0
             fi
             case "${prev}" in
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        vendo__subcmd__update)
+            opts="-h --version --json --profile --debug --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --version)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --profile)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0

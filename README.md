@@ -28,7 +28,7 @@ Supported systems: macOS on Apple silicon and Intel (`darwin-arm64`, `darwin-x64
 curl -fsSL https://app2.vendodata.com/install.sh | VENDO_VERSION=1.1.0 bash
 ```
 
-To update later, run `vendo self-update` (`--version <version>` installs a specific release). `vendo status`,
+To update later, run `vendo update` (`--version <version>` installs a specific release). `vendo status`,
 `vendo workspace` and the browser sign-in of `vendo login` check for a newer release once a day and print a notice
 when there is one.
 
@@ -92,7 +92,7 @@ under it (`apps list`, `measurement ltv cohort`), in four sections:
 | Getting started | `login`, `logout`, `workspace`, `status`, `help`, `version` |
 | Data pipeline | `apps`, `sources`, `destinations`, `jobs` |
 | Data catalog | `catalog`, `dictionary`, `metrics`, `models`, `measurement` |
-| Account | `profile`, `mcp`, `completions`, `self-update` |
+| Account | `profile`, `mcp`, `completions`, `update` |
 
 The commands in each group:
 
@@ -479,6 +479,7 @@ Old command names keep working but are no longer in the help:
 | `vendo profile current`, `vendo config show` | `vendo workspace` |
 | `vendo config reset` | `vendo logout --all` |
 | `vendo config use` | `vendo profile switch` |
+| `vendo self-update` | `vendo update` |
 
 `vendo catalog credential-schema <platform>` also still works but is no longer in the help;
 `vendo catalog get <platform>` shows the same credential fields.
