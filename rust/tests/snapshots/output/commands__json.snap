@@ -379,38 +379,6 @@ exit: 0
       ]
     },
     {
-      "name": "mcp",
-      "path": "mcp",
-      "description": "Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo",
-      "aliases": [],
-      "arguments": [],
-      "options": [
-        {
-          "name": "--json",
-          "short": null,
-          "valueName": null,
-          "description": "Output only the mcpServers JSON block",
-          "required": false,
-          "default": null,
-          "possibleValues": [],
-          "suggestedValues": [],
-          "global": false
-        },
-        {
-          "name": "--show-key",
-          "short": null,
-          "valueName": null,
-          "description": "Embed your actual API key instead of a ${VENDO_API_KEY} placeholder",
-          "required": false,
-          "default": null,
-          "possibleValues": [],
-          "suggestedValues": [],
-          "global": false
-        }
-      ],
-      "commands": []
-    },
-    {
       "name": "completions",
       "path": "completions",
       "description": "Generate shell completion script (bash, zsh, fish)",

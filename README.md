@@ -89,7 +89,7 @@ on the lines below (`list, diagnose, get, …`; nested ones as `ltv cohort`), in
 
 | Section | Commands |
 | --- | --- |
-| Account | `login`, `logout`, `workspace`, `status`, `help`, `version`, `profile`, `mcp`, `completions`, `update` |
+| Account | `login`, `logout`, `workspace`, `status`, `help`, `version`, `profile`, `completions`, `update` |
 | Data pipeline | `apps`, `sources`, `destinations`, `jobs` |
 | Data catalog | `catalog`, `dictionary`, `metrics`, `models`, `measurement` |
 
@@ -271,32 +271,8 @@ vendo measurement signals list
 
 ### Connect an MCP client (Claude, Cursor, ...)
 
-Vendo runs a [Model Context Protocol](https://modelcontextprotocol.io) server, so AI assistants can work with your
-account. `vendo mcp` prints a client configuration ready to paste:
-
-```bash
-vendo mcp              # the configuration and how to connect
-vendo mcp --json       # only the mcpServers block
-vendo mcp --show-key   # put your API key in place of the ${VENDO_API_KEY} placeholder
-```
-
-```json
-{
-  "mcpServers": {
-    "vendo": {
-      "type": "http",
-      "url": "https://app2.vendodata.com/api/mcp",
-      "headers": {
-        "Authorization": "Bearer ${VENDO_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-Paste it into your client's configuration (`claude_desktop_config.json`, `.cursor/mcp.json`, ...). The server
-takes the same `vendo_sk_...` key as the CLI. Use `app2.vendodata.com`: `app.vendodata.com` does not serve
-`/api/mcp`.
+Vendo also runs a [Model Context Protocol](https://modelcontextprotocol.io) server for AI assistants; how to connect
+a client is in the docs at [docs.vendodata.com](https://docs.vendodata.com).
 
 ## Shell completions
 
@@ -357,8 +333,7 @@ to stderr, so stdout stays parseable.
   `vendo workspace --json` prints for the profile it saved or checked.
 - `vendo jobs watch --json` prints one line of JSON each time the job list changes; `vendo jobs tail --json` prints
   the job when it ends, as `vendo jobs get --json` does.
-- `vendo mcp --json` prints the `mcpServers` block.
-- No JSON output contains your API key unless you ask for it with `vendo mcp --show-key`.
+- No JSON output contains your API key.
 - `--dry-run` prints text, with `--json` too: one line for delete, pause, resume and cancel, and a few lines (the
   resource and its active job) for `sources sync` and `destinations sync`.
 

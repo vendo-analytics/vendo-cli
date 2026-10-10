@@ -1,5 +1,5 @@
-//! Account and profile commands: `logout`, `profile *` and `mcp` (ports
-//! of the matching files in `src/commands/`; `config *` moved under
+//! Account and profile commands: `logout` and `profile *` (ports of the
+//! matching files in `src/commands/`; `config *` moved under
 //! `profile`, `whoami` and `logout --all` in CLI 1.1, VE-3827). `init` became
 //! `login` (VE-3825, `commands/login.rs`); `whoami` and `doctor` became
 //! `workspace` (VE-3891, `commands/workspace.rs`).
@@ -11,7 +11,7 @@ use crate::{
     browse,
     config::{ConfigValueUpdates, unknown_vendo_profile},
     context::Ctx,
-    output::{bold, confirm, dim, green, message_error_json, print_error, print_error_json, print_json, print_success},
+    output::{confirm, dim, green, message_error_json, print_error, print_error_json, print_json, print_success},
     profile_display::{SwitchOptions, print_profile_list, profile_json, profile_list_cells, switch_profile_selection},
 };
 
@@ -130,103 +130,4 @@ pub fn profile_switch(ctx: &Ctx, profile: Option<String>, account: Option<String
             json,
         },
     )
-}
-
-// ── mcp ────────────────────────────────────────────────────────────────────
-
-const API_KEY_PLACEHOLDER: &str = "${VENDO_API_KEY}";
-
-#[derive(Debug, PartialEq)]
-pub struct McpClientConfig {
-    pub endpoint: String,
-    pub mcp_servers: Value,
-    pub key_embedded: bool,
-}
-
-/// The MCP server is the web app's `/api/mcp` (stateless streamable HTTP);
-/// a client only needs the URL and an `Authorization: Bearer` header.
-pub fn build_mcp_client_config(base_url: &str, api_key: Option<&str>, show_key: bool) -> McpClientConfig {
-    let endpoint = format!("{}/api/mcp", base_url.trim_end_matches('/'));
-    let key = api_key.filter(|_| show_key);
-    let authorization = format!("Bearer {}", key.unwrap_or(API_KEY_PLACEHOLDER));
-    McpClientConfig {
-        mcp_servers: json!({ "vendo": { "type": "http", "url": endpoint, "headers": { "Authorization": authorization } } }),
-        endpoint,
-        key_embedded: key.is_some(),
-    }
-}
-
-pub fn mcp(ctx: &Ctx, json: bool, show_key: bool) {
-    let config = ctx.effective();
-    let mcp = build_mcp_client_config(&config.base_url, config.api_key.as_deref(), show_key);
-    let block_value = json!({ "mcpServers": mcp.mcp_servers });
-    if json {
-        print_json(&block_value);
-        return;
-    }
-    let block = serde_json::to_string_pretty(&block_value)
-        .expect("JSON values always serialize")
-        .lines()
-        .map(|line| format!("  {line}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    println!();
-    println!("{}", bold("Connect an MCP client to Vendo"));
-    println!();
-    println!("  Endpoint:   {}", mcp.endpoint);
-    println!("  Transport:  streamable-http (stateless)");
-    println!("  Auth:       Authorization: Bearer <api key>   (or OAuth in claude.ai)");
-    println!();
-    println!("  Add to your MCP client config (Claude Desktop, Cursor, Windsurf, …):");
-    println!();
-    println!("{block}");
-    println!();
-    if let (None, Some(name)) = (&config.api_key, config.unknown_vendo_profile()) {
-        // Why there is no key: the profile VENDO_PROFILE names is not there (Yalcin, 2026-10-06).
-        for line in unknown_vendo_profile(name).lines() {
-            println!("{}", dim(&format!("  {}", line.trim_start())));
-        }
-    } else if config.api_key.is_none() {
-        println!("{}", dim("  No API key configured — run `vendo login` or set VENDO_API_KEY first."));
-    } else if !mcp.key_embedded {
-        println!(
-            "{}",
-            dim(
-                "  Replace ${VENDO_API_KEY} with your key (or set it in the client env), or re-run with --show-key to embed it."
-            )
-        );
-    }
-    println!(
-        "{}",
-        dim("  Tip: the MCP server lives on app2.vendodata.com — app.vendodata.com does not serve /api/mcp.")
-    );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mcp_endpoint_comes_from_the_base_url() {
-        let c = build_mcp_client_config("https://app2.vendodata.com", None, false);
-        assert_eq!(c.endpoint, "https://app2.vendodata.com/api/mcp");
-        assert_eq!(c.mcp_servers["vendo"]["type"], "http");
-        assert_eq!(c.mcp_servers["vendo"]["url"], "https://app2.vendodata.com/api/mcp");
-        assert_eq!(build_mcp_client_config("https://x.com///", None, false).endpoint, "https://x.com/api/mcp");
-    }
-
-    #[test]
-    fn mcp_key_is_embedded_only_with_show_key() {
-        let auth =
-            |c: &McpClientConfig| c.mcp_servers["vendo"]["headers"]["Authorization"].as_str().unwrap().to_string();
-        let placeholder = build_mcp_client_config("https://x.com", None, false);
-        assert_eq!((auth(&placeholder).as_str(), placeholder.key_embedded), ("Bearer ${VENDO_API_KEY}", false));
-        let hidden = build_mcp_client_config("https://x.com", Some("vendo_sk_secret"), false);
-        assert_eq!((auth(&hidden).as_str(), hidden.key_embedded), ("Bearer ${VENDO_API_KEY}", false));
-        let shown = build_mcp_client_config("https://x.com", Some("vendo_sk_secret"), true);
-        assert_eq!((auth(&shown).as_str(), shown.key_embedded), ("Bearer vendo_sk_secret", true));
-        let no_key = build_mcp_client_config("https://x.com", None, true);
-        assert_eq!((auth(&no_key).as_str(), no_key.key_embedded), ("Bearer ${VENDO_API_KEY}", false));
-    }
 }

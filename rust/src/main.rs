@@ -351,10 +351,6 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
                 }
             },
         },
-        Command::Mcp { json, show_key } => {
-            account::mcp(ctx, json, show_key);
-            Ok(ok)
-        }
         Command::Completions { shell, json } => {
             completions::run(ctx, shell, json);
             Ok(ok)

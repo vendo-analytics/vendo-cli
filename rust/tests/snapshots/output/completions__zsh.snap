@@ -1053,16 +1053,6 @@ esac
     ;;
 esac
 ;;
-(mcp)
-_arguments "${_arguments_options[@]}" : \
-'--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--json[Output only the mcpServers JSON block]' \
-'--show-key[Embed your actual API key instead of a \${VENDO_API_KEY} placeholder]' \
-'-h[Print help]' \
-'--help[Print help]' \
-'--debug[Enable verbose request diagnostics]' \
-&& ret=0
-;;
 (completions)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
@@ -1573,10 +1563,6 @@ esac
     ;;
 esac
 ;;
-(mcp)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
 (completions)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1623,7 +1609,6 @@ _vendo_commands() {
 'metrics:Manage custom metrics in the Metrics Library' \
 'models:Manage data models' \
 'measurement:Inspect Marketing Measurement methodologies, LTV, and signals' \
-'mcp:Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo' \
 'completions:Generate shell completion script (bash, zsh, fish)' \
 'commands:List every command, or with --json the command tree with arguments and flags' \
 'version:Print version' \
@@ -1821,7 +1806,6 @@ _vendo__subcmd__help_commands() {
 'metrics:Manage custom metrics in the Metrics Library' \
 'models:Manage data models' \
 'measurement:Inspect Marketing Measurement methodologies, LTV, and signals' \
-'mcp:Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo' \
 'completions:Generate shell completion script (bash, zsh, fish)' \
 'commands:List every command, or with --json the command tree with arguments and flags' \
 'version:Print version' \
@@ -2052,11 +2036,6 @@ _vendo__subcmd__help__subcmd__login_commands() {
 _vendo__subcmd__help__subcmd__logout_commands() {
     local commands; commands=()
     _describe -t commands 'vendo help logout commands' commands "$@"
-}
-(( $+functions[_vendo__subcmd__help__subcmd__mcp_commands] )) ||
-_vendo__subcmd__help__subcmd__mcp_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo help mcp commands' commands "$@"
 }
 (( $+functions[_vendo__subcmd__help__subcmd__measurement_commands] )) ||
 _vendo__subcmd__help__subcmd__measurement_commands() {
@@ -2343,11 +2322,6 @@ _vendo__subcmd__login_commands() {
 _vendo__subcmd__logout_commands() {
     local commands; commands=()
     _describe -t commands 'vendo logout commands' commands "$@"
-}
-(( $+functions[_vendo__subcmd__mcp_commands] )) ||
-_vendo__subcmd__mcp_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo mcp commands' commands "$@"
 }
 (( $+functions[_vendo__subcmd__measurement_commands] )) ||
 _vendo__subcmd__measurement_commands() {

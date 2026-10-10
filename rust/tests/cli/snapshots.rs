@@ -1418,8 +1418,6 @@ async fn account_and_profile_output() {
     s.record_with("doctor", &["doctor"], machine);
     s.record_with("doctor_json", &["doctor", "--json"], machine);
     same(&s, &["config", "list"], &["profile", "list"], 0);
-    s.record("mcp", &["mcp"]);
-    s.record("mcp_json", &["mcp", "--json"]);
     // A working key is checked and kept (VE-3825); `init`, login's hidden alias, prints the same.
     s.record("login_existing_key", &["login"]);
     assert!(s.output(&["init"]) == s.output(&["login"]), "vendo init differs from vendo login");

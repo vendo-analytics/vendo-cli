@@ -2791,6 +2791,10 @@ fn with_json_a_usage_error_is_json_and_still_exits_2() {
     let help = sandbox.run(&["apps", "list", "--json", "--help"]);
     assert_eq!((help.status.code(), text(&help.stderr)), (Some(0), String::new()));
     assert_eq!(text(&help.stdout), text(&sandbox.run(&["apps", "list", "--help"]).stdout));
+    // `vendo mcp` is gone (VE-4109, Yalcin 2026-10-10): clap's unknown-subcommand error, no alias.
+    let out = sandbox.run(&["mcp"]);
+    assert_eq!((out.status.code(), text(&out.stdout)), (Some(2), String::new()));
+    assert!(text(&out.stderr).starts_with("error: unrecognized subcommand 'mcp'\n"), "{}", text(&out.stderr));
     // A group without its command prints its help, as before.
     let out = sandbox.run(&["jobs"]);
     assert_eq!(out.status.code(), Some(2));
@@ -3406,12 +3410,6 @@ async fn an_unknown_vendo_profile_is_an_error_that_names_it_and_says_how_to_fix_
     );
     assert_eq!(shown.matches("overrides the active profile").count(), 1, "{shown}");
     assert!(server.received_requests().await.unwrap().is_empty());
-    // mcp prints the client config as ever; its hint names VENDO_PROFILE where it said there is no key.
-    let out = sandbox.command(&["mcp"]).env("VENDO_PROFILE", "nope").output().unwrap();
-    let no_key_hint = "  No API key configured — run `vendo login` or set VENDO_API_KEY first.\n";
-    let flag = ok_output(&sandbox.run(&["--profile", "nope", "mcp"]));
-    assert!(flag.contains(no_key_hint), "{flag}");
-    assert_eq!(ok_output(&out), flag.replace(no_key_hint, &format!("  {unknown}\n")));
     // An unknown --profile is as before, also over VENDO_PROFILE.
     let no_key =
         "Error: No API key configured. Run `vendo login` or `vendo profile set --api-key <key>` or set VENDO_API_KEY.";

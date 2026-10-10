@@ -69,7 +69,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `HELP_SECTIONS` in `rust/src/cli.rs` places each command, and a test fails when a visible command is in none.
   Each group is one row, its name as typed (`apps`) and description, with its visible commands under the description,
   in its column, as one comma-separated list of bold names (`list, diagnose, get, …`; nested ones by their path,
-  `methodologies list, ltv cohort`; `command_paths`); a command that runs on its own (`login`, `mcp`) is one row.
+  `methodologies list, ltv cohort`; `command_paths`); a command that runs on its own (`login`, `status`) is one row.
   Descriptions start in one column for the whole help, two spaces after the longest name, and descriptions and lists
   wrap at word breaks to fit 80 columns (`HELP_COLUMNS`, `wrapped`); `vendo help`, `vendo --help` and bare `vendo`
   without a terminal print it. VE-4109 (Yalcin 2026-10-10: "combine help and commands, list commands under the
@@ -80,7 +80,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   (`tree::KEPT_IN_THE_TREE`). ❓ Open for Yalcin: `commands` kept in the JSON tree.
   Three sections since VE-4109 (Yalcin 2026-10-10): "Account" first, "Getting started" and "Account" in one
   (❓ open: the order inside, Getting started's commands then Account's, keeps `help` and `version` after `status`,
-  so `vendo commands --json` lists `profile`, `mcp`, `completions` and `update` before `apps`, its only change),
+  so `vendo commands --json` lists `profile`, `completions` and `update` before `apps`, its only change),
   then "Data pipeline" and "Data catalog". The root help's `Options:` lists only `--profile` and `--debug`
   (VE-4109, Yalcin 2026-10-10): `-V, --version` and `-h, --help` still work, hidden there, as the `version` and
   `help` rows list them. clap cannot hide its own help flag on one command, so the root disables it and
@@ -232,8 +232,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     overrides it in this shell (not with `--json`, whose `active` says so). A name no profile has fails with an
     error that names the profile and VENDO_PROFILE and says to run `vendo profile list` or unset VENDO_PROFILE
     (`config::unknown_vendo_profile`), exit 1, where the CLI would otherwise say "No API key configured"
-    (`config::require_api_key`) and in `logout`, which would say "Not currently logged in."; `mcp`, which prints its
-    config either way, gives it in place of its no-key hint. A key in `VENDO_API_KEY` is still used, as for an
+    (`config::require_api_key`) and in `logout`, which would say "Not currently logged in.". A key in `VENDO_API_KEY` is still used, as for an
     unknown `--profile`. Hints about switching profiles or checking with `vendo workspace` (its profile list, its
     missing-profile check and its API-auth fixes, a new login key that cannot be checked) say that VENDO_PROFILE
     overrides the active profile (`config::vendo_profile_overrides`). The workspace screen says it once (VE-3891
@@ -549,8 +548,10 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   rather than showing its view on Enter, which would send a request each time), a methodology, a cohort and the
   mmm and survey signals offering back only, and a profile offering `switch` by the saved `activeProfile` and nothing
   else (proposed, not built: that profile's `--profile <name> workspace` screen, and logging out of it).
-- Ported so far: login, init, logout, whoami, config, profile, status, doctor, mcp, completions,
-  self-update (VE-3665; whoami and doctor are `workspace` since VE-3891, self-update is `update` since VE-4109); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
+- Ported so far: login, init, logout, whoami, config, profile, status, doctor, completions,
+  self-update (VE-3665; whoami and doctor are `workspace` since VE-3891, self-update is `update` since VE-4109;
+  `mcp` was ported and then removed in VE-4109, Yalcin 2026-10-10: "it can't be done from the CLI, we have this in
+  the docs", so `vendo mcp` is clap's unknown-subcommand error and the MCP setup lives at docs.vendodata.com); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
   integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).
   `rust/src/web_app.rs` is the one place that knows the web-app routes (`/api/metrics`, `/api/measurement/*`),
   which go out as raw paths with no account prefix. `rust/src/dictionary.rs` pins the dictionary field and

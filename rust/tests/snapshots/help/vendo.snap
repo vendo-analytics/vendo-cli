@@ -14,8 +14,6 @@ Account:
   version       Print version
   profile       Manage account profiles
                 list, switch, set
-  mcp           Show how to connect an MCP client (Claude, Cursor, Windsurf) to
-                Vendo
   completions   Generate shell completion script (bash, zsh, fish)
   update        Update the Vendo CLI using the hosted installer
 

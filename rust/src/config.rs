@@ -372,7 +372,7 @@ pub fn require_api_key(effective: &EffectiveConfig) -> Result<String> {
 }
 
 /// The error for a `VENDO_PROFILE` that names no profile, wherever the CLI would otherwise say it
-/// has no key: [`require_api_key`], `logout` and `mcp`'s hint (Yalcin, 2026-10-06).
+/// has no key: [`require_api_key`] and `logout` (Yalcin, 2026-10-06).
 pub fn unknown_vendo_profile(name: &str) -> String {
     format!(
         "Profile \"{name}\" not found (VENDO_PROFILE selects it).\n  Run `vendo profile list` to see your profiles, or unset VENDO_PROFILE to use the active profile."

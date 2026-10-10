@@ -52,9 +52,6 @@ _vendo() {
             vendo,logout)
                 cmd="vendo__subcmd__logout"
                 ;;
-            vendo,mcp)
-                cmd="vendo__subcmd__mcp"
-                ;;
             vendo,measurement)
                 cmd="vendo__subcmd__measurement"
                 ;;
@@ -180,9 +177,6 @@ _vendo() {
                 ;;
             vendo__subcmd__help,logout)
                 cmd="vendo__subcmd__help__subcmd__logout"
-                ;;
-            vendo__subcmd__help,mcp)
-                cmd="vendo__subcmd__help__subcmd__mcp"
                 ;;
             vendo__subcmd__help,measurement)
                 cmd="vendo__subcmd__help__subcmd__measurement"
@@ -503,7 +497,7 @@ _vendo() {
 
     case "${cmd}" in
         vendo)
-            opts="-h -V --profile --debug --help --version login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement mcp completions commands version update help"
+            opts="-h -V --profile --debug --help --version login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1283,7 +1277,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__help)
-            opts="login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement mcp completions commands version update help"
+            opts="login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1815,20 +1809,6 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__help__subcmd__logout)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        vendo__subcmd__help__subcmd__mcp)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -2602,24 +2582,6 @@ _vendo() {
             ;;
         vendo__subcmd__logout)
             opts="-y -h --all --yes --json --help --profile --debug"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                --profile)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        vendo__subcmd__mcp)
-            opts="-h --json --show-key --help --profile --debug"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

@@ -75,10 +75,7 @@ fn no_help_rows(cmd: clap::Command) -> clap::Command {
 /// by moving its name. `help` is clap's own command, listed since VE-3893 with `version`. "Account"
 /// is "Getting started" and "Account" in one, first (VE-4109, Yalcin 2026-10-10).
 pub const HELP_SECTIONS: [(&str, &[&str]); 3] = [
-    (
-        "Account",
-        &["login", "logout", "workspace", "status", "help", "version", "profile", "mcp", "completions", "update"],
-    ),
+    ("Account", &["login", "logout", "workspace", "status", "help", "version", "profile", "completions", "update"]),
     ("Data pipeline", &["apps", "sources", "destinations", "jobs"]),
     ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement"]),
 ];
@@ -684,16 +681,6 @@ pub enum Command {
     Measurement {
         #[command(subcommand)]
         command: MeasurementCommand,
-    },
-    /// Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo
-    #[command(after_help = "Examples:\n  $ vendo mcp\n  $ vendo mcp --json\n  $ vendo mcp --show-key")]
-    Mcp {
-        /// Output only the mcpServers JSON block
-        #[arg(long)]
-        json: bool,
-        /// Embed your actual API key instead of a ${VENDO_API_KEY} placeholder
-        #[arg(long)]
-        show_key: bool,
     },
     /// Generate shell completion script (bash, zsh, fish)
     #[command(
