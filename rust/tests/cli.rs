@@ -60,6 +60,9 @@ impl Sandbox {
         let mut cmd = Command::new(program);
         // Dates and numbers follow the locale (VE-3728): pin it, and the time zone.
         cmd.args(args).env("HOME", self.home.path()).env("LANG", "C").env("TZ", "UTC").stdin(Stdio::null());
+        // The workspace screen (also printed by login) names the shell `$SHELL` names: pin it, or the
+        // runner's own shell decides (bash on CI, zsh on a Mac). Tests about other shells set it again.
+        cmd.env("SHELL", "/bin/zsh");
         for var in [
             "VENDO_API_KEY",
             "VENDO_API_URL",
