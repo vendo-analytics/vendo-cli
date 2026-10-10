@@ -6,13 +6,25 @@ exit: 0
 --- stdout ---
 Using existing profile alpha. Run `vendo login --force` to sign in again.
 
-Setup summary
+Demo Account (synthetic) · demo-account
+  Account ID:  acct-alpha
   Profile:     alpha
   Base URL:    [stub]
-  Account ID:  acct-alpha
-  Auth:        verified as Demo Account (synthetic)
+  API key:     vend...0000  (key ID key_fake_0001, scopes full access)
+
+Profiles
+  * alpha  acct-alp…  [stub-host]
+    beta   acct-bet…  [stub-host]
+
+Checks
+  [warn] CLI [version] at [bin] (standard install path is ~/.local/bin/vendo), not on PATH
+         Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.
+         Fix: Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc`, then restart your shell.
+  [ok] Config ~/.config/vendo/config.json
+  [warn] Zsh completions are not installed yet
+         Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` to set them up, or run `vendo completions` for the manual steps.
+  [ok] Signed in as Demo Account (synthetic)
 
 Next steps
-  vendo workspace
-  vendo status
+  Run `vendo help` to see everything you can do.
 Done: Vendo CLI setup complete.

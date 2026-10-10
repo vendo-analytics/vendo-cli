@@ -9,7 +9,104 @@ exit: 0
   "baseUrl": "[stub]",
   "accountId": "acct-alpha",
   "auth": "verified",
-  "accountName": "Demo Account (synthetic)"
+  "accountName": "Demo Account (synthetic)",
+  "workspace": {
+    "data": {
+      "accountId": "acct-alpha",
+      "accountName": "Demo Account (synthetic)",
+      "accountSlug": "demo-account",
+      "pictureUrl": null,
+      "apiKeyId": "key_fake_0001",
+      "scopes": [],
+      "bigquery": {
+        "projectId": "demo-project",
+        "prodDatasetId": "demo_prod",
+        "sourceDatasetId": "demo_source"
+      }
+    },
+    "config": {
+      "selectedProfile": "alpha",
+      "apiKeySource": "profile",
+      "baseUrl": "[stub]",
+      "baseUrlSource": "profile",
+      "accountId": "acct-alpha",
+      "accountIdSource": "profile"
+    },
+    "summary": {
+      "ok": 6,
+      "warn": 3,
+      "fail": 0
+    },
+    "checks": [
+      {
+        "name": "CLI binary",
+        "status": "warn",
+        "detail": "[bin] (standard install path is [home]/.local/bin/vendo)",
+        "remediation": "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path."
+      },
+      {
+        "name": "PATH",
+        "status": "warn",
+        "detail": "[bin-dir] is not available in PATH",
+        "remediation": "Add `export PATH=\"$HOME/.local/bin:$PATH\"` to `~/.zshrc`, then restart your shell."
+      },
+      {
+        "name": "Config file",
+        "status": "ok",
+        "detail": "[home]/.config/vendo/config.json"
+      },
+      {
+        "name": "Selected profile",
+        "status": "ok",
+        "detail": "alpha"
+      },
+      {
+        "name": "API key",
+        "status": "ok",
+        "detail": "vend...0000 (from profile)"
+      },
+      {
+        "name": "Base URL",
+        "status": "ok",
+        "detail": "[stub] (from profile)"
+      },
+      {
+        "name": "Account ID",
+        "status": "ok",
+        "detail": "acct-alpha (from profile)"
+      },
+      {
+        "name": "Shell completions",
+        "status": "warn",
+        "detail": "Zsh completions are not installed yet",
+        "remediation": "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` to set them up, or run `vendo completions` for the manual steps."
+      },
+      {
+        "name": "API auth",
+        "status": "ok",
+        "detail": "Authenticated as Demo Account (synthetic)"
+      }
+    ],
+    "suggestions": [
+      "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.",
+      "Add `export PATH=\"$HOME/.local/bin:$PATH\"` to `~/.zshrc`, then restart your shell.",
+      "Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` to set them up, or run `vendo completions` for the manual steps."
+    ],
+    "identity": {
+      "accountId": "acct-alpha",
+      "accountName": "Demo Account (synthetic)",
+      "accountSlug": "demo-account",
+      "pictureUrl": null,
+      "apiKeyId": "key_fake_0001",
+      "scopes": [],
+      "bigquery": {
+        "projectId": "demo-project",
+        "prodDatasetId": "demo_prod",
+        "sourceDatasetId": "demo_source"
+      }
+    },
+    "shell": "zsh"
+  }
 }
 --- stderr ---
 Using existing profile alpha. Run `vendo login --force` to sign in again.

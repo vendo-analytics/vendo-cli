@@ -2136,11 +2136,29 @@ async fn browser_login(mut cmd: Command, url_on_stderr: bool) -> (Option<i32>, S
     }
 }
 
-/// The summary and next steps a successful login ends with.
-fn signed_in(profile: &str, base_url: &str, account_id: &str) -> String {
-    format!(
-        "\nSetup summary\n  Profile:     {profile}\n  Base URL:    {base_url}\n  Account ID:  {account_id}\n  Auth:        verified as Demo Account (synthetic)\n\nNext steps\n  vendo workspace\n  vendo status\nDone: Vendo CLI setup complete.\n"
-    )
+/// What login ends with (VE-4109): the workspace screen of the profile it saved or checked
+/// ([`workspace_screen`]), then the next step when the check did not fail.
+fn signed_in(screen: &str) -> String {
+    format!("\n{screen}{NEXT_STEP}")
+}
+
+const NEXT_STEP: &str =
+    "\nNext steps\n  Run `vendo help` to see everything you can do.\nDone: Vendo CLI setup complete.\n";
+
+/// What `vendo workspace` prints in `sandbox` now, with `--profile <profile>` when given and `env`
+/// set: login shows that screen (VE-4109). It asks `/me` too, so run it after counting the stub's
+/// requests.
+fn workspace_screen(sandbox: &Sandbox, profile: Option<&str>, env: &[(&str, &str)]) -> String {
+    let mut args = Vec::new();
+    if let Some(profile) = profile {
+        args.extend(["--profile", profile]);
+    }
+    args.push("workspace");
+    let mut cmd = sandbox.command(&args);
+    cmd.envs(env.iter().copied());
+    let screen = text(&cmd.output().unwrap().stdout);
+    assert!(screen.contains("\nChecks\n"), "{screen}");
+    screen
 }
 
 /// The lines before the browser sign-in's summary: `why`, then the sign-in URL on `base_url`.
@@ -2157,9 +2175,14 @@ async fn login_without_a_key_signs_in_through_the_browser_and_checks_the_new_key
     let sandbox = Sandbox::without_api_keys(&stub);
     let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
     assert_eq!((code, stderr.as_str()), (Some(0), ""));
-    let expected = browser_sign_in("No API key found. Starting browser login...", &stub);
-    assert_eq!(stdout, expected + &signed_in("demo-account", &stub, "acct-alpha"));
     assert_eq!(sign_in_requests(&server).await, ["GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]);
+    let expected = browser_sign_in("No API key found. Starting browser login...", &stub);
+    let screen = workspace_screen(&sandbox, Some("demo-account"), &[]);
+    assert!(
+        screen.contains("  Profile:     demo-account\n") && screen.contains("Signed in as Demo Account"),
+        "{screen}"
+    );
+    assert_eq!(stdout, expected + &signed_in(&screen));
     let config = sandbox.config();
     assert_eq!(config["activeProfile"], "demo-account");
     assert_eq!(
@@ -2174,16 +2197,19 @@ async fn login_with_a_working_key_checks_it_and_creates_no_key() {
     let stub = server.uri();
     let sandbox = Sandbox::new(&stub);
     let before = sandbox.config();
-    let expected = "Using existing profile alpha. Run `vendo login --force` to sign in again.\n".to_string()
-        + &signed_in("alpha", &stub, "acct-alpha");
     // Naming the profile's own instance is the same login.
+    let mut shown = Vec::new();
     for args in [&["login"][..], &["login", "--base-url", &stub]] {
         let (code, stdout, stderr) = login_at_browser(sandbox.command(args)).await;
-        assert_eq!((code, stdout.as_str(), stderr.as_str()), (Some(0), expected.as_str(), ""), "{args:?}");
+        assert_eq!((code, stderr.as_str()), (Some(0), ""), "{args:?}");
+        shown.push(stdout);
     }
-    // Only checks: no sign-in page, so no new key.
+    // Only checks: no sign-in page, so no new key, and `/me` is asked once per login.
     assert_eq!(sign_in_requests(&server).await, vec![format!("GET /api/v1/me {ALPHA_KEY}"); 2]);
     assert_eq!(sandbox.config(), before);
+    let expected = "Using existing profile alpha. Run `vendo login --force` to sign in again.\n".to_string()
+        + &signed_in(&workspace_screen(&sandbox, None, &[]));
+    assert_eq!(shown, [expected.clone(), expected]);
 }
 
 #[tokio::test]
@@ -2193,9 +2219,9 @@ async fn login_force_signs_in_again_without_checking_the_saved_key() {
     let sandbox = Sandbox::new(&stub);
     let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login", "--force"])).await;
     assert_eq!((code, stderr.as_str()), (Some(0), ""));
-    let expected = browser_sign_in("Signing in again (--force). Starting browser login...", &stub);
-    assert_eq!(stdout, expected + &signed_in("demo-account", &stub, "acct-alpha"));
     assert_eq!(sign_in_requests(&server).await, ["GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]);
+    let expected = browser_sign_in("Signing in again (--force). Starting browser login...", &stub);
+    assert_eq!(stdout, expected + &signed_in(&workspace_screen(&sandbox, Some("demo-account"), &[])));
     let config = sandbox.config();
     assert_eq!(config["activeProfile"], "demo-account");
     assert_eq!(config["profiles"]["alpha"]["apiKey"], ALPHA_KEY, "the other profiles are kept");
@@ -2210,11 +2236,12 @@ async fn login_with_a_rejected_key_signs_in_through_the_browser() {
         let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
         assert_eq!((code, stderr.as_str()), (Some(0), ""), "{status}");
         let why = format!("The API key in profile alpha was rejected (HTTP {status}). Starting browser login...");
-        assert_eq!(stdout, browser_sign_in(&why, &stub) + &signed_in("demo-account", &stub, "acct-alpha"));
         assert_eq!(
             sign_in_requests(&server).await,
             [format!("GET /api/v1/me {ALPHA_KEY}"), "GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]
         );
+        let screen = workspace_screen(&sandbox, Some("demo-account"), &[]);
+        assert_eq!(stdout, browser_sign_in(&why, &stub) + &signed_in(&screen));
         assert_eq!(sandbox.config()["profiles"]["demo-account"]["apiKey"], NEW_KEY);
     }
 }
@@ -2223,10 +2250,11 @@ async fn login_with_a_rejected_key_signs_in_through_the_browser() {
 async fn login_that_cannot_check_the_key_creates_no_key() {
     // A server error, an answer that is not the API's, or no answer: the key may still work, so
     // nothing is replaced and login fails.
-    let not_checked = |stub: &str| {
-        "Using existing profile alpha. Run `vendo login --force` to sign in again.\n\nSetup summary\n  Profile:     alpha\n"
-            .to_string()
-            + &format!("  Base URL:    {stub}\n  Account ID:  acct-alpha\n  Auth:        not verified (API check failed)\n")
+    // The workspace screen with the failed check, and no next step.
+    let not_checked = |sandbox: &Sandbox, reason: &str| {
+        let screen = workspace_screen(sandbox, None, &[]);
+        assert!(screen.contains(&format!("  [fail] API auth: {reason}")), "{screen}");
+        format!("Using existing profile alpha. Run `vendo login --force` to sign in again.\n\n{screen}")
     };
     let error = |reason: &str| {
         format!(
@@ -2241,13 +2269,14 @@ async fn login_that_cannot_check_the_key_creates_no_key() {
         let sandbox = Sandbox::new(&stub);
         let before = sandbox.config();
         let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
-        assert_eq!((code, stdout, stderr), (Some(1), not_checked(&stub), error(reason)), "{status}");
         assert_eq!(sign_in_requests(&server).await, [format!("GET /api/v1/me {ALPHA_KEY}")], "{status}");
         assert_eq!(sandbox.config(), before);
+        let failed = format!("HTTP {status}");
+        assert_eq!((code, stdout, stderr), (Some(1), not_checked(&sandbox, &failed), error(reason)), "{status}");
     }
     let sandbox = Sandbox::new(CLOSED);
     let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
-    assert_eq!((code, stdout, stderr), (Some(1), not_checked(CLOSED), error("fetch failed")));
+    assert_eq!((code, stdout, stderr), (Some(1), not_checked(&sandbox, "fetch failed"), error("fetch failed")));
 }
 
 #[tokio::test]
@@ -2258,15 +2287,18 @@ async fn a_new_key_that_cannot_be_checked_is_kept_and_login_fails() {
         let stub = server.uri();
         let sandbox = Sandbox::without_api_keys(&stub);
         let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
-        let summary = format!(
-            "\nSetup summary\n  Profile:     demo-account\n  Base URL:    {stub}\n  Account ID:  acct-alpha\n  Auth:        not verified (API check failed)\n"
+        assert_eq!(sign_in_requests(&server).await, ["GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]);
+        // The new profile's workspace screen with the failed check, and no next step.
+        let screen = workspace_screen(&sandbox, Some("demo-account"), &[]);
+        assert!(
+            screen.contains("  Profile:     demo-account\n  ") && screen.contains("[fail] API auth: HTTP"),
+            "{screen}"
         );
-        let expected = browser_sign_in("No API key found. Starting browser login...", &stub) + &summary;
+        let expected = browser_sign_in("No API key found. Starting browser login...", &stub) + "\n" + &screen;
         let error = format!(
             "Error: Could not verify the API key: {reason}. The new key is saved in profile demo-account: run `vendo workspace` to check it again.\n"
         );
         assert_eq!((code, stdout, stderr), (Some(1), expected, error), "{status}");
-        assert_eq!(sign_in_requests(&server).await, ["GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]);
         assert_eq!(sandbox.config()["profiles"]["demo-account"]["apiKey"], NEW_KEY, "{status}");
     }
 }
@@ -2281,13 +2313,17 @@ async fn a_key_without_an_account_is_kept_and_the_summary_says_what_is_missing()
     std::fs::write(sandbox.home.path().join(".config/vendo/config.json"), config.to_string()).unwrap();
     let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login"])).await;
     assert_eq!((code, stderr.as_str()), (Some(0), ""));
+    assert_eq!(sign_in_requests(&server).await, Vec::<String>::new());
+    // The workspace's Account ID check says what is missing and how to set it.
+    let screen = workspace_screen(&sandbox, None, &[]);
+    assert!(
+        screen.contains("  [fail] Account ID: Missing\n         Fix: Run `vendo profile set --account <account-id>`"),
+        "{screen}"
+    );
     assert_eq!(
         stdout,
-        format!(
-            "Using existing profile alpha. Run `vendo login --force` to sign in again.\n\nSetup summary\n  Profile:     alpha\n  Base URL:    {stub}\n  Account ID:  missing\n  Auth:        incomplete (account ID still required)\n\nNext steps\n  vendo workspace\n  vendo status\n\nSet an account explicitly with `vendo profile set --account <account-id>` if your login flow did not provide one.\nDone: Vendo CLI setup complete.\n"
-        )
+        "Using existing profile alpha. Run `vendo login --force` to sign in again.\n".to_string() + &signed_in(&screen)
     );
-    assert_eq!(sign_in_requests(&server).await, Vec::<String>::new());
 }
 
 #[tokio::test]
@@ -2298,9 +2334,10 @@ async fn login_for_another_instance_signs_in_there() {
     let (code, stdout, stderr) = login_at_browser(sandbox.command(&["login", "--base-url", &other.uri()])).await;
     assert_eq!((code, stderr.as_str()), (Some(0), ""));
     let why = format!("Profile alpha is for {}. Starting browser login for {}...", saved.uri(), other.uri());
-    assert_eq!(stdout, browser_sign_in(&why, &other.uri()) + &signed_in("demo-account", &other.uri(), "acct-alpha"));
     assert_eq!(sign_in_requests(&saved).await, Vec::<String>::new(), "the saved key is not for this instance");
     assert_eq!(sign_in_requests(&other).await, ["GET /cli-auth".to_string(), format!("GET /api/v1/me {NEW_KEY}")]);
+    let screen = workspace_screen(&sandbox, Some("demo-account"), &[]);
+    assert_eq!(stdout, browser_sign_in(&why, &other.uri()) + &signed_in(&screen));
     assert_eq!(sandbox.config()["profiles"]["demo-account"]["baseUrl"], other.uri());
 }
 
@@ -2310,11 +2347,13 @@ async fn headless_login_never_opens_a_browser() {
     let stub = server.uri();
     let sandbox = Sandbox::new(&stub);
     // Both flags: the key is checked and saved, with or without --force (it signs in with the key given).
+    let mut shown = Vec::new();
     for force in [&[][..], &["--force"]] {
         let args =
             [&["login", "--api-key", GAMMA_KEY, "--account", "acct-gamma", "--base-url", &stub][..], force].concat();
         let (code, stdout, stderr) = login_at_browser(sandbox.command(&args)).await;
-        assert_eq!((code, stdout, stderr), (Some(0), signed_in("demo-account", &stub, "acct-gamma"), String::new()));
+        assert_eq!((code, stderr), (Some(0), String::new()));
+        shown.push(stdout);
     }
     let config = sandbox.config();
     assert_eq!(config["activeProfile"], "demo-account");
@@ -2338,6 +2377,8 @@ async fn headless_login_never_opens_a_browser() {
     assert_eq!(sandbox.config(), config);
     let checks = [GAMMA_KEY, GAMMA_KEY, "vendo_sk_fake_bad_00000"].map(|key| format!("GET /api/v1/me {key}"));
     assert_eq!(sign_in_requests(&server).await, checks, "no sign-in page");
+    let expected = signed_in(&workspace_screen(&sandbox, Some("demo-account"), &[]));
+    assert_eq!(shown, [expected.clone(), expected]);
 }
 
 #[tokio::test]
@@ -2354,7 +2395,7 @@ async fn a_key_in_vendo_api_key_is_checked_and_never_opens_a_browser() {
     };
     let (code, stdout, stderr) = login_at_browser(with_key(ENV_KEY, &["login"])).await;
     assert_eq!((code, stderr.as_str()), (Some(0), ""));
-    assert_eq!(stdout, "Using the API key in VENDO_API_KEY.\n".to_string() + &signed_in("alpha", &stub, "acct-alpha"));
+    let signed_in_with_env_key = stdout;
 
     let unset = "`vendo login` does not open a browser while VENDO_API_KEY is set";
     for (key, args, error) in [
@@ -2381,6 +2422,10 @@ async fn a_key_in_vendo_api_key_is_checked_and_never_opens_a_browser() {
     let checks = [ENV_KEY, "vendo_sk_fake_bad_00000"].map(|key| format!("GET /api/v1/me {key}"));
     assert_eq!(sign_in_requests(&server).await, checks);
     assert_eq!(sandbox.config(), before, "nothing saved");
+    // The workspace screen of the key in VENDO_API_KEY, as `vendo workspace` shows it there.
+    let screen = workspace_screen(&sandbox, None, &[("VENDO_API_KEY", ENV_KEY)]);
+    assert!(screen.contains("Env overrides active: VENDO_API_KEY"), "{screen}");
+    assert_eq!(signed_in_with_env_key, "Using the API key in VENDO_API_KEY.\n".to_string() + &signed_in(&screen));
 }
 
 #[tokio::test]
@@ -2400,7 +2445,9 @@ async fn init_prints_exactly_what_login_prints() {
         }
         let (code, stdout, stderr) = login_at_browser(sandbox.command(&args)).await;
         let config = sandbox.config().to_string();
-        let shown = |s: String| s.replace(&stub, "[stub]");
+        // The workspace screen's profile list shows the stub's host without its scheme (VE-4109).
+        let host = stub.trim_start_matches("http://").to_string();
+        let shown = |s: String| s.replace(&stub, "[stub]").replace(&host, "[stub-host]");
         (code, shown(stdout), shown(stderr), sign_in_requests(&server).await, shown(config))
     }
     for state in ["no key", "working key", "--force", "headless", "rejected key"] {
@@ -2860,12 +2907,26 @@ fn logout_json_names_the_profiles_it_removed() {
 
 // ── --json on login, jobs watch and tail, completions and self-update ──
 
-/// `login --json`'s summary.
-fn login_summary(profile: &str, base_url: &str, account_id: &str, auth: &str, name: Value) -> String {
+/// `login --json`'s summary: its keys from before VE-4109, then `workspace`, what `vendo workspace
+/// --json` prints for the profile login saved or checked ([`workspace_json`]).
+fn login_summary(profile: &str, base_url: &str, account_id: &str, auth: &str, name: Value, workspace: Value) -> String {
     let summary = json!({
         "profile": profile, "baseUrl": base_url, "accountId": account_id, "auth": auth, "accountName": name,
+        "workspace": workspace,
     });
     format!("{}\n", serde_json::to_string_pretty(&summary).unwrap())
+}
+
+/// What `vendo [--profile <profile>] workspace --json` prints in `sandbox` now, with `env` set.
+fn workspace_json(sandbox: &Sandbox, profile: Option<&str>, env: &[(&str, &str)]) -> Value {
+    let mut args = Vec::new();
+    if let Some(profile) = profile {
+        args.extend(["--profile", profile]);
+    }
+    args.extend(["workspace", "--json"]);
+    let mut cmd = sandbox.command(&args);
+    cmd.envs(env.iter().copied());
+    serde_json::from_str(&text(&cmd.output().unwrap().stdout)).unwrap()
 }
 
 #[tokio::test]
@@ -2877,18 +2938,27 @@ async fn login_json_prints_the_summary_and_says_the_rest_on_stderr() {
     let sandbox = Sandbox::new(&stub);
     let headless = ["login", "--api-key", GAMMA_KEY, "--account", "acct-gamma", "--base-url", &stub, "--json"];
     let out = sandbox.run(&headless);
+    let workspace = workspace_json(&sandbox, Some("demo-account"), &[]);
+    assert_eq!(workspace["config"]["selectedProfile"], "demo-account");
+    assert_eq!(workspace["data"]["accountName"], "Demo Account (synthetic)", "/me's answer: {workspace}");
     assert_eq!(
         (out.status.code(), text(&out.stdout), text(&out.stderr)),
-        (Some(0), login_summary("demo-account", &stub, "acct-gamma", "verified", verified.clone()), String::new())
+        (
+            Some(0),
+            login_summary("demo-account", &stub, "acct-gamma", "verified", verified.clone(), workspace),
+            String::new()
+        )
     );
     // A working key: what the text says on the way goes to stderr. `init`, its alias, is the same.
     for command in ["login", "init"] {
-        let out = Sandbox::new(&stub).run(&[command, "--json"]);
+        let sandbox = Sandbox::new(&stub);
+        let out = sandbox.run(&[command, "--json"]);
+        let workspace = workspace_json(&sandbox, None, &[]);
         assert_eq!(
             (out.status.code(), text(&out.stdout), text(&out.stderr)),
             (
                 Some(0),
-                login_summary("alpha", &stub, "acct-alpha", "verified", verified.clone()),
+                login_summary("alpha", &stub, "acct-alpha", "verified", verified.clone(), workspace),
                 "Using existing profile alpha. Run `vendo login --force` to sign in again.\n".to_string()
             ),
             "{command}"
@@ -2901,17 +2971,27 @@ async fn login_json_prints_the_summary_and_says_the_rest_on_stderr() {
         (code, stdout, stderr),
         (
             Some(0),
-            login_summary("demo-account", &stub, "acct-alpha", "verified", verified),
+            login_summary(
+                "demo-account",
+                &stub,
+                "acct-alpha",
+                "verified",
+                verified,
+                workspace_json(&sandbox, Some("demo-account"), &[])
+            ),
             browser_sign_in("No API key found. Starting browser login...", &stub)
         )
     );
     assert_eq!(sandbox.config()["profiles"]["demo-account"]["apiKey"], NEW_KEY);
     // A key that cannot be checked: the summary, then the error as JSON (exit 1, as before).
     let down = sign_in_stub(&[], 500).await;
-    let out = Sandbox::new(&down.uri()).run(&["login", "--json"]);
+    let sandbox = Sandbox::new(&down.uri());
+    let out = sandbox.run(&["login", "--json"]);
+    let workspace = workspace_json(&sandbox, None, &[]);
+    assert_eq!(workspace["summary"]["fail"], 1, "the failed API check: {workspace}");
     assert_eq!(
         (out.status.code(), text(&out.stdout)),
-        (Some(1), login_summary("alpha", &down.uri(), "acct-alpha", "unverified", Value::Null))
+        (Some(1), login_summary("alpha", &down.uri(), "acct-alpha", "unverified", Value::Null, workspace))
     );
     assert!(text(&out.stderr).starts_with("Using existing profile alpha."), "{}", text(&out.stderr));
     let message = "Could not verify the API key: HTTP 500 Internal Server Error. Nothing was changed: check your connection (`vendo workspace`) and run `vendo login` again.";
@@ -3398,14 +3478,15 @@ async fn login_under_vendo_profile_saves_its_profile_without_making_it_active_an
     let server = sign_in_stub(&[GAMMA_KEY, NEW_KEY], 401).await;
     let stub = server.uri();
     let note = "Profile demo-account was saved but not made active: VENDO_PROFILE=beta overrides the active profile in this shell. Use it with VENDO_PROFILE=demo-account.\n";
-    let summary = |account_id: &str| {
-        signed_in("demo-account", &stub, account_id).replace("\n\nNext steps", &format!("\n\n{note}\nNext steps"))
-    };
+    // The saved profile's workspace screen, as `vendo --profile demo-account workspace` shows it, then the note.
+    let beta = [("VENDO_PROFILE", "beta")];
+    let summary =
+        |sandbox: &Sandbox| format!("\n{}\n{note}{NEXT_STEP}", workspace_screen(sandbox, Some("demo-account"), &beta));
     // Headless.
     let sandbox = Sandbox::new(&stub);
     let headless = ["login", "--api-key", GAMMA_KEY, "--account", "acct-gamma", "--base-url", stub.as_str()];
     let out = sandbox.command(&headless).env("VENDO_PROFILE", "beta").output().unwrap();
-    assert_eq!((ok_output(&out), text(&out.stderr)), (summary("acct-gamma"), String::new()));
+    assert_eq!((ok_output(&out), text(&out.stderr)), (summary(&sandbox), String::new()));
     let config = sandbox.config();
     assert_eq!(
         (&config["profiles"]["demo-account"]["apiKey"], &config["activeProfile"]),
@@ -3414,9 +3495,10 @@ async fn login_under_vendo_profile_saves_its_profile_without_making_it_active_an
     // With --json the note goes to stderr with the rest of what login says.
     let out = sandbox.command(&[&headless[..], &["--json"]].concat()).env("VENDO_PROFILE", "beta").output().unwrap();
     let verified = json!("Demo Account (synthetic)");
+    let workspace = workspace_json(&sandbox, Some("demo-account"), &beta);
     assert_eq!(
         (ok_output(&out), text(&out.stderr)),
-        (login_summary("demo-account", &stub, "acct-gamma", "verified", verified), note.to_string())
+        (login_summary("demo-account", &stub, "acct-gamma", "verified", verified, workspace), note.to_string())
     );
     // Through the browser, for a VENDO_PROFILE no profile has yet.
     let sandbox = Sandbox::new(&stub);
@@ -3424,9 +3506,9 @@ async fn login_under_vendo_profile_saves_its_profile_without_making_it_active_an
     login.env("VENDO_PROFILE", "fresh");
     let (code, stdout, stderr) = login_at_browser(login).await;
     let note_fresh = note.replace("VENDO_PROFILE=beta", "VENDO_PROFILE=fresh");
+    let screen = workspace_screen(&sandbox, Some("demo-account"), &[("VENDO_PROFILE", "fresh")]);
     let expected = browser_sign_in("No API key found. Starting browser login...", &stub)
-        + &signed_in("demo-account", &stub, "acct-alpha")
-            .replace("\n\nNext steps", &format!("\n\n{note_fresh}\nNext steps"));
+        + &format!("\n{screen}\n{note_fresh}{NEXT_STEP}");
     assert_eq!((code, stdout, stderr), (Some(0), expected, String::new()));
     assert_eq!(sandbox.config()["activeProfile"], "alpha");
     // --profile, as before: the saved profile becomes active, and nothing is noted.
@@ -3436,7 +3518,8 @@ async fn login_under_vendo_profile_saves_its_profile_without_making_it_active_an
         .env("VENDO_PROFILE", "alpha")
         .output()
         .unwrap();
-    assert_eq!(ok_output(&out), signed_in("demo-account", &stub, "acct-gamma"));
+    let screen = workspace_screen(&sandbox, Some("demo-account"), &[("VENDO_PROFILE", "alpha")]);
+    assert_eq!(ok_output(&out), signed_in(&screen));
     assert_eq!(sandbox.config()["activeProfile"], "demo-account");
 }
 
@@ -3446,22 +3529,24 @@ async fn a_login_under_vendo_profile_to_the_saved_active_profile_does_not_say_it
     let stub = server.uri();
     let sandbox = Sandbox::new(&stub);
     let headless = ["login", "--api-key", GAMMA_KEY, "--account", "acct-gamma", "--base-url", stub.as_str()];
-    let summary = signed_in("demo-account", &stub, "acct-gamma");
     // A plain login makes demo-account the saved active profile.
-    assert_eq!(ok_output(&sandbox.run(&headless)), summary);
+    let out = sandbox.run(&headless);
+    let summary = signed_in(&workspace_screen(&sandbox, Some("demo-account"), &[]));
+    assert_eq!(ok_output(&out), summary);
     assert_eq!(sandbox.config()["activeProfile"], "demo-account");
     // Again while VENDO_PROFILE names another: the profile is the active one, which VENDO_PROFILE overrides here.
     let note = "Profile demo-account was saved and is the active profile, but VENDO_PROFILE=beta overrides the active profile in this shell: unset VENDO_PROFILE to use demo-account here.\n";
     let out = sandbox.command(&headless).env("VENDO_PROFILE", "beta").output().unwrap();
     assert_eq!(
         (ok_output(&out), text(&out.stderr)),
-        (summary.replace("\n\nNext steps", &format!("\n\n{note}\nNext steps")), String::new())
+        (summary.replace(NEXT_STEP, &format!("\n{note}{NEXT_STEP}")), String::new())
     );
     let out = sandbox.command(&[&headless[..], &["--json"]].concat()).env("VENDO_PROFILE", "beta").output().unwrap();
     let verified = json!("Demo Account (synthetic)");
+    let workspace = workspace_json(&sandbox, Some("demo-account"), &[("VENDO_PROFILE", "beta")]);
     assert_eq!(
         (ok_output(&out), text(&out.stderr)),
-        (login_summary("demo-account", &stub, "acct-gamma", "verified", verified), note.to_string())
+        (login_summary("demo-account", &stub, "acct-gamma", "verified", verified, workspace), note.to_string())
     );
     // VENDO_PROFILE names it too: it is active and in use, so there is nothing to note.
     for args in [&headless[..], &[&headless[..], &["--json"]].concat()] {
@@ -7678,7 +7763,13 @@ async fn sign_in_at_the_shown_url(mut terminal: OnTerminal, shown: &str, stub: &
         shown = shown.replace(&format!("{key}={value}"), &format!("{key}=[{key}]"));
     }
     assert_eq!(shown, browser_sign_in("No API key found. Starting browser login...", stub), "{case}");
-    assert!(plain(&rest).ends_with(&signed_in("demo-account", stub, "acct-alpha")), "{case} {rest:?}");
+    // The new profile's workspace screen (VE-4109), then the next step.
+    let rest = plain(&rest);
+    assert!(
+        rest.contains("  Profile:     demo-account\n") && rest.contains("Signed in as Demo Account"),
+        "{case} {rest:?}"
+    );
+    assert!(rest.ends_with(NEXT_STEP), "{case} {rest:?}");
 }
 
 // ── VE-3891: `vendo workspace` combines whoami and doctor ────────────────────

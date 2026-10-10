@@ -84,12 +84,26 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   (`profile current`/`config show` → `workspace`, `config reset` → `logout --all`). Give a new hidden path a
   byte-identity test.
 - Login (VE-3825, CLI 1.1): `vendo login` does what `init` did, and `init` is its hidden clap alias. It signs in
-  through the browser when there is no working key, checks the key with `/me` and prints the setup summary. A key it
-  has (profile or `VENDO_API_KEY`) is checked and kept; `--force`, `--env`/`--base-url` naming another instance, or a
+  through the browser when there is no working key, checks the key with `/me` and prints the workspace screen
+  (VE-4109, below). A key it has (profile or `VENDO_API_KEY`) is checked and kept; `--force`, `--env`/`--base-url` naming another instance, or a
   401/403 from `/me` sign in again, and any other failed check exits 1 without creating a key. With `VENDO_API_KEY`
   set it never opens a browser. Tests act as the browser (`login_at_browser` in `rust/tests/cli.rs` visits the printed
   sign-in URL on the stub); stdin stays closed, so no real browser opens. The one test of a piped stdin (VE-3826)
   writes no line end and keeps the pipe open until `vendo` has exited (`OnTerminal` stops it first on a failure).
+  Login screen (VE-4109, decided by Yalcin 2026-10-10: "combine the results of vendo init and vendo workspace"): in
+  place of the old "Setup summary" login prints the `vendo workspace` screen (`workspace::View`, the same code) of the
+  profile it saved, as `vendo --profile <saved> workspace` shows it (`ConfigStore::with_profile`), or, for a key it
+  kept, of the run's own selection; `/me` is not asked again when that profile has the key, account and instance
+  login checked. Then, unless the check failed, `Next steps` with one line, "Run `vendo help` to see everything you
+  can do." (the old `vendo workspace`/`vendo status` list and the `profile set --account` hint, which the workspace's
+  Account ID check now gives, are gone), and the `Done:` line. A failed check prints the screen with its `[fail]` and
+  then login's error, exit 1 as before; the workspace's own exit rule does not apply. The VENDO_PROFILE note follows
+  the screen. `login --json` keeps its five keys first and adds `workspace`, the `vendo workspace --json` object of
+  the same profile. Tests compare login's output with what `vendo [--profile <p>] workspace` prints in the same
+  sandbox (`workspace_screen`, `workspace_json` in `rust/tests/cli.rs`). ❓ Open for Yalcin, built with cautious
+  defaults: the screen of the saved profile rather than of the VENDO_PROFILE one a later `vendo workspace` shows,
+  the screen also on a failed check, the `Next steps` heading kept over the one line, `Done:` kept last, and the
+  JSON's `workspace` nested rather than its keys merged into the top level.
 - Catalog (VE-3829, CLI 1.1): `vendo catalog list` ("List the platforms ready to connect", Yalcin 2026-10-06) shows
   what the API lists by default, the platforms ready to connect, and ends with a footer built from the response's
   `meta` counts (`35 ready · 560 more on request (vendo catalog list --all)`; only `35 ready` when none is on
@@ -165,7 +179,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     switched; never opens the profile list), `profile set` (`{"profile","configPath"}`), `logout` (`{"removed":[names]}`;
     not logged in, the JSON error on stderr, nothing on stdout and exit 0 like the text, Yalcin 2026-10-06; an
     unknown `VENDO_PROFILE` is its error, exit 1, see below),
-    `login`/`init` (`{"profile","baseUrl","accountId","auth":"verified"|"unverified"|"incomplete","accountName"}`;
+    `login`/`init` (`{"profile","baseUrl","accountId","auth":"verified"|"unverified"|"incomplete","accountName"}`,
+    and `workspace` since VE-4109;
     what it says on the way, the sign-in URL among it, goes to stderr), `jobs tail` (nothing while polling, then the
     last `GET /jobs/<id>` response as `jobs get --json` prints it; a failed job, or a wait that times out, also
     prints the JSON error, still exit 0),

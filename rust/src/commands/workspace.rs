@@ -25,9 +25,9 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     commands::health::{self, CheckStatus, DoctorCheck, DoctorEnv, Listed},
-    config::{EffectiveConfig, ProfileSummary, mask_api_key, vendo_profile_overrides},
+    config::{ConfigStore, EffectiveConfig, ProfileSummary, mask_api_key, vendo_profile_overrides},
     context::Ctx,
-    identity::{Identity, Me, fetch_identity},
+    identity::{Identity, IdentityError, Me, fetch_identity},
     output::{bold, dim, green, print_json, red, run_action, yellow},
     profile_display::shown_host,
     update_check,
@@ -37,35 +37,82 @@ use crate::{
 pub async fn run(ctx: &Ctx, json: bool, doctor: bool) -> Result<ExitCode> {
     // whoami's notice of a newer release, at most once a day.
     update_check::check(&ctx.update_cache_path()).await;
-    let config = ctx.effective();
-    let env = DoctorEnv::current(ctx);
-    let mut checks = health::local_checks(&env, &config);
-    // `/me` takes the account (as `X-Account-Id`) with the key: without either nothing is asked,
-    // and the checks say which is missing.
-    let identity = match (&config.api_key, &config.account_id) {
+    let identity = check_identity(&ctx.effective(), ctx.debug).await;
+    let view = View::new(ctx, &ctx.store, identity, doctor);
+    if json {
+        print_json(&view.json());
+    } else {
+        for line in view.lines() {
+            println!("{line}");
+        }
+    }
+    Ok(view.exit_code())
+}
+
+/// `/me`'s answer for `config`. It takes the account (as `X-Account-Id`) with the key: without
+/// either nothing is asked (`None`), and the checks say which is missing.
+pub async fn check_identity(config: &EffectiveConfig, debug: bool) -> Option<Result<Identity, IdentityError>> {
+    match (&config.api_key, &config.account_id) {
         (Some(key), Some(account)) => {
-            Some(run_action("Checking identity...", fetch_identity(key, account, &config.base_url, ctx.debug)).await)
+            Some(run_action("Checking identity...", fetch_identity(key, account, &config.base_url, debug)).await)
         }
         _ => None,
-    };
-    checks.push(health::auth_check(identity.as_ref(), ctx.store.vendo_profile()));
-    if !doctor {
-        only_sign_in_fails(&mut checks);
     }
-    let identity = identity.and_then(Result::ok);
-    let failed = checks.iter().any(|check| check.status == CheckStatus::Fail);
-    let exit = if failed { ExitCode::from(1) } else { ExitCode::SUCCESS };
+}
 
-    if json {
-        print_json(&workspace_json(identity.as_ref(), &config, &checks, env.shell.as_deref()));
-        return Ok(exit);
+/// The workspace screen of what `store` selects, with `/me`'s answer for it ([`check_identity`]).
+/// `vendo workspace` shows the run's own store; `vendo login` the profile it saved or checked
+/// (VE-4109), as `vendo --profile <profile> workspace` shows it.
+pub struct View {
+    config: EffectiveConfig,
+    checks: Vec<DoctorCheck>,
+    identity: Option<Identity>,
+    profiles: Vec<ProfileSummary>,
+    vendo_profile: Option<String>,
+    shell: Option<String>,
+}
+
+impl View {
+    pub fn new(
+        ctx: &Ctx,
+        store: &ConfigStore,
+        identity: Option<Result<Identity, IdentityError>>,
+        doctor: bool,
+    ) -> Self {
+        let config = store.effective();
+        let env = DoctorEnv::current(ctx);
+        let vendo_profile = store.vendo_profile().map(str::to_string);
+        let mut checks = health::local_checks(&env, &config);
+        checks.push(health::auth_check(identity.as_ref(), vendo_profile.as_deref()));
+        if !doctor {
+            only_sign_in_fails(&mut checks);
+        }
+        View {
+            config,
+            checks,
+            identity: identity.and_then(Result::ok),
+            profiles: store.profile_summaries(),
+            vendo_profile,
+            shell: env.shell,
+        }
     }
-    let me = identity.as_ref().map(|identity| &identity.me);
-    let profiles = ctx.store.profile_summaries();
-    for line in screen(me, &config, &profiles, ctx.store.vendo_profile(), &checks) {
-        println!("{line}");
+
+    /// 1 when a check failed (a sign-in problem, or for `vendo doctor` any check).
+    pub fn exit_code(&self) -> ExitCode {
+        let failed = self.checks.iter().any(|check| check.status == CheckStatus::Fail);
+        if failed { ExitCode::from(1) } else { ExitCode::SUCCESS }
     }
-    Ok(exit)
+
+    /// `--json`'s object.
+    pub fn json(&self) -> Value {
+        workspace_json(self.identity.as_ref(), &self.config, &self.checks, self.shell.as_deref())
+    }
+
+    /// The screen, line by line.
+    pub fn lines(&self) -> Vec<String> {
+        let me = self.identity.as_ref().map(|identity| &identity.me);
+        screen(me, &self.config, &self.profiles, self.vendo_profile.as_deref(), &self.checks)
+    }
 }
 
 /// `vendo workspace`'s rule: an install check that fails is a warning, so only a sign-in problem

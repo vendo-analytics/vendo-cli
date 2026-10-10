@@ -123,6 +123,12 @@ impl ConfigStore {
         ConfigStore { path, profile_override: profile_override.filter(|name| !name.is_empty()), env }
     }
 
+    /// This store with `--profile <name>`: what `vendo --profile <name> …` reads. Login shows the
+    /// workspace screen of the profile it saved this way (VE-4109).
+    pub fn with_profile(&self, name: &str) -> ConfigStore {
+        ConfigStore::new(self.path.clone(), Some(name.to_string()), self.env.clone())
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }

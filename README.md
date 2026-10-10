@@ -39,7 +39,8 @@ vendo login
 ```
 
 Without a working API key, `vendo login` prints a sign-in link, opens it in your browser when you press Enter,
-and waits while you confirm the account there. It then checks the new key and prints a setup summary. The key is
+and waits while you confirm the account there. It then checks the new key and shows the `vendo workspace` screen
+for it (the account, the key, your profiles and the setup checks), then points you to `vendo help`. The key is
 saved in a profile named after the account, in `~/.config/vendo/config.json`, and every later command uses it with
 no flags.
 
@@ -352,7 +353,8 @@ to stderr, so stdout stays parseable.
     `{"data":{"id"}}`.
 - The other commands print objects of their own, for example `vendo profile list --json`:
   `{"profiles":[{"name","active","accountId","baseUrl"}]}`, and `vendo login --json`:
-  `{"profile","baseUrl","accountId","auth","accountName"}`.
+  `{"profile","baseUrl","accountId","auth","accountName","workspace"}`, where `workspace` is what
+  `vendo workspace --json` prints for the profile it saved or checked.
 - `vendo jobs watch --json` prints one line of JSON each time the job list changes; `vendo jobs tail --json` prints
   the job when it ends, as `vendo jobs get --json` does.
 - `vendo mcp --json` prints the `mcpServers` block.

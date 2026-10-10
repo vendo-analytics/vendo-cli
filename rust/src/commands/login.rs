@@ -1,7 +1,8 @@
 //! `vendo login` (port of `src/commands/login.ts` and `init.ts`, one command
 //! since CLI 1.1, VE-3825; `vendo init` is its hidden alias). It signs in when
-//! there is no working key, checks the key with `/me` and prints the setup
-//! summary:
+//! there is no working key, checks the key with `/me` and prints the
+//! `vendo workspace` screen of the profile it saved or checked, then points to `vendo help`
+//! (VE-4109, Yalcin 2026-10-10):
 //!
 //! - `--api-key` + `--account`: checks that key and saves it, never a browser.
 //! - A key it already has (the selected profile's, or `VENDO_API_KEY`) is
@@ -13,7 +14,8 @@
 //!   stops with an error instead.
 //!
 //! With `--json` (VE-3831) stdout carries only the summary as JSON (`summary_json`), never the
-//! key; what login says on the way, the sign-in URL among it, goes to stderr.
+//! key, with `vendo workspace --json`'s object under `workspace` (VE-4109); what login says on
+//! the way, the sign-in URL among it, goes to stderr.
 //!
 //! The browser flow goes through the web app's `/cli-auth` page, which creates
 //! an API key and redirects to
@@ -34,10 +36,11 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
+    commands::workspace,
     config::{DEFAULT_BASE_URL, EffectiveConfig, Source, vendo_profile_overrides},
     context::Ctx,
-    identity::{IdentityError, fetch_identity},
-    output::{bold, dim, green, print_json, print_success, prompts_off, run_action, yellow},
+    identity::{Identity, IdentityError, fetch_identity},
+    output::{bold, dim, print_json, print_success, prompts_off, run_action},
     update_check,
 };
 
@@ -81,12 +84,19 @@ pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
             })
         })
         .await?;
-        let verified = Check::Verified(identity.me.display_name().to_string());
-        let name = identity.me.account_slug.or(identity.me.account_name).unwrap_or_else(|| account_id.clone());
+        let me = &identity.me;
+        let name = me.account_slug.clone().or(me.account_name.clone()).unwrap_or_else(|| account_id.clone());
         ctx.store.save_profile(&name, profile(&api_key, Some(&account_id), &base_url))?;
         let note = not_made_active(ctx, &name);
-        let summary = Summary { profile: Some(name), base_url, account_id: Some(account_id), note };
-        return finish(&summary, verified, NOTHING_CHANGED, args.json);
+        let summary = Summary {
+            profile: Some(name.clone()),
+            base_url,
+            account_id: Some(account_id),
+            note,
+            saved: Some(name),
+            api_key,
+        };
+        return finish(ctx, &summary, Check::Verified(identity), NOTHING_CHANGED, args.json).await;
     }
 
     let config = ctx.effective();
@@ -106,8 +116,10 @@ pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
                         base_url: config.base_url.clone(),
                         account_id: config.account_id.clone(),
                         note: None,
+                        saved: None,
+                        api_key: key.clone(),
                     };
-                    return finish(&summary, check, NOTHING_CHANGED, args.json);
+                    return finish(ctx, &summary, check, NOTHING_CHANGED, args.json).await;
                 }
             }
         }
@@ -131,8 +143,15 @@ pub async fn run(ctx: &Ctx, args: LoginArgs) -> Result<()> {
         }
     };
     let note = not_made_active(ctx, &signed_in.account);
-    let summary = Summary { profile: Some(signed_in.account), base_url, account_id, note };
-    finish(&summary, check, &saved, args.json)
+    let summary = Summary {
+        profile: Some(signed_in.account.clone()),
+        base_url,
+        account_id,
+        note,
+        saved: Some(signed_in.account),
+        api_key: signed_in.key,
+    };
+    finish(ctx, &summary, check, &saved, args.json).await
 }
 
 /// With `VENDO_PROFILE` in effect, login saves its profile without making it active (Yalcin,
@@ -230,8 +249,8 @@ fn same_instance(a: &str, b: &str) -> bool {
 /// What checking a key with `/me` showed.
 #[derive(Debug)]
 enum Check {
-    /// Accepted; the account's display name.
-    Verified(String),
+    /// Accepted: `/me`'s answer.
+    Verified(Identity),
     /// No account ID to check it with (`/me` needs one).
     Incomplete,
     Failed(IdentityError),
@@ -245,12 +264,21 @@ impl Check {
             _ => None,
         }
     }
+
+    /// `/me`'s answer as the workspace screen takes it: none when nothing was asked.
+    fn into_identity(self) -> Option<Result<Identity, IdentityError>> {
+        match self {
+            Check::Verified(identity) => Some(Ok(identity)),
+            Check::Failed(err) => Some(Err(err)),
+            Check::Incomplete => None,
+        }
+    }
 }
 
 async fn check_key(ctx: &Ctx, api_key: &str, account_id: Option<&str>, base_url: &str) -> Check {
     let Some(account_id) = account_id.filter(|id| !id.is_empty()) else { return Check::Incomplete };
     match run_action("Checking your API key...", fetch_identity(api_key, account_id, base_url, ctx.debug)).await {
-        Ok(identity) => Check::Verified(identity.me.display_name().to_string()),
+        Ok(identity) => Check::Verified(identity),
         Err(err) => Check::Failed(err),
     }
 }
@@ -258,30 +286,51 @@ async fn check_key(ctx: &Ctx, api_key: &str, account_id: Option<&str>, base_url:
 const NOTHING_CHANGED: &str =
     "Nothing was changed: check your connection (`vendo workspace`) and run `vendo login` again.";
 
-/// What the summary shows: the profile the key is in, its instance and account, and why that
-/// profile is not the active one when `VENDO_PROFILE` kept it so.
+/// What login did: the profile the key is in, its instance and account, why that profile is not
+/// the active one when `VENDO_PROFILE` kept it so, the profile it saved (`None` for a key it kept)
+/// and the key it checked.
 struct Summary {
     profile: Option<String>,
     base_url: String,
     account_id: Option<String>,
     note: Option<String>,
+    saved: Option<String>,
+    api_key: String,
 }
 
-/// Print the setup summary and, when the check did not fail, the next steps; with `--json` the
-/// summary as JSON. A failed check is an error that ends with `unverified`.
-fn finish(summary: &Summary, check: Check, unverified: &str, json: bool) -> Result<()> {
+/// Print the workspace screen of the profile login saved, or of the selection whose key it kept
+/// (VE-4109), and, when the check did not fail, the next step; with `--json` the summary as JSON
+/// with the workspace's under `workspace`. A failed check is an error that ends with `unverified`.
+/// `/me` is not asked again when the screen's profile has the key, account and instance login
+/// checked; an environment variable that overrides one of them is asked about as the workspace asks.
+async fn finish(ctx: &Ctx, summary: &Summary, check: Check, unverified: &str, json: bool) -> Result<()> {
+    let store = match &summary.saved {
+        Some(name) => ctx.store.with_profile(name),
+        None => ctx.store.clone(),
+    };
+    let auth = auth_json(&check);
+    let failure = match &check {
+        Check::Failed(err) => Some(failure_reason(err)),
+        _ => None,
+    };
+    let config = store.effective();
+    let checked = config.api_key.as_deref() == Some(summary.api_key.as_str())
+        && config.account_id.as_deref().filter(|id| !id.is_empty()) == summary.account_id.as_deref()
+        && same_instance(&config.base_url, &summary.base_url);
+    let identity = if checked { check.into_identity() } else { workspace::check_identity(&config, ctx.debug).await };
+    let view = workspace::View::new(ctx, &store, identity, false);
     if json {
         if let Some(note) = &summary.note {
             say(json, &dim(note));
         }
-        print_json(&summary_json(summary, &check));
+        print_json(&summary_json(summary, auth, view.json()));
     } else {
-        for line in summary_lines(summary, &check) {
+        for line in summary_lines(summary, &view.lines(), failure.is_none()) {
             println!("{line}");
         }
     }
-    if let Check::Failed(err) = check {
-        bail!("Could not verify the API key: {}. {unverified}", failure_reason(&err));
+    if let Some(reason) = failure {
+        bail!("Could not verify the API key: {reason}. {unverified}");
     }
     if !json {
         print_success("Vendo CLI setup complete.");
@@ -289,54 +338,46 @@ fn finish(summary: &Summary, check: Check, unverified: &str, json: bool) -> Resu
     Ok(())
 }
 
-/// `login --json`: the summary's fields. `auth` is `verified`, `unverified` (the check failed: the
-/// error follows on stderr) or `incomplete` (no account ID to check with); `accountName` is the
-/// account the key was verified as.
-fn summary_json(summary: &Summary, check: &Check) -> Value {
-    let (auth, account_name) = match check {
-        Check::Verified(name) => ("verified", Some(name.as_str())),
+/// `auth` and `accountName` of `login --json`: `verified` with the account the key was verified
+/// as, `unverified` (the check failed: the error follows on stderr) or `incomplete` (no account
+/// ID to check with).
+fn auth_json(check: &Check) -> (&'static str, Option<String>) {
+    match check {
+        Check::Verified(identity) => ("verified", Some(identity.me.display_name().to_string())),
         Check::Failed(_) => ("unverified", None),
         Check::Incomplete => ("incomplete", None),
-    };
+    }
+}
+
+/// `login --json`: the summary's fields as before VE-4109, then `vendo workspace --json`'s object
+/// for the profile login saved or checked (`workspace`), a superset of what it printed.
+fn summary_json(summary: &Summary, (auth, account_name): (&str, Option<String>), workspace: Value) -> Value {
     json!({
         "profile": summary.profile,
         "baseUrl": summary.base_url,
         "accountId": summary.account_id,
         "auth": auth,
         "accountName": account_name,
+        "workspace": workspace,
     })
 }
 
-fn summary_lines(summary: &Summary, check: &Check) -> Vec<String> {
-    let mut lines = vec![
-        String::new(),
-        bold("Setup summary"),
-        format!("  Profile:     {}", summary.profile.clone().unwrap_or_else(|| dim("none selected"))),
-        format!("  Base URL:    {}", summary.base_url),
-        format!("  Account ID:  {}", summary.account_id.clone().unwrap_or_else(|| dim("missing"))),
-        match check {
-            Check::Verified(name) => format!("  Auth:        {} as {name}", green("verified")),
-            Check::Failed(_) => format!("  Auth:        {} (API check failed)", yellow("not verified")),
-            Check::Incomplete => format!("  Auth:        {} (account ID still required)", yellow("incomplete")),
-        },
-    ];
+/// The workspace screen, the note on the profile, and the next step when the check did not fail.
+fn summary_lines(summary: &Summary, screen: &[String], verified: bool) -> Vec<String> {
+    let mut lines = vec![String::new()];
+    lines.extend(screen.iter().cloned());
     if let Some(note) = &summary.note {
         lines.extend([String::new(), dim(note)]);
     }
-    if matches!(check, Check::Failed(_)) {
-        return lines;
-    }
-    lines.extend([String::new(), bold("Next steps")]);
-    // `vendo workspace` where whoami and doctor were (VE-3891).
-    lines.extend(["  vendo workspace", "  vendo status"].map(String::from));
-    if summary.account_id.is_none() {
-        lines.push(String::new());
-        lines.push(dim(
-            "Set an account explicitly with `vendo profile set --account <account-id>` if your login flow did not provide one.",
-        ));
+    if verified {
+        lines.extend([String::new(), bold("Next steps"), NEXT_STEP.to_string()]);
     }
     lines
 }
+
+/// What login suggests next (VE-4109, Yalcin 2026-10-10: "it should say vendo help to see
+/// available functionality").
+const NEXT_STEP: &str = "  Run `vendo help` to see everything you can do.";
 
 /// Why `/me` did not confirm the key: the status the API answered, or why there was no answer.
 fn failure_reason(err: &IdentityError) -> String {
@@ -657,55 +698,76 @@ mod tests {
         assert_eq!(server.await.unwrap().unwrap_err().to_string(), "State mismatch — possible CSRF attack");
     }
 
-    #[test]
-    fn an_empty_account_id_is_saved_but_the_summary_asks_for_one() {
-        let p = profile("k", Some(""), DEFAULT_BASE_URL);
-        assert_eq!(Value::Object(p), serde_json::json!({ "apiKey": "k", "accountId": "" }));
-        // The flow reads an empty ID as none, as `if (result.accountId)` did.
-        let summary = |id: Option<&str>| Summary {
+    fn identity(name: &str) -> Identity {
+        let me = crate::identity::Me {
+            account_id: "a-1".into(),
+            account_name: Some(name.into()),
+            account_slug: None,
+            api_key_id: None,
+            scopes: None,
+        };
+        Identity { me, raw: json!({}), response: json!({}) }
+    }
+
+    fn summary(note: Option<&str>) -> Summary {
+        Summary {
             profile: Some("acme".into()),
             base_url: DEFAULT_BASE_URL.into(),
-            account_id: id.map(Into::into),
-            note: None,
-        };
-        let lines = summary_lines(&summary(None), &Check::Incomplete).join("\n");
-        assert!(
-            lines.contains("account ID still required") && lines.contains("vendo profile set --account"),
-            "{lines}"
-        );
-        let lines = summary_lines(&summary(Some("a-1")), &Check::Verified("Acme".into())).join("\n");
-        assert!(lines.contains("Account ID:  a-1") && lines.contains("as Acme"), "{lines}");
-        assert!(lines.contains("Next steps") && !lines.contains("vendo profile set"), "{lines}");
+            account_id: Some("a-1".into()),
+            note: note.map(Into::into),
+            saved: Some("acme".into()),
+            api_key: "k".into(),
+        }
     }
 
     #[test]
-    fn the_json_summary_says_how_far_the_check_got() {
-        let summary = Summary { profile: None, base_url: DEFAULT_BASE_URL.into(), account_id: None, note: None };
+    fn an_empty_account_id_is_saved() {
+        let p = profile("k", Some(""), DEFAULT_BASE_URL);
+        assert_eq!(Value::Object(p), serde_json::json!({ "apiKey": "k", "accountId": "" }));
+    }
+
+    #[test]
+    fn the_json_summary_says_how_far_the_check_got_and_carries_the_workspace() {
+        let mut summary = summary(None);
+        summary.profile = None;
+        summary.account_id = None;
         let shape = |auth: &str, name: Value| {
             json!({
                 "profile": null, "baseUrl": DEFAULT_BASE_URL, "accountId": null, "auth": auth, "accountName": name,
+                "workspace": { "config": {} },
             })
         };
-        assert_eq!(summary_json(&summary, &Check::Verified("Acme".into())), shape("verified", json!("Acme")));
-        assert_eq!(summary_json(&summary, &Check::Incomplete), shape("incomplete", Value::Null));
+        let workspace = || json!({ "config": {} });
+        let json_of = |check: &Check| summary_json(&summary, auth_json(check), workspace());
+        assert_eq!(json_of(&Check::Verified(identity("Acme"))), shape("verified", json!("Acme")));
+        assert_eq!(json_of(&Check::Incomplete), shape("incomplete", Value::Null));
         let failed = Check::Failed(IdentityError::Invalid("x".into()));
-        assert_eq!(summary_json(&summary, &failed), shape("unverified", Value::Null));
+        assert_eq!(json_of(&failed), shape("unverified", Value::Null));
+        // The keys login printed before VE-4109 come first, as they were.
+        let keys: Vec<String> = json_of(&Check::Incomplete).as_object().unwrap().keys().cloned().collect();
+        assert_eq!(keys, ["profile", "baseUrl", "accountId", "auth", "accountName", "workspace"]);
     }
 
     #[test]
-    fn a_failed_check_ends_the_summary_at_the_auth_line() {
-        let mut summary =
-            Summary { profile: None, base_url: DEFAULT_BASE_URL.into(), account_id: Some("a".into()), note: None };
-        let lines = summary_lines(&summary, &Check::Failed(IdentityError::Invalid("x".into())));
-        assert!(lines.last().unwrap().contains("API check failed"), "{lines:?}");
-        assert!(lines[2].contains("none selected"), "{lines:?}");
-        // A note on the profile (VENDO_PROFILE kept it from becoming active) follows the auth line.
-        summary.note = Some("Profile acme was saved but not made active.".into());
-        let lines = summary_lines(&summary, &Check::Failed(IdentityError::Invalid("x".into())));
+    fn the_screen_is_the_workspace_and_the_next_step_is_vendo_help() {
+        let screen = ["Acme".to_string(), "  Account ID:  a-1".into()];
+        assert_eq!(
+            summary_lines(&summary(None), &screen, true),
+            [
+                "",
+                "Acme",
+                "  Account ID:  a-1",
+                "",
+                &bold("Next steps"),
+                "  Run `vendo help` to see everything you can do."
+            ]
+        );
+        // A failed check ends with the screen; a note on the profile (VE-3831) follows it.
+        assert_eq!(summary_lines(&summary(None), &screen, false), ["", "Acme", "  Account ID:  a-1"]);
+        let lines = summary_lines(&summary(Some("Profile acme was saved but not made active.")), &screen, false);
         assert_eq!(lines[lines.len() - 2..], ["", "Profile acme was saved but not made active."]);
-        let lines = summary_lines(&summary, &Check::Verified("Acme".into()));
-        assert_eq!(lines[6..9], ["", "Profile acme was saved but not made active.", ""]);
-        assert_eq!(lines[9], bold("Next steps"));
+        let lines = summary_lines(&summary(Some("Profile acme was saved but not made active.")), &screen, true);
+        assert_eq!(lines[3..6], ["", "Profile acme was saved but not made active.", ""]);
     }
 
     #[test]
@@ -728,7 +790,7 @@ mod tests {
         for check in [
             Check::Failed(IdentityError::Transport(no_answer)),
             Check::Failed(IdentityError::Invalid("Unexpected /me response".into())),
-            Check::Verified("Acme".into()),
+            Check::Verified(identity("Acme")),
             Check::Incomplete,
         ] {
             assert_eq!(check.rejected(), None, "{check:?}");
