@@ -84,11 +84,12 @@ first; pass `--yes` in scripts).
 
 ## Commands
 
-`vendo --help` lists every command in four sections:
+`vendo help` (or `vendo --help`) lists every command with its description, each group followed by the commands
+under it (`apps list`, `measurement ltv cohort`), in four sections:
 
 | Section | Commands |
 | --- | --- |
-| Getting started | `login`, `logout`, `workspace`, `status`, `commands`, `help`, `version` |
+| Getting started | `login`, `logout`, `workspace`, `status`, `help`, `version` |
 | Data pipeline | `apps`, `sources`, `destinations`, `jobs` |
 | Data catalog | `catalog`, `dictionary`, `metrics`, `models`, `measurement` |
 | Account | `profile`, `mcp`, `completions`, `self-update` |
@@ -108,8 +109,8 @@ The commands in each group:
 | `measurement` | `methodologies list`, `methodologies get`, `rules preview`, `ltv list`, `ltv cohort`, `ltv customer`, `signals list`, `signals click-path` |
 | `profile` | `list`, `switch`, `set` |
 
-`vendo <command> --help` shows a command's flags and examples, `vendo help <command>` shows the same screen, and
-`vendo commands` lists every command but `help` on one line each. `vendo version` prints the version, as
+`vendo <command> --help` shows a command's flags and examples, and `vendo help <command>` shows the same screen.
+`vendo commands` prints what `vendo help` prints. `vendo version` prints the version, as
 `vendo --version` does. `--profile <name>` and `--debug` work with every command.
 
 ### At a terminal

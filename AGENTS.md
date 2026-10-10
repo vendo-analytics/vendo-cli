@@ -67,6 +67,16 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   API's "integration"; renaming a flag needs Yalcin's approval.
 - Help layout (VE-3827, CLI 1.1): `vendo --help` is one sectioned list built at runtime from the command tree;
   `HELP_SECTIONS` in `rust/src/cli.rs` places each command, and a test fails when a visible command is in none.
+  Since VE-4109 (decided by Yalcin 2026-10-10: "combine help and commands, list commands under the help") each
+  group is a row with its name capitalized (`Apps`) and description, followed by every visible command under it,
+  nested ones too, by its full path (`apps list`, `measurement ltv cohort`) and description, four spaces in; a
+  command that runs on its own (`login`, `mcp`) stays one row (`section_rows`). Descriptions start in one column per
+  section, two spaces after its longest name, and wrap at word breaks to fit 80 columns (`HELP_COLUMNS`,
+  `section_lines`); `vendo help`, `vendo --help` and bare `vendo` without a terminal print it. `vendo commands` is
+  hidden and prints exactly that help (`print_help`); `vendo commands --json` is unchanged, `commands` kept in the
+  tree after `status` (`tree::KEPT_IN_THE_TREE`). ❓ Open for Yalcin, built with cautious defaults: the group's name
+  capitalized as in his example, a description column per section (one column for the whole help would put every
+  description at column 36), no blank line between groups, and `commands` kept in the JSON tree.
   Group screens have no `help` row; `--profile`/`--debug` sit under "Global options". "Getting started" ends with
   `help` and `version` (VE-3893, decided by Yalcin 2026-10-07). `help` is clap's own command, which the tree
   `cli::command` returns has only once clap builds it, so its row is `CLAP_HELP` in `cli.rs` (clap's words, which a
@@ -76,7 +86,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   prints both), and with `--json`
   `{"version":"<v>"}`. ❓ Open for Yalcin, built with cautious defaults: the two rows last in "Getting started", their
   descriptions in clap's words for `-h` and `-V` ("Print this message or the help of the given subcommand(s)",
-  "Print version"), `vendo commands` leaving `help` out, and `vendo help --help` left as the usage error. `workspace`
+  "Print version"), and `vendo help --help` left as the usage error. `workspace`
   is the one identity and setup command (VE-3891, below; `whoami` until then) and `config` moved under `profile`;
   `profile set` is described as "Set values on the active profile" (Yalcin, 2026-10-06). Old paths keep working,
   hidden, printing exactly what their command prints: clap hidden aliases where clap allows (`config` = `profile`,
@@ -166,9 +176,8 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     as before. The API's `details` are not in it. `output::error_json` owns the shape; `--debug`, warnings and the
     update notice may come before it on stderr. `destinations refresh-source --json` keeps the response on stdout
     when it fails and adds the error.
-  - `vendo commands` lists every command the help shows but clap's `help`, which only the root help lists (VE-3893;
-    ❓ open, see Help layout), with its description (in the root help's order);
-    `--json` prints the tree, read at runtime from the clap tree (`commands/tree.rs`): per command `name`, `path`,
+  - `vendo commands` printed every command the help shows on one line each until VE-4109; it now prints the root
+    help, which lists them (see Help layout). `--json` prints the tree, read at runtime from the clap tree (`commands/tree.rs`): per command `name`, `path`,
     `description`, visible `aliases`, `arguments` and `options` (name, short, valueName, description, required,
     default, `possibleValues` that parsing enforces, `suggestedValues` that TAB offers, `global`), `commands`.
     Hidden paths stay out; `version` is in. `the_command_tree_matches_the_help_screens` checks it against every

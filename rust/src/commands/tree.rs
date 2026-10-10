@@ -1,8 +1,9 @@
-//! `vendo commands` (VE-3831): every command the help screens show but clap's `help`, which only the
-//! root help lists (VE-3893), read at runtime from the clap tree the CLI parses with, so the list
-//! cannot drift from what runs. Bare, one line per command with its description; with `--json`, the
-//! whole tree with arguments and flags, for an agent to read instead of parsing help screens. Hidden
-//! commands and aliases stay out, as in the help.
+//! `vendo commands` (VE-3831). With `--json`, the whole tree with arguments and flags, read at
+//! runtime from the clap tree the CLI parses with, so it cannot drift from what runs, for an agent to
+//! read instead of parsing help screens; hidden commands and aliases stay out, as in the help, and so
+//! does clap's `help` (VE-3893). Bare, it prints the root help, which lists every command since VE-4109
+//! (Yalcin 2026-10-10: "combine help and commands"); `commands` is hidden from that help, but stays in
+//! the tree where it was ([`KEPT_IN_THE_TREE`]), so the JSON agents read keeps it.
 
 use clap::{Arg, builder::PossibleValue};
 use serde_json::{Value, json};
@@ -10,13 +11,18 @@ use serde_json::{Value, json};
 use crate::{cli, output::print_json};
 
 pub fn run(json: bool) {
-    let root = cli::command();
+    let mut root = cli::command();
     if json {
         print_json(&tree(&root));
     } else {
-        print!("{}", list(&root));
+        // What `vendo help` and `vendo --help` print.
+        let _ = root.print_help();
     }
 }
+
+/// `commands`, hidden from the help since VE-4109, and the command it follows in the tree, where it
+/// was listed before.
+const KEPT_IN_THE_TREE: (&str, &str) = ("commands", "status");
 
 /// The commands a help screen lists under `cmd`. clap adds its `help` command only when it
 /// builds the tree to parse, so the tree [`cli::command`] returns has none.
@@ -25,10 +31,16 @@ fn visible(cmd: &clap::Command) -> impl Iterator<Item = &clap::Command> {
 }
 
 /// The commands under the root in the root help's order ([`cli::HELP_SECTIONS`], which names
-/// every visible command once).
+/// every visible command once), with [`KEPT_IN_THE_TREE`].
 fn top_level(root: &clap::Command) -> Vec<&clap::Command> {
-    let names = cli::HELP_SECTIONS.iter().flat_map(|(_, names)| names.iter());
-    names.filter_map(|name| visible(root).find(|cmd| cmd.get_name() == *name)).collect()
+    let mut found = Vec::new();
+    for name in cli::HELP_SECTIONS.iter().flat_map(|(_, names)| names.iter()) {
+        found.extend(visible(root).find(|cmd| cmd.get_name() == *name));
+        if *name == KEPT_IN_THE_TREE.1 {
+            found.extend(root.find_subcommand(KEPT_IN_THE_TREE.0));
+        }
+    }
+    found
 }
 
 fn about(cmd: &clap::Command) -> Option<String> {
@@ -117,29 +129,6 @@ fn values(arg: &Arg) -> (Vec<String>, Vec<String>) {
     (possible, suggested)
 }
 
-// ── the text list ──────────────────────────────────────────────────────────
-
-/// One line per command that runs (`apps list`, not the `apps` group), in the root help's order:
-/// the path, then its description.
-fn list(root: &clap::Command) -> String {
-    let mut rows = Vec::new();
-    for cmd in top_level(root) {
-        runnable(cmd, cmd.get_name().to_string(), &mut rows);
-    }
-    let width = rows.iter().map(|(path, _)| path.len()).max().unwrap_or(0);
-    rows.iter().map(|(path, about)| format!("{}\n", format!("{path:width$}  {about}").trim_end())).collect()
-}
-
-fn runnable(cmd: &clap::Command, path: String, rows: &mut Vec<(String, String)>) {
-    if !cmd.has_subcommands() {
-        rows.push((path, about(cmd).unwrap_or_default()));
-        return;
-    }
-    for sub in visible(cmd) {
-        runnable(sub, format!("{path} {}", sub.get_name()), rows);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,9 +177,6 @@ mod tests {
         let names: Vec<&str> =
             tree["commands"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
         assert!(!names.contains(&"help"), "{names:?}");
-        let text = list(&cli::command());
-        assert!(text.lines().any(|line| line.starts_with("version ") && line.ends_with("  Print version")), "{text}");
-        assert!(!text.lines().any(|line| line.starts_with("help ")), "{text}");
     }
 
     #[test]
@@ -253,45 +239,26 @@ mod tests {
     }
 
     #[test]
-    fn the_top_level_follows_the_root_help() {
+    fn the_top_level_follows_the_root_help_and_keeps_commands_where_it_was() {
         let tree = tree(&cli::command());
         let names: Vec<&str> =
             tree["commands"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
-        // All but clap's `help`, which the root help lists (VE-3893) and the tree leaves out.
-        let sections: Vec<&str> = cli::HELP_SECTIONS.iter().flat_map(|(_, names)| names.iter().copied()).collect();
-        let sections: Vec<&str> = sections.into_iter().filter(|name| *name != "help").collect();
+        // All but clap's `help`, which the root help lists (VE-3893) and the tree leaves out, and with
+        // `commands`, which the help leaves out since VE-4109, after `status` as before.
+        let mut sections: Vec<&str> = cli::HELP_SECTIONS
+            .iter()
+            .flat_map(|(_, names)| names.iter().copied())
+            .filter(|name| *name != "help")
+            .collect();
+        let status = sections.iter().position(|name| *name == "status").unwrap();
+        sections.insert(status + 1, "commands");
         assert_eq!(names, sections);
-    }
-
-    #[test]
-    fn the_text_lists_every_runnable_command_with_its_description() {
-        let root = cli::command();
-        let text = list(&root);
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0].split("  ").next(), Some("login"));
-        let path_of = |line: &str| line.split("  ").next().unwrap().trim_end().to_string();
-        let listed: Vec<String> = lines.iter().map(|line| path_of(line)).collect();
-        // The runnable commands of the JSON tree, in the same order.
-        fn leaves(node: &Value, found: &mut Vec<String>) {
-            let children = node["commands"].as_array().unwrap();
-            if children.is_empty() {
-                found.push(node["path"].as_str().unwrap().to_string());
-            }
-            for child in children {
-                leaves(child, found);
-            }
-        }
-        let mut expected = Vec::new();
-        leaves(&tree(&root), &mut expected);
-        assert_eq!(listed, expected);
-        let refresh = lines.iter().find(|line| line.starts_with("destinations refresh-source ")).unwrap();
-        assert!(
-            refresh.ends_with(
-                "  Check source-data availability for a window and trigger top-up imports for missing ranges"
-            )
+        let commands = find(&tree, "commands");
+        assert_eq!(
+            commands["description"],
+            "List every command, or with --json the command tree with arguments and flags"
         );
-        // Descriptions start in one column.
-        let column = |line: &str| line.find(char::is_uppercase).unwrap();
-        assert!(lines.iter().all(|line| column(line) == column(lines[0])), "{text}");
+        assert_eq!(commands["options"][0]["name"], "--json");
+        assert!(cli::command().find_subcommand("commands").unwrap().is_hide_set(), "not in the help");
     }
 }

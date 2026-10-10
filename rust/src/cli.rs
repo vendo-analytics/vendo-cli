@@ -56,84 +56,117 @@ fn no_help_rows(cmd: clap::Command) -> clap::Command {
 /// fails when one is missing, so a new command cannot drop out of the root help. Move a command
 /// by moving its name. `help` is clap's own command, listed since VE-3893 with `version`.
 pub const HELP_SECTIONS: [(&str, &[&str]); 4] = [
-    ("Getting started", &["login", "logout", "workspace", "status", "commands", "help", "version"]),
+    ("Getting started", &["login", "logout", "workspace", "status", "help", "version"]),
     ("Data pipeline", &["apps", "sources", "destinations", "jobs"]),
     ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement"]),
     ("Account", &["profile", "mcp", "completions", "self-update"]),
 ];
 
-/// Where the root help wraps a group's list of commands (clap's own width when it wraps).
-const HELP_WIDTH: usize = 100;
+/// The root help fits 80 columns: a description that would go further wraps onto lines of its own
+/// in its column (VE-4109).
+pub const HELP_COLUMNS: usize = 80;
 
 /// clap's `help` command, which the root help lists (VE-3893). clap adds it only when it builds
 /// the tree to parse, so the tree [`root_help_template`] reads has none: its row says what clap's
 /// command says it does, in clap's words (a test checks them), with no commands under it.
 const CLAP_HELP: (&str, &str) = ("help", "Print this message or the help of the given subcommand(s)");
 
-/// The root help: [`HELP_SECTIONS`], each group followed by the commands under it, read from
-/// the command tree so the list cannot drift from what the CLI runs. `vendo <command> --help`
-/// keeps the flags and examples. Styled like clap's own lists; clap drops the styles without colour.
+/// One row of the root help's command list: how far in it starts, what it names and its description.
+#[derive(Debug, PartialEq)]
+struct HelpRow {
+    indent: usize,
+    label: String,
+    about: String,
+}
+
+/// The rows of one section (VE-4109, Yalcin 2026-10-10: "combine help and commands, list commands under
+/// the help"): a command that runs, one row; a group, a row with its name capitalized (`Apps`) and
+/// description, then a row for every visible command under it, nested ones included, by its full path
+/// (`apps list`, `measurement ltv cohort`) and its own description. Hidden commands and aliases stay out.
+fn section_rows(root: &clap::Command, names: &[&str]) -> Vec<HelpRow> {
+    let about = |command: &clap::Command| command.get_about().map(ToString::to_string).unwrap_or_default();
+    let mut rows = Vec::new();
+    for &name in names {
+        match root.find_subcommand(name) {
+            Some(group) if group.has_subcommands() => {
+                rows.push(HelpRow { indent: 2, label: capitalized(name), about: about(group) });
+                for (path, leaf) in leaves(group, name) {
+                    rows.push(HelpRow { indent: 4, label: path, about: about(leaf) });
+                }
+            }
+            Some(command) => rows.push(HelpRow { indent: 2, label: name.to_string(), about: about(command) }),
+            None if name == CLAP_HELP.0 => {
+                rows.push(HelpRow { indent: 2, label: name.to_string(), about: CLAP_HELP.1.to_string() })
+            }
+            None => {}
+        }
+    }
+    rows
+}
+
+/// `apps` → `Apps`: a group's row in the root help, which names the group as Yalcin's layout does.
+fn capitalized(name: &str) -> String {
+    let mut chars = name.chars();
+    chars.next().map(|first| first.to_uppercase().chain(chars).collect()).unwrap_or_default()
+}
+
+/// The visible commands that run under `group`, depth first in its help's order, by their path from
+/// the root (`measurement ltv cohort`).
+fn leaves<'a>(group: &'a clap::Command, path: &str) -> Vec<(String, &'a clap::Command)> {
+    let mut found = Vec::new();
+    for command in group.get_subcommands().filter(|c| !c.is_hide_set()) {
+        let path = format!("{path} {}", command.get_name());
+        if command.has_subcommands() { found.extend(leaves(command, &path)) } else { found.push((path, command)) }
+    }
+    found
+}
+
+/// The rows as lines: labels in `literal`, descriptions in one column per section, two spaces after
+/// its longest label, wrapped at word breaks to fit [`HELP_COLUMNS`] (a word longer than the room
+/// stays whole).
+fn section_lines(rows: &[HelpRow], literal: &clap::builder::styling::Style) -> Vec<String> {
+    let column = rows.iter().map(|row| row.indent + row.label.chars().count()).max().unwrap_or(0) + 2;
+    let room = HELP_COLUMNS.saturating_sub(column).max(1);
+    let mut lines = Vec::new();
+    for row in rows {
+        let pad = column - row.indent - row.label.chars().count();
+        let mut text = vec![String::new()];
+        for word in row.about.split_whitespace() {
+            let line = text.last_mut().unwrap();
+            if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > room {
+                text.push(word.to_string());
+            } else {
+                if !line.is_empty() {
+                    line.push(' ');
+                }
+                line.push_str(word);
+            }
+        }
+        let first = format!("{}{literal}{}{literal:#}{:pad$}{}", " ".repeat(row.indent), row.label, "", text[0]);
+        lines.push(first.trim_end().to_string());
+        lines.extend(text[1..].iter().map(|more| format!("{}{more}", " ".repeat(column))));
+    }
+    lines
+}
+
+/// The root help: [`HELP_SECTIONS`], each with its rows ([`section_rows`]), read from the command
+/// tree so the list cannot drift from what the CLI runs. `vendo <command> --help` keeps the flags
+/// and examples. Styled like clap's own lists; clap drops the styles without colour.
 fn root_help_template(root: &clap::Command) -> String {
     let styles = root.get_styles();
     let (header, literal) = (styles.get_header(), styles.get_literal());
-    let width = HELP_SECTIONS.iter().flat_map(|(_, names)| names.iter()).map(|name| name.len()).max().unwrap_or(0);
-    let indent = " ".repeat(2 + width + 2);
     let mut sections = String::new();
     for (title, names) in HELP_SECTIONS {
         sections.push_str(&format!("{header}{title}:{header:#}\n"));
-        for &name in names {
-            let (about, paths) = match root.find_subcommand(name) {
-                Some(command) => {
-                    (command.get_about().map(ToString::to_string).unwrap_or_default(), command_paths(command))
-                }
-                None if name == CLAP_HELP.0 => (CLAP_HELP.1.to_string(), Vec::new()),
-                None => continue,
-            };
-            let pad = width - name.len();
-            sections.push_str(&format!("  {literal}{name}{literal:#}{:pad$}  {about}\n", ""));
-            // The commands under a group, comma-separated, wrapped below its description.
-            let mut line = Vec::new();
-            for (i, path) in paths.iter().enumerate() {
-                let item = if i + 1 < paths.len() { format!("{path},") } else { path.clone() };
-                let used = indent.len() + line.iter().map(|item: &String| item.len() + 1).sum::<usize>();
-                if !line.is_empty() && used + item.len() > HELP_WIDTH {
-                    sections.push_str(&format!("{indent}{}\n", styled(&line, literal)));
-                    line.clear();
-                }
-                line.push(item);
-            }
-            if !line.is_empty() {
-                sections.push_str(&format!("{indent}{}\n", styled(&line, literal)));
-            }
+        for line in section_lines(&section_rows(root, names), literal) {
+            sections.push_str(&line);
+            sections.push('\n');
         }
         sections.push('\n');
     }
     format!(
         "{{about-with-newline}}\n{{usage-heading}} {{usage}}\n\n{sections}{header}Options:{header:#}\n{{options}}\n\nSee `vendo <command> --help` for flags and examples."
     )
-}
-
-/// `list,` `get` → the command names in `style`, the commas and spaces plain.
-fn styled(items: &[String], style: &clap::builder::styling::Style) -> String {
-    let item = |item: &String| match item.strip_suffix(',') {
-        Some(path) => format!("{style}{path}{style:#},"),
-        None => format!("{style}{item}{style:#}"),
-    };
-    items.iter().map(item).collect::<Vec<_>>().join(" ")
-}
-
-/// The visible commands under `group`, as typed after its name: `list`, `ltv cohort`.
-fn command_paths(group: &clap::Command) -> Vec<String> {
-    let mut paths = Vec::new();
-    for command in group.get_subcommands().filter(|c| !c.is_hide_set()) {
-        let name = command.get_name();
-        if command.has_subcommands() {
-            paths.extend(command_paths(command).into_iter().map(|path| format!("{name} {path}")));
-        } else {
-            paths.push(name.to_string());
-        }
-    }
-    paths
 }
 
 /// What [`parse`] read: the command, and whether it was given `--json` (VE-3831).
@@ -658,8 +691,9 @@ pub enum Command {
         json: bool,
     },
     /// List every command, or with --json the command tree with arguments and flags
-    // Read from this tree at runtime, so it lists what runs (VE-3831, `commands/tree.rs`).
-    #[command(after_help = "Examples:\n  $ vendo commands\n  $ vendo commands --json")]
+    // Read from this tree at runtime, so it lists what runs (VE-3831, `commands/tree.rs`). Hidden since
+    // VE-4109, when the root help came to list every command: bare, it prints that help.
+    #[command(hide = true, after_help = "Examples:\n  $ vendo commands\n  $ vendo commands --json")]
     Commands {
         /// Output raw JSON
         #[arg(long)]
@@ -2179,64 +2213,109 @@ mod tests {
         assert_eq!(help.get_about().map(ToString::to_string).as_deref(), Some(CLAP_HELP.1));
     }
 
+    /// Every visible command that runs, by its path, with its description, depth first in help order:
+    /// what the root help lists (VE-4109).
+    fn runnable(cmd: &clap::Command, path: &str, found: &mut Vec<(String, String)>) {
+        for sub in cmd.get_subcommands().filter(|sub| !sub.is_hide_set()) {
+            let path = if path.is_empty() { sub.get_name().to_string() } else { format!("{path} {}", sub.get_name()) };
+            if sub.has_subcommands() {
+                runnable(sub, &path, found);
+            } else {
+                found.push((path, sub.get_about().map(ToString::to_string).unwrap_or_default()));
+            }
+        }
+    }
+
     #[test]
     fn the_root_help_lists_every_visible_command_and_subcommand_in_its_section() {
+        // VE-4109: each group's row, then every command under it by its full path, each with its description.
         let cmd = command();
         let help = cmd.clone().render_help().to_string();
         let lines: Vec<&str> = help.lines().collect();
+        assert!(lines.iter().all(|line| line.chars().count() <= HELP_COLUMNS), "{help}");
+        let mut listed: Vec<(String, String)> = Vec::new();
         let mut at = 0;
         for (title, names) in HELP_SECTIONS {
             at += lines[at..].iter().position(|line| *line == format!("{title}:")).expect(title) + 1;
             let end = at + lines[at..].iter().position(|line| line.is_empty()).unwrap();
-            let section = &lines[at..end];
-            for name in names {
-                // clap's `help`, absent until clap builds the tree, has its words and nothing under it.
-                let (about, paths) = match cmd.find_subcommand(name) {
-                    Some(command) => (command.get_about().unwrap().to_string(), command_paths(command)),
-                    None => {
-                        assert_eq!(*name, CLAP_HELP.0, "HELP_SECTIONS names a command the tree does not have");
-                        (CLAP_HELP.1.to_string(), Vec::new())
+            // Rows two or four spaces in; a description that wraps goes on in its column, further in.
+            let mut rows: Vec<(usize, String, String)> = Vec::new();
+            let mut columns = Vec::new();
+            for line in &lines[at..end] {
+                let indent = line.len() - line.trim_start().len();
+                if indent > 4 {
+                    columns.push(indent);
+                    let row = rows.last_mut().unwrap();
+                    row.2 = format!("{} {}", row.2, line.trim());
+                    continue;
+                }
+                let (label, about) = line.trim_start().split_once("  ").unwrap();
+                columns.push(line.len() - about.trim_start().len());
+                rows.push((indent, label.to_string(), about.trim_start().to_string()));
+            }
+            // Descriptions, and the lines they wrap onto, start in one column.
+            assert!(columns.iter().all(|column| *column == columns[0]), "{title}: {columns:?}");
+            for (indent, label, about) in rows {
+                if indent == 4 {
+                    listed.push((label, about));
+                    continue;
+                }
+                assert_eq!(indent, 2, "{label}");
+                let name = label.to_lowercase();
+                match cmd.find_subcommand(&name) {
+                    Some(group) if group.has_subcommands() => {
+                        assert!(names.contains(&name.as_str()), "{name} in {title}");
+                        assert_eq!(label, capitalized(&name));
+                        assert_eq!(Some(about), group.get_about().map(ToString::to_string));
                     }
-                };
-                // `  <name>  <about>`, then the commands under it, comma-separated, on indented lines.
-                let row = section.iter().position(|line| line.split_whitespace().next() == Some(name)).expect(name);
-                assert!(section[row].starts_with(&format!("  {name} ")) && section[row].ends_with(&about), "{name}");
-                let below: Vec<&str> =
-                    section[row + 1..].iter().take_while(|line| line.starts_with("     ")).copied().collect();
-                let joined = below.join(" ");
-                let listed: Vec<&str> = joined.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
-                assert_eq!(listed, paths, "vendo {name}");
-                assert!(below.iter().all(|line| line.len() <= HELP_WIDTH), "{name}: {below:?}");
+                    Some(_) => listed.push((label, about)),
+                    None => assert_eq!((label.as_str(), about.as_str()), CLAP_HELP),
+                }
             }
             at = end;
         }
+        // Every command that runs, in help order (HELP_SECTIONS, then each group's own order).
+        let mut expected = Vec::new();
+        let mut all = Vec::new();
+        runnable(&cmd, "", &mut all);
+        for name in HELP_SECTIONS.iter().flat_map(|(_, names)| names.iter()) {
+            expected
+                .extend(all.iter().filter(|(path, _)| path == name || path.starts_with(&format!("{name} "))).cloned());
+        }
+        assert_eq!(listed, expected);
+        assert!(listed.iter().any(|(path, _)| path == "measurement ltv cohort"), "nested groups list their commands");
         // `help` and `version` close "Getting started", in clap's words for -h and -V (VE-3893).
         let started = lines.iter().position(|line| *line == "Getting started:").unwrap();
         let rows: Vec<&str> = lines[started + 1..].iter().take_while(|line| !line.is_empty()).copied().collect();
         assert_eq!(
             rows[rows.len() - 2..],
-            [
-                "  help          Print this message or the help of the given subcommand(s)",
-                "  version       Print version"
-            ]
+            ["  help       Print this message or the help of the given subcommand(s)", "  version    Print version"]
         );
-        // The section rows are the visible commands, in order: nothing hidden, clap's `help` among them.
-        let options = lines.iter().position(|line| *line == "Options:").unwrap();
-        let rows: Vec<&str> = lines[..options]
-            .iter()
-            .filter(|line| line.starts_with("  ") && !line.starts_with("   "))
-            .filter_map(|line| line.split_whitespace().next())
-            .collect();
-        let names: Vec<&str> = HELP_SECTIONS.iter().flat_map(|(_, names)| names.iter().copied()).collect();
-        assert_eq!(rows, names);
         assert!(!lines.contains(&"Commands:"), "the sections replace the Commands: list");
-        // What the groups list leaves out: hidden commands and aliases.
-        assert_eq!(command_paths(cmd.find_subcommand("catalog").unwrap()), ["list", "get"]);
-        assert_eq!(command_paths(cmd.find_subcommand("profile").unwrap()), ["list", "switch", "set"]);
-        assert_eq!(
-            command_paths(cmd.find_subcommand("measurement").unwrap())[..3],
-            ["methodologies list", "methodologies get", "rules preview"]
-        );
+        // Hidden commands and aliases stay out, `commands` among them since VE-4109.
+        for hidden in ["commands", "config", "init", "whoami", "doctor", "integrations", "catalog credential-schema"] {
+            assert!(!listed.iter().any(|(path, _)| path == hidden), "{hidden}");
+            assert!(!help.contains(&format!("  {hidden} ")), "{hidden}");
+        }
+    }
+
+    #[test]
+    fn long_descriptions_wrap_in_their_column() {
+        let rows = [
+            HelpRow { indent: 2, label: "Group".into(), about: "Short".into() },
+            HelpRow { indent: 4, label: "group leaf".into(), about: "word ".repeat(30).trim_end().into() },
+            HelpRow { indent: 2, label: "x".into(), about: format!("{} end", "a".repeat(90)) },
+        ];
+        let lines = section_lines(&rows, &clap::builder::styling::Style::new());
+        // The column: two spaces after the longest label, `    group leaf`.
+        assert_eq!(lines[0], "  Group         Short");
+        assert!(lines[1].starts_with("    group leaf  word word"), "{lines:?}");
+        assert!(lines[1..4].iter().all(|line| line.chars().count() <= HELP_COLUMNS), "{lines:?}");
+        assert!(lines[2].starts_with(&format!("{}word", " ".repeat(16))), "{lines:?}");
+        // A word longer than the room stays whole.
+        let long = lines.iter().position(|line| line.contains("aaaa")).unwrap();
+        assert_eq!(lines[long], format!("  x{}{}", " ".repeat(13), "a".repeat(90)));
+        assert_eq!(lines[long + 1], format!("{}end", " ".repeat(16)));
     }
 
     #[test]

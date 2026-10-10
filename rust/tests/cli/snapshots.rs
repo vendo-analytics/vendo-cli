@@ -123,7 +123,8 @@ impl Recorder {
 const COMMAND_LISTS: [&str; 5] = ["Commands:", "Getting started:", "Data pipeline:", "Data catalog:", "Account:"];
 
 /// The names in a help screen's command lists. Entries sit two spaces in; anything indented
-/// further continues a description, or lists the commands under a group in the root help.
+/// further continues a description, or lists the commands under a group in the root help, which
+/// names the group capitalized (`Apps`, VE-4109): the names are lowercased, as typed.
 fn subcommands(screen: &str) -> Vec<String> {
     let mut names = Vec::new();
     let mut listing = false;
@@ -133,7 +134,7 @@ fn subcommands(screen: &str) -> Vec<String> {
         } else if line.is_empty() {
             listing = false;
         } else if let Some(entry) = line.strip_prefix("  ").filter(|rest| listing && !rest.starts_with(' ')) {
-            names.extend(entry.split_whitespace().next().map(str::to_string));
+            names.extend(entry.split_whitespace().next().map(str::to_lowercase));
         }
     }
     names
@@ -194,8 +195,12 @@ fn record_help(sandbox: &Sandbox, recorder: &mut Recorder, path: &[String]) -> u
 }
 
 /// Commands hidden from the help screens that still run as themselves (not aliases), so the
-/// walk does not find them (VE-3827).
-const HIDDEN_COMMANDS: [&[&str]; 1] = [&["catalog", "credential-schema"]];
+/// walk does not find them (VE-3827). `commands` since VE-4109, when the root help came to list
+/// every command; it stays in `vendo commands --json` ([`IN_THE_TREE_ONLY`]).
+const HIDDEN_COMMANDS: [&[&str]; 2] = [&["catalog", "credential-schema"], &["commands"]];
+
+/// The hidden command `vendo commands --json` still lists, where it was (VE-4109).
+const IN_THE_TREE_ONLY: &str = "commands";
 
 #[test]
 fn every_help_screen_matches_its_snapshot() {
@@ -254,7 +259,7 @@ fn the_help_walk_reads_clap_command_lists() {
     let screen = "About\n\nUsage: vendo x <COMMAND>\n\nCommands:\n  list          List things [alias: ls]\n  get-one       Get one\n                that wraps\n\nOptions:\n  -h, --help  Print help\n";
     assert_eq!(subcommands(screen), ["list", "get-one"]);
     assert!(subcommands("Usage: vendo x\n\nOptions:\n  -h, --help  Print help\n").is_empty());
-    let root = "About\n\nUsage: vendo <COMMAND>\n\nGetting started:\n  login  Log in\n\nData pipeline:\n  apps   Manage apps\n         list, get\n\nOptions:\n  -h, --help  Print help\n";
+    let root = "About\n\nUsage: vendo <COMMAND>\n\nGetting started:\n  login  Log in\n\nData pipeline:\n  Apps         Manage apps\n    apps list  List apps that\n               wrap\n\nOptions:\n  -h, --help  Print help\n";
     assert_eq!(subcommands(root), ["login", "apps"]);
 }
 
@@ -287,13 +292,21 @@ fn the_root_help_names_every_command_and_the_commands_under_it() {
         assert!(names.contains(&name.to_string()), "{name}: {names:?}");
     }
     assert!(!names.contains(&"config".to_string()), "{names:?}");
+    // Under a group's row, four spaces in, every command its own screens list, by its full path (VE-4109).
     for name in &names {
-        let row = lines.iter().position(|line| line.starts_with(&format!("  {name} "))).unwrap();
-        let below = lines[row + 1..].iter().take_while(|line| line.starts_with("     ")).copied();
-        let joined = below.collect::<Vec<_>>().join(" ");
-        let listed: Vec<&str> = joined.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+        let row = lines.iter().position(|line| line.to_lowercase().starts_with(&format!("  {name} "))).unwrap();
+        let listed: Vec<String> = lines[row + 1..]
+            .iter()
+            .take_while(|line| line.starts_with("    "))
+            .filter(|line| !line.starts_with("     "))
+            .map(|line| {
+                let path = line.trim_start().split("  ").next().unwrap();
+                path.strip_prefix(&format!("{name} ")).unwrap_or_else(|| panic!("{name}: {line}")).to_string()
+            })
+            .collect();
         assert_eq!(listed, listed_paths(&sandbox, &[name]), "vendo {name}");
     }
+    assert!(!names.contains(&IN_THE_TREE_ONLY.to_string()), "{names:?}");
 }
 
 #[test]
@@ -303,6 +316,24 @@ fn bare_vendo_prints_the_root_help_and_exits_2() {
     let bare = sandbox.run(&[]);
     assert_eq!((bare.status.code(), text(&bare.stdout)), (Some(2), String::new()));
     assert_eq!(text(&bare.stderr), text(&help.stdout));
+}
+
+#[test]
+fn vendo_commands_and_vendo_help_print_exactly_the_root_help() {
+    // VE-4109 (Yalcin 2026-10-10: "combine help and commands"): `vendo commands`, hidden from the help,
+    // prints what `vendo help` and `vendo --help` print; `vendo commands --json` is the tree.
+    let sandbox = Sandbox::new(CLOSED);
+    let help = sandbox.run(&["--help"]);
+    assert_eq!((help.status.code(), text(&help.stderr)), (Some(0), String::new()));
+    for args in [&["help"][..], &["commands"], &["-h"], &["--debug", "commands"]] {
+        let out = sandbox.run(args);
+        assert_eq!(
+            (out.status.code(), out.stdout.clone(), text(&out.stderr)),
+            (Some(0), help.stdout.clone(), String::new()),
+            "{args:?}"
+        );
+    }
+    assert!(text(&sandbox.run(&["commands", "--json"]).stdout).starts_with("{\n  \"name\": \"vendo\""));
 }
 
 /// Every group as typed, depth first in help order: `apps`, `measurement ltv`.
@@ -417,7 +448,8 @@ fn init_is_a_hidden_alias_of_login() {
     let root = text(&sandbox.run(&["--help"]).stdout);
     let names = subcommands(&root);
     assert!(names.contains(&"login".to_string()) && !names.contains(&"init".to_string()), "{names:?}");
-    assert!(!root.contains("init"), "{root}");
+    // As a word: the root help lists every command since VE-4109, "definitions" among the words.
+    assert!(!root.split(|c: char| !c.is_ascii_alphanumeric()).any(|word| word == "init"), "{root}");
 }
 
 #[test]
@@ -1895,9 +1927,12 @@ fn the_command_tree_matches_the_help_screens() {
         assert_eq!(node["path"], path.join(" "));
         let args: Vec<&str> = path.iter().map(String::as_str).chain(["--help"]).collect();
         let mut screen = read_help_screen(&text(&sandbox.run(&args).stdout));
-        // The root help lists clap's `help` (VE-3893); the tree leaves it out, as the walks do.
+        // The root help lists clap's `help` (VE-3893); the tree leaves it out, as the walks do. The tree
+        // keeps `commands`, which the help leaves out since VE-4109.
         screen.commands.retain(|name| name != CLAP_HELP);
-        assert_eq!(json_screen(node, &root_globals), screen, "vendo {}", args.join(" "));
+        let mut expected = json_screen(node, &root_globals);
+        expected.commands.retain(|name| name != IN_THE_TREE_ONLY);
+        assert_eq!(expected, screen, "vendo {}", args.join(" "));
         checked += 1;
         for child in node["commands"].as_array().unwrap() {
             let child_path = path.iter().cloned().chain([child["name"].as_str().unwrap().to_string()]).collect();
@@ -1905,13 +1940,13 @@ fn the_command_tree_matches_the_help_screens() {
         }
     }
     // Every help screen the snapshot walk records, less the hidden `catalog credential-schema` and clap's
-    // `help` (`help/help.snap`), which the tree leaves out (VE-3893).
+    // `help` (`help/help.snap`), which the tree leaves out (VE-3893); the hidden `commands` is in it.
     let help_screens = std::fs::read_dir(Path::new(SNAPSHOTS).join("help"))
         .unwrap()
         .flatten()
         .filter(|entry| entry.file_name().to_string_lossy().ends_with(".snap"))
         .count();
-    assert_eq!(checked, help_screens - HIDDEN_COMMANDS.len() - 1);
+    assert_eq!(checked, help_screens - (HIDDEN_COMMANDS.len() - 1) - 1);
 }
 
 #[test]

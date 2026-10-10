@@ -6,43 +6,97 @@ Vendo CLI — manage your data pipeline from the terminal
 Usage: vendo [OPTIONS] <COMMAND>
 
 Getting started:
-  login         Authenticate with your Vendo account
-  logout        Remove stored credentials
-  workspace     Show the current account, your profiles and setup checks
-  status        Account health overview
-  commands      List every command, or with --json the command tree with arguments and flags
-  help          Print this message or the help of the given subcommand(s)
-  version       Print version
+  login      Authenticate with your Vendo account
+  logout     Remove stored credentials
+  workspace  Show the current account, your profiles and setup checks
+  status     Account health overview
+  help       Print this message or the help of the given subcommand(s)
+  version    Print version
 
 Data pipeline:
-  apps          Manage apps
-                list, diagnose, get, pause, resume, delete, create, update
-  sources       Manage data sources
-                list, get, sync, pause, resume, delete, create, update
-  destinations  Manage data export destinations
-                list, get, sync, refresh-source, pause, resume, delete, create, update
-  jobs          Monitor sync jobs
-                list, get, cancel, watch, tail
+  Apps                           Manage apps
+    apps list                    List all apps
+    apps diagnose                Show apps that need attention
+    apps get                     Get app details
+    apps pause                   Pause an app
+    apps resume                  Resume a paused app
+    apps delete                  Delete an app (soft delete)
+    apps create                  Create a new app
+    apps update                  Update an app
+  Sources                        Manage data sources
+    sources list                 List all data sources
+    sources get                  Get source details
+    sources sync                 Trigger a manual sync
+    sources pause                Pause a data source
+    sources resume               Resume a paused data source
+    sources delete               Delete a data source (soft delete)
+    sources create               Create a new data source
+    sources update               Update a data source
+  Destinations                   Manage data export destinations
+    destinations list            List all destinations
+    destinations get             Get destination details
+    destinations sync            Trigger a manual sync
+    destinations refresh-source  Check source-data availability for a window and
+                                 trigger top-up imports for missing ranges
+    destinations pause           Pause a destination
+    destinations resume          Resume a paused destination
+    destinations delete          Delete a destination (soft delete)
+    destinations create          Create a new destination (source → destination
+                                 pipeline)
+    destinations update          Update a destination
+  Jobs                           Monitor sync jobs
+    jobs list                    List sync jobs
+    jobs get                     Get job details
+    jobs cancel                  Cancel a pending or running job
+    jobs watch                   Watch running and pending jobs (live polling)
+    jobs tail                    Tail a single job or the latest job for a
+                                 source/destination
 
 Data catalog:
-  catalog       Browse available platforms
-                list, get
-  dictionary    Browse the data dictionary catalog
-                list, search, get
-  metrics       Manage custom metrics in the Metrics Library
-                list, get, create, update, activate, delete
-  models        Manage data models
-                list, get
-  measurement   Inspect Marketing Measurement methodologies, LTV, and signals
-                methodologies list, methodologies get, rules preview, ltv list, ltv cohort,
-                ltv customer, signals list, signals click-path
+  Catalog                           Browse available platforms
+    catalog list                    List the platforms ready to connect
+    catalog get                     Get details for a specific platform
+  Dictionary                        Browse the data dictionary catalog
+    dictionary list                 List catalog definitions (events by default)
+    dictionary search               Search one subject type by text in subject
+                                    ID, name and description
+    dictionary get                  Look up one catalog definition by the
+                                    subject ID from list or search, or an alias
+                                    such as event:<name>
+  Metrics                           Manage custom metrics in the Metrics Library
+    metrics list                    List all custom metrics
+    metrics get                     Get metric details
+    metrics create                  Create a new metric
+    metrics update                  Update a metric
+    metrics activate                Activate a draft metric
+    metrics delete                  Delete a metric
+  Models                            Manage data models
+    models list                     List all data models
+    models get                      Get model details
+  Measurement                       Inspect Marketing Measurement methodologies,
+                                    LTV, and signals
+    measurement methodologies list  List methodologies (system + account)
+    measurement methodologies get   Show one methodology by ID
+    measurement rules preview       Preview which segmentation rule fires for
+                                    recent rows
+    measurement ltv list            List cohort LTV rows
+    measurement ltv cohort          Show one cohort by period — retention matrix
+                                    + cumulative LTV curve + prediction
+    measurement ltv customer        Show one customer's cohort + realised LTV +
+                                    revenue timeline
+    measurement signals list        Per-signal availability summary
+    measurement signals click-path  Click-path signal status — readiness,
+                                    last-computed, recent SignalEstimates
 
 Account:
-  profile       Manage account profiles
-                list, switch, set
-  mcp           Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo
-  completions   Generate shell completion script (bash, zsh, fish)
-  self-update   Update the Vendo CLI using the hosted installer
+  Profile           Manage account profiles
+    profile list    List all configured profiles
+    profile switch  Switch to a different profile
+    profile set     Set values on the active profile
+  mcp               Show how to connect an MCP client (Claude, Cursor, Windsurf)
+                    to Vendo
+  completions       Generate shell completion script (bash, zsh, fish)
+  self-update       Update the Vendo CLI using the hosted installer
 
 Options:
       --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
