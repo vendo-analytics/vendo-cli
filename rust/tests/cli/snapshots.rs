@@ -124,8 +124,7 @@ impl Recorder {
 const COMMAND_LISTS: [&str; 4] = ["Commands:", "Account:", "Data pipeline:", "Data catalog:"];
 
 /// The names in a help screen's command lists. Entries sit two spaces in; anything indented
-/// further continues a description, or lists the commands under a group in the root help, which
-/// names the group capitalized (`Apps`, VE-4109): the names are lowercased, as typed.
+/// further continues a description, or lists the commands under a group in the root help.
 fn subcommands(screen: &str) -> Vec<String> {
     let mut names = Vec::new();
     let mut listing = false;
@@ -135,7 +134,7 @@ fn subcommands(screen: &str) -> Vec<String> {
         } else if line.is_empty() {
             listing = false;
         } else if let Some(entry) = line.strip_prefix("  ").filter(|rest| listing && !rest.starts_with(' ')) {
-            names.extend(entry.split_whitespace().next().map(str::to_lowercase));
+            names.extend(entry.split_whitespace().next().map(str::to_string));
         }
     }
     names
@@ -260,7 +259,7 @@ fn the_help_walk_reads_clap_command_lists() {
     let screen = "About\n\nUsage: vendo x <COMMAND>\n\nCommands:\n  list          List things [alias: ls]\n  get-one       Get one\n                that wraps\n\nOptions:\n  -h, --help  Print help\n";
     assert_eq!(subcommands(screen), ["list", "get-one"]);
     assert!(subcommands("Usage: vendo x\n\nOptions:\n  -h, --help  Print help\n").is_empty());
-    let root = "About\n\nUsage: vendo <COMMAND>\n\nAccount:\n  login  Log in\n\nData pipeline:\n  Apps         Manage apps\n    apps list  List apps that\n               wrap\n\nOptions:\n  -h, --help  Print help\n";
+    let root = "About\n\nUsage: vendo <COMMAND>\n\nAccount:\n  login  Log in\n\nData pipeline:\n  apps   Manage apps that\n         wrap\n         list, get\n\nOptions:\n  -h, --help  Print help\n";
     assert_eq!(subcommands(root), ["login", "apps"]);
 }
 
@@ -293,19 +292,20 @@ fn the_root_help_names_every_command_and_the_commands_under_it() {
         assert!(names.contains(&name.to_string()), "{name}: {names:?}");
     }
     assert!(!names.contains(&"config".to_string()), "{names:?}");
-    // Under a group's row, four spaces in, every command its own screens list, by its full path (VE-4109).
-    for name in &names {
-        let row = lines.iter().position(|line| line.to_lowercase().starts_with(&format!("  {name} "))).unwrap();
-        let listed: Vec<String> = lines[row + 1..]
-            .iter()
-            .take_while(|line| line.starts_with("    "))
-            .filter(|line| !line.starts_with("     "))
-            .map(|line| {
-                let path = line.trim_start().split("  ").next().unwrap();
-                path.strip_prefix(&format!("{name} ")).unwrap_or_else(|| panic!("{name}: {line}")).to_string()
-            })
+    // Under a group's description, in its column, the commands its own screens list, comma-separated
+    // (the layout before VE-4109's row per command, restored by Yalcin 2026-10-10).
+    for name in names.iter().filter(|name| *name != CLAP_HELP) {
+        let row = lines.iter().position(|line| line.starts_with(&format!("  {name} "))).unwrap();
+        let column = lines[row].len() - lines[row][2 + name.len()..].trim_start().len();
+        let shown: Vec<&str> = [lines[row]]
+            .into_iter()
+            .chain(lines[row + 1..].iter().copied().take_while(|line| line.starts_with("   ")))
+            .map(|line| &line[column..])
             .collect();
-        assert_eq!(listed, listed_paths(&sandbox, &[name]), "vendo {name}");
+        let screen = text(&sandbox.run(&[name, "--help"]).stdout);
+        let about = screen.lines().next().unwrap();
+        let expected = [about.to_string(), listed_paths(&sandbox, &[name]).join(", ")].join(" ");
+        assert_eq!(shown.join(" "), expected.trim_end(), "vendo {name}");
     }
     assert!(!names.contains(&IN_THE_TREE_ONLY.to_string()), "{names:?}");
 }

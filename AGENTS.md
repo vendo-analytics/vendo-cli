@@ -67,16 +67,17 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   API's "integration"; renaming a flag needs Yalcin's approval.
 - Help layout (VE-3827, CLI 1.1): `vendo --help` is one sectioned list built at runtime from the command tree;
   `HELP_SECTIONS` in `rust/src/cli.rs` places each command, and a test fails when a visible command is in none.
-  Since VE-4109 (decided by Yalcin 2026-10-10: "combine help and commands, list commands under the help") each
-  group is a row with its name capitalized (`Apps`) and description, followed by every visible command under it,
-  nested ones too, by its full path (`apps list`, `measurement ltv cohort`) and description, four spaces in; a
-  command that runs on its own (`login`, `mcp`) stays one row (`section_rows`). Descriptions start in one column per
-  section, two spaces after its longest name, and wrap at word breaks to fit 80 columns (`HELP_COLUMNS`,
-  `section_lines`); `vendo help`, `vendo --help` and bare `vendo` without a terminal print it. `vendo commands` is
-  hidden and prints exactly that help (`print_help`); `vendo commands --json` is unchanged, `commands` kept in the
-  tree after `status` (`tree::KEPT_IN_THE_TREE`). ❓ Open for Yalcin, built with cautious defaults: the group's name
-  capitalized as in his example, a description column per section (one column for the whole help would put every
-  description at column 36), no blank line between groups, and `commands` kept in the JSON tree.
+  Each group is one row, its name as typed (`apps`) and description, with its visible commands under the description,
+  in its column, as one comma-separated list of bold names (`list, diagnose, get, …`; nested ones by their path,
+  `methodologies list, ltv cohort`; `command_paths`); a command that runs on its own (`login`, `mcp`) is one row.
+  Descriptions start in one column for the whole help, two spaces after the longest name, and descriptions and lists
+  wrap at word breaks to fit 80 columns (`HELP_COLUMNS`, `wrapped`); `vendo help`, `vendo --help` and bare `vendo`
+  without a terminal print it. VE-4109 (Yalcin 2026-10-10: "combine help and commands, list commands under the
+  help") listed every command on a row of its own under its capitalized group (`Apps`, `apps list  List all apps`);
+  Yalcin reverted that layout the same day ("change the help menu to look like how it was before … this was looking
+  much more tidier"), keeping the rest of VE-4109. `vendo commands` is hidden and prints exactly that help
+  (`print_help`); `vendo commands --json` is unchanged, `commands` kept in the tree after `status`
+  (`tree::KEPT_IN_THE_TREE`). ❓ Open for Yalcin: `commands` kept in the JSON tree.
   Three sections since VE-4109 (Yalcin 2026-10-10): "Account" first, "Getting started" and "Account" in one
   (❓ open: the order inside, Getting started's commands then Account's, keeps `help` and `version` after `status`,
   so `vendo commands --json` lists `profile`, `mcp`, `completions` and `update` before `apps`, its only change),

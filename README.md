@@ -84,8 +84,8 @@ first; pass `--yes` in scripts).
 
 ## Commands
 
-`vendo help` (or `vendo --help`) lists every command with its description, each group followed by the commands
-under it (`apps list`, `measurement ltv cohort`), in three sections:
+`vendo help` (or `vendo --help`) lists every command with its description, each group with the commands under it
+on the lines below (`list, diagnose, get, …`; nested ones as `ltv cohort`), in three sections:
 
 | Section | Commands |
 | --- | --- |
