@@ -3124,7 +3124,7 @@ fn completions_json_carries_the_script_or_bare_the_set_up() {
 /// (its last line, `main "$@"`, is left off), so nothing is downloaded.
 #[cfg(unix)]
 fn install_bash_completions(sandbox: &Sandbox, system: &str) -> String {
-    let installer = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../install.sh")).unwrap();
+    let installer = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/install.sh")).unwrap();
     let functions = installer.strip_suffix("main \"$@\"\n").expect("install.sh ends by running main");
     let script = format!(
         "{functions}\nuname() {{ printf '%s\\n' \"$FAKE_UNAME\"; }}\nINSTALL_PATH=\"$VENDO_BINARY\"\n\

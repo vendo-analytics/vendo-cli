@@ -3,13 +3,13 @@
 # (VE-3826). Yalcin accepted its size on 2026-10-06 and then said going over 150 KB is fine, so this
 # measures and reports, and only warns when the menu adds 150,000 bytes or more; it never fails.
 # It builds the release binary without the menu (the `menu` cargo feature: inquire, crossterm's key
-# events and the menu's code) and with it. release-rc.yml runs it for each target and the sizes go
+# events and the menu's code) and with it. release.yml runs it for each target and the sizes go
 # to the run's summary.
 #
 #   scripts/menu-size.sh                    # this machine's target
-#   scripts/menu-size.sh --target <triple>  # another target, as release-rc.yml builds it
+#   scripts/menu-size.sh --target <triple>  # another target, as release.yml builds it
 #
-# The binary with the menu is built last, so the release binary it leaves in rust/target is the
+# The binary with the menu is built last, so the release binary it leaves in target/ is the
 # one releases ship. Works with macOS's bash 3.2.
 set -euo pipefail
 
@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-cd "$(dirname "$0")/../rust"
+cd "$(dirname "$0")/.."
 
 build=(cargo build --release --locked)
 binary="${CARGO_TARGET_DIR:-target}"

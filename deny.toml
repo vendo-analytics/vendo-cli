@@ -1,6 +1,6 @@
 # cargo-deny policy for the Rust CLI (VE-3731). CI runs `cargo deny check` on
 # every pull request; locally: `cargo install cargo-deny --locked`, then
-# `cargo deny check` from `rust/`.
+# `cargo deny check` from the repo root.
 
 [graph]
 # Only the platforms we publish binaries for, so crates used only on Windows,

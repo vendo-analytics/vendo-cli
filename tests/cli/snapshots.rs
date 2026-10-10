@@ -1,6 +1,6 @@
-//! Snapshot tests (VE-3824). Once 1.0.0 deletes the TypeScript CLI, the
-//! parity harness no longer catches regressions, so the Rust CLI's behaviour
-//! is recorded here with insta, under `rust/tests/snapshots/`:
+//! Snapshot tests (VE-3824). Since 1.1.0 deleted the TypeScript CLI and its
+//! parity harness (VE-3669), these catch regressions: the CLI's behaviour
+//! is recorded here with insta, under `tests/snapshots/`:
 //!
 //! - `help/`: every `vendo … --help` screen, exactly as printed. The list
 //!   comes from walking the command lists of the real help output (the root's
@@ -26,7 +26,7 @@
 //! URL, HOME, the binary's path, the CLI version, request IDs and the few
 //! timestamps relative to now (`[now-…]`).
 //!
-//! After a deliberate change, from `rust/`: `INSTA_UPDATE=always cargo test --test cli`
+//! After a deliberate change, from the repo root: `INSTA_UPDATE=always cargo test --test cli`
 //! rewrites the snapshots and deletes stale ones; review `git diff tests/snapshots`.
 
 use std::{
@@ -108,7 +108,7 @@ impl Recorder {
         }
         assert!(
             self.failed.is_empty(),
-            "{} snapshot(s) in {} need attention:\n  {}\nReview the .snap.new files (`cargo insta review`), or accept every change with `{UPDATE}` from rust/ and review `git diff tests/snapshots`.",
+            "{} snapshot(s) in {} need attention:\n  {}\nReview the .snap.new files (`cargo insta review`), or accept every change with `{UPDATE}` from the repo root and review `git diff tests/snapshots`.",
             self.failed.len(),
             self.dir.display(),
             self.failed.join("\n  ")

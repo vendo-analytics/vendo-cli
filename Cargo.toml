@@ -1,8 +1,7 @@
 [package]
 name = "vendo"
-# The Rust CLI's release version. A release-candidate tag cli-vX.Y.Z-rc.N must
-# match it (release-rc.yml checks); ../package.json keeps the TypeScript CLI's
-# version until the switch-over (VE-3669).
+# The CLI's release version. A release tag cli-vX.Y.Z or cli-vX.Y.Z-rc.N must
+# match it (release.yml checks).
 version = "1.1.0-rc.6"
 edition = "2024"
 description = "Vendo CLI — manage your data pipeline from the terminal"
@@ -18,7 +17,7 @@ default = ["menu"]
 # The arrow-key menu a group run without its command opens on a terminal (VE-3826). Built
 # without it (`--no-default-features`), a bare group is the usage error at a terminal too, as
 # without one. Each release checks that it adds under 150 KB (150,000 bytes; Yalcin, 2026-10-06):
-# scripts/menu-size.sh builds both and compares, and release-rc.yml runs it for each target.
+# scripts/menu-size.sh builds both and compares, and release.yml runs it for each target.
 menu = ["dep:crossterm", "dep:inquire", "dep:unicode-width"]
 
 [dependencies]

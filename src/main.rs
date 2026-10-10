@@ -1,5 +1,5 @@
-//! The `vendo` CLI in Rust (Linear project "Vendo CLI in Rust"). Behaviour
-//! matches the TypeScript CLI; `pnpm parity` compares the two on staging.
+//! The `vendo` CLI. It replaced the TypeScript CLI at 1.1.0 (VE-3669), whose
+//! behaviour it kept apart from the intended differences in CHANGELOG.md.
 
 // Print like Node's `console`: when stdout or stderr is closed (`vendo … |
 // head -1`) the write is dropped and the command carries on, where std's

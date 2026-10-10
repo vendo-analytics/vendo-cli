@@ -1,6 +1,6 @@
-// Generates rust/src/output/usd_patterns.rs (VE-3728):
+// Generates src/output/usd_patterns.rs (VE-3728):
 //
-//   env -i PATH="$PATH" LANG=C node scripts/gen-usd-patterns.mjs > rust/src/output/usd_patterns.rs
+//   env -i PATH="$PATH" LANG=C node scripts/gen-usd-patterns.mjs > src/output/usd_patterns.rs
 //
 // The measurement views print money with `n.toLocaleString(undefined, { style: 'currency',
 // currency: 'USD', maximumFractionDigits: 2 })`. ICU4X 2.3 has no stable currency formatter, so

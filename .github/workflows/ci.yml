@@ -17,9 +17,6 @@ jobs:
     name: Rust
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: rust
     steps:
       - uses: actions/checkout@v7
 
@@ -30,7 +27,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
           # Only main saves the cache; pull requests reuse it.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -65,6 +61,6 @@ jobs:
 
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          manifest-path: rust/Cargo.toml
+          manifest-path: Cargo.toml
           command: check
           command-arguments: ${{ matrix.checks }}

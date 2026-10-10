@@ -1,9 +1,9 @@
-// Generates rust/tests/fixtures/node-locale.json (VE-3728): what Node prints for
+// Generates tests/fixtures/node-locale.json (VE-3728): what Node prints for
 // `toLocaleDateString()`, `toLocaleTimeString()`, `Number#toLocaleString()` and the measurement
 // views' money format with each LANG under each TZ. The Rust table test in
-// rust/src/output/locale.rs must reproduce every value.
+// src/output/locale.rs must reproduce every value.
 //
-//   node scripts/gen-locale-fixture.mjs > rust/tests/fixtures/node-locale.json
+//   node scripts/gen-locale-fixture.mjs > tests/fixtures/node-locale.json
 import { execFileSync } from 'node:child_process';
 
 const LANGS = ['en_US.UTF-8', 'en_AU.UTF-8', 'en_GB.UTF-8', 'de_DE.UTF-8', 'ja_JP.UTF-8', 'C'];

@@ -44,16 +44,15 @@ jobs:
             exit 1
           fi
           # Without --no-deps, --locked also fails if the bump commit left Cargo.lock behind.
-          CARGO_VERSION="$(cargo metadata --manifest-path rust/Cargo.toml --format-version 1 --locked \
+          CARGO_VERSION="$(cargo metadata --manifest-path Cargo.toml --format-version 1 --locked \
             | jq -r '.packages[] | select(.name == "vendo") | .version')"
           if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
-            echo "::error::Tag version ($TAG_VERSION) does not match rust/Cargo.toml version ($CARGO_VERSION)"
+            echo "::error::Tag version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
             exit 1
           fi
           echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Run tests
-        working-directory: rust
         run: cargo test --locked
 
   release:
@@ -145,13 +144,12 @@ jobs:
         run: scripts/menu-size.sh --target "$TRIPLE"
 
       - name: Build release binary
-        working-directory: rust
         run: cargo build --release --locked --target "$TRIPLE"
 
       - name: Stage binary
         run: |
           mkdir -p dist
-          cp "rust/target/$TRIPLE/release/vendo" "dist/$ASSET"
+          cp "target/$TRIPLE/release/vendo" "dist/$ASSET"
 
       # Running a binary on macOS doesn't prove its architecture (Rosetta runs
       # x86_64 transparently), so check the Mach-O slice explicitly.

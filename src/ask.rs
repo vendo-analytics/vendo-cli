@@ -14,7 +14,7 @@
 //! and Ctrl-D leave quietly, running nothing.
 //!
 //! Without a terminal or with prompts off nothing here runs, and nothing is read or sent: the usage
-//! error stays, byte for byte (`rust/tests/snapshots/usage/`). A value [`VALUES`] does not name keeps
+//! error stays, byte for byte (`tests/snapshots/usage/`). A value [`VALUES`] does not name keeps
 //! it at a terminal too.
 //!
 //! `--profile` typed with no name, and `vendo profile switch` with none, open the saved profiles in
