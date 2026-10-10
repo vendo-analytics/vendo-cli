@@ -146,10 +146,14 @@ differs from it.
   Yalcin 2026-10-06). The metrics routes send no type, so `metrics list` has no Type column and `metrics get` no
   type after the name and no `Type:` line (VE-3856, Yalcin 2026-10-06); Format has its own column. The TS CLI read
   fields the API does not send (`dataType`, `metric_type`) and showed `undefined` or a blank.
-- Errored apps (VE-3841, CLI 1.1): `status` counts an app as errored when its `consecutiveFailureCount` is above 0.
-  Only the single-app response had it until vendo-web-v2 PR #2147 adds it to the apps list (Yalcin, 2026-10-06), so
-  against an API without that change the count is 0. The snapshot stub's list sends it as the PR builds it, Demo Ads
-  with 2, so `account__status` records one errored app.
+- Errored apps (VE-3841): `status` counts an app as errored when its status needs attention
+  (`apps::needs_attention`): not paused (`state` is not `inactive`) and `accessStatus` is `disconnected` or
+  `auth_expired` (the `apps list` Status column's "reconnect required"). `apps diagnose` lists the same apps under
+  "Broken access". Nothing in Vendo increments `apps.consecutive_failures`, so the detail route's
+  `consecutiveFailureCount` is always 0 and the list never sends it (Yalcin 2026-10-10, decision sheet #42 option a;
+  web PR #2147 closed). The list sends `accessStatus` since VE-2532 (on staging; an API without it counts 0). The
+  snapshot stub's list rows have no `consecutiveFailureCount` and Demo Ads is `auth_expired`, so `account__status`
+  records one errored app.
 - Completions (VE-3830, CLI 1.1): `vendo completions <shell>` prints the script the installer saves. Hidden (clap
   `hide`) since VE-4109 (Yalcin 2026-10-10): not in the root help, `vendo commands` or `vendo commands --json`
   (`tree::visible`), its help snapshot kept through `HIDDEN_COMMANDS`; it runs as before, the installer and
