@@ -1,0 +1,23 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations update c0000001-0000-4000-8000-000000000001 --frequency 12 --unit hours --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "c0000001-0000-4000-8000-000000000001",
+    "accountId": "acct-alpha",
+    "sourceAppId": "a0000001-0000-4000-8000-000000000001",
+    "destinationAppId": "a0000003-0000-4000-8000-000000000003",
+    "dataType": "orders",
+    "state": "active",
+    "status": "active",
+    "scheduleRuntime": {
+      "exportNodeId": "e0000001-0000-4000-8000-000000000001",
+      "warnings": []
+    },
+    "createdAt": "2026-01-02T08:00:00.000Z",
+    "updatedAt": "2026-01-05T09:07:03.000Z"
+  }
+}

@@ -1,0 +1,59 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps diagnose --json
+exit: 0
+--- stdout ---
+{
+  "broken": [
+    {
+      "id": "a0000002-0000-4000-8000-000000000002",
+      "accountId": "acct-alpha",
+      "appType": "google_ads",
+      "displayName": "Demo Ads",
+      "permissions": [
+        "performance_data",
+        "send_conversions"
+      ],
+      "roles": [
+        "source",
+        "destination"
+      ],
+      "state": "active",
+      "errorMessage": "Token expired for the synthetic test account",
+      "lastSyncAt": "2026-01-05T09:07:03.000Z",
+      "accessStatus": "auth_expired",
+      "accessStatusCheckedAt": "2026-01-06T00:00:00.000Z",
+      "accessStatusReason": "OAuth token expired (synthetic)",
+      "consecutiveFailureCount": 2,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    }
+  ],
+  "orphaned": [
+    {
+      "id": "a0000002-0000-4000-8000-000000000002",
+      "accountId": "acct-alpha",
+      "appType": "google_ads",
+      "displayName": "Demo Ads",
+      "permissions": [
+        "performance_data",
+        "send_conversions"
+      ],
+      "roles": [
+        "source",
+        "destination"
+      ],
+      "state": "active",
+      "errorMessage": "Token expired for the synthetic test account",
+      "lastSyncAt": "2026-01-05T09:07:03.000Z",
+      "accessStatus": "auth_expired",
+      "accessStatusCheckedAt": "2026-01-06T00:00:00.000Z",
+      "accessStatusReason": "OAuth token expired (synthetic)",
+      "consecutiveFailureCount": 2,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z",
+      "missing": "destination"
+    }
+  ]
+}

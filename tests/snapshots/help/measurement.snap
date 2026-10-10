@@ -1,0 +1,19 @@
+---
+source: tests/cli/snapshots.rs
+---
+Inspect Marketing Measurement methodologies, LTV, and signals
+
+Usage: vendo measurement [OPTIONS] <COMMAND>
+
+Commands:
+  methodologies  List measurement methodologies
+  rules          Methodology segmentation rules
+  ltv            Cohort lifetime-value views
+  signals        Measurement signal availability
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

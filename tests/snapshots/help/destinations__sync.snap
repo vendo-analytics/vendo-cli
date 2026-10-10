@@ -1,0 +1,25 @@
+---
+source: tests/cli/snapshots.rs
+---
+Trigger a manual sync
+
+Usage: vendo destinations sync [OPTIONS] <destinationId>
+
+Arguments:
+  <destinationId>  
+
+Options:
+      --json            Output raw JSON
+      --watch           Watch the job until it completes
+      --dry-run         Preview the action without executing
+      --output <field>  Print a single field (e.g. id for job ID)
+  -h, --help            Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo destinations sync <destinationId>
+  $ vendo destinations sync <destinationId> --watch
+  $ vendo destinations sync <destinationId> --dry-run

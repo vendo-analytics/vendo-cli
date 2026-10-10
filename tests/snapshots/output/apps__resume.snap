@@ -1,0 +1,7 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps resume a0000003-0000-4000-8000-000000000003
+exit: 0
+--- stdout ---
+Done: App a0000003... resumed.

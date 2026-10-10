@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+List measurement methodologies
+
+Usage: vendo measurement methodologies [OPTIONS] <COMMAND>
+
+Commands:
+  list  List methodologies (system + account)
+  get   Show one methodology by ID
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

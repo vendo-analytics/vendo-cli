@@ -1,0 +1,11 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo catalog list
+exit: 0
+--- stdout ---
+ App Type    Name        Category   Roles                Availability 
+ bigquery    BigQuery    warehouse  destination          ready        
+ google_ads  Google Ads  ads        source, destination  ready        
+ shopify     Shopify     ecommerce  source               ready        
+3 ready · 1 more on request (vendo catalog list --all)

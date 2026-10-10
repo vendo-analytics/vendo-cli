@@ -1,0 +1,16 @@
+---
+source: tests/cli/snapshots.rs
+---
+Methodology segmentation rules
+
+Usage: vendo measurement rules [OPTIONS] <COMMAND>
+
+Commands:
+  preview  Preview which segmentation rule fires for recent rows
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

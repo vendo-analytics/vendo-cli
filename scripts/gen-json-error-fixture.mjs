@@ -1,8 +1,8 @@
-// Generates rust/tests/fixtures/node-json-errors.json (VE-3728): V8's `JSON.parse` error message
+// Generates tests/fixtures/node-json-errors.json (VE-3728): V8's `JSON.parse` error message
 // for malformed text, which the TS CLI printed for a non-JSON 2xx response body and inside
 // "Failed to read <file>: …" for a bad --*-file. `null` means the text parses.
 //
-//   node scripts/gen-json-error-fixture.mjs > rust/tests/fixtures/node-json-errors.json
+//   node scripts/gen-json-error-fixture.mjs > tests/fixtures/node-json-errors.json
 const long = 'x'.repeat(30);
 const inputs = [
   // Empty, whitespace and HTML/text bodies.

@@ -1,6 +1,6 @@
-// Generates rust/src/output/ymd_patterns.rs (VE-3728):
+// Generates src/output/ymd_patterns.rs (VE-3728):
 //
-//   env -i PATH="$PATH" LANG=C node scripts/gen-ymd-patterns.mjs > rust/src/output/ymd_patterns.rs
+//   env -i PATH="$PATH" LANG=C node scripts/gen-ymd-patterns.mjs > src/output/ymd_patterns.rs
 //
 // `toLocaleDateString()` formats with the CLDR `yMd` skeleton (ECMA-402 numeric year, month and
 // day). ICU4X 2.3 has no runtime skeleton matching: its short date pattern zero-pads where `yMd`

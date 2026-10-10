@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo status
+exit: 0
+--- stdout ---
+
+               Total  Active  Paused  Errored 
+ Apps          3      2       1       1       
+ Sources       2      2       0       1       
+ Destinations  2      1       1       0       
+
+Recent Failures
+ Job ID    Type    Connector   Error                                       Failed   
+ b0000004  import  google_ads  Google Ads rejected the synthetic test ...  1/4/2026 
+
+Next steps
+  vendo jobs get b0000004-0000-4000-8000-000000000004
+  vendo jobs list --status failed
+  vendo workspace

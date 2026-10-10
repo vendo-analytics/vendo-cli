@@ -1,0 +1,19 @@
+//! Command implementations.
+
+pub mod account;
+pub mod apps;
+pub mod catalog;
+pub mod completions;
+pub mod dictionary;
+pub mod health;
+pub mod integrations;
+pub mod jobs;
+pub mod login;
+pub mod measurement;
+pub mod metrics;
+pub mod models;
+pub mod pipeline_resource;
+pub mod sources;
+pub mod tree;
+pub mod version;
+pub mod workspace;

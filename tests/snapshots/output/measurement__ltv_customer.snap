@@ -1,0 +1,24 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement ltv customer cust_demo_001
+exit: 0
+--- stdout ---
+
+Customer cust_demo_001
+
+  Acquired:        2026-01-05
+  Channel:         Paid Social
+  Campaign:        —
+  Country:         AU
+  Reactivated:     no
+  Monthly cohort:  2026-01-01
+
+  Realised LTV:
+    30d:           $42.50
+    90d:           $85.25
+    12m:           —
+    full:          $85.25
+    after-COGS variants in --json
+
+  Revenue points:  1

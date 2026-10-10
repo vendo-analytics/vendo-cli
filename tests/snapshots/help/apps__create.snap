@@ -1,0 +1,25 @@
+---
+source: tests/cli/snapshots.rs
+---
+Create a new app
+
+Usage: vendo apps create [OPTIONS] --type <appType> --name <displayName>
+
+Options:
+      --type <appType>             App type (e.g. google_ads, onesignal). See: vendo catalog list
+      --name <displayName>         Human-readable name for this app
+      --role <role>                Comma-separated capability: source, destination (derives default permissions) [default: source]
+      --permissions <permissions>  Comma-separated granular permissions (e.g. performance_data,send_conversions). Overrides --role.
+      --credentials-file <path>    Path to a JSON file with the credential payload
+      --config-file <path>         Path to a JSON file with app-specific config
+      --json                       Output raw JSON
+      --output <field>             Print a single field (e.g. id)
+  -h, --help                       Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo apps create --type onesignal --name "OneSignal Prod" --role destination --credentials-file onesignal.json
+  $ vendo apps create --type bigquery --name "Analytics BQ" --role source --credentials-file bq-sa.json

@@ -1,0 +1,685 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo completions fish
+exit: 0
+--- stdout ---
+# Print an optspec for argparse to handle cmd's options that are independent of any subcommand.
+function __fish_vendo_global_optspecs
+    string join \n profile= debug h/help V/version
+end
+
+function __fish_vendo_needs_command
+    # Figure out if the current invocation already has a command.
+    set -l cmd (commandline -opc)
+    set -e cmd[1]
+    argparse -s (__fish_vendo_global_optspecs) -- $cmd 2>/dev/null
+    or return
+    if set -q argv[1]
+        # Also print the command, so this can be used to figure out what it is.
+        echo $argv[1]
+        return 1
+    end
+    return 0
+end
+
+function __fish_vendo_using_subcommand
+    set -l cmd (__fish_vendo_needs_command)
+    test -z "$cmd"
+    and return 1
+    contains -- $cmd[1] $argv
+end
+
+complete -c vendo -n "__fish_vendo_needs_command" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_needs_command" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_needs_command" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_needs_command" -s V -l version -d 'Print version'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "login" -d 'Authenticate with your Vendo account'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "logout" -d 'Remove stored credentials'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "profile" -d 'Manage account profiles'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "status" -d 'Account health overview'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "workspace" -d 'Show the current account, your profiles and setup checks'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "apps" -d 'Manage apps'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "sources" -d 'Manage data sources'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "destinations" -d 'Manage data export destinations'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "jobs" -d 'Monitor sync jobs'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "catalog" -d 'Browse available platforms'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "dictionary" -d 'Browse the data dictionary catalog'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "metrics" -d 'Manage custom metrics in the Metrics Library'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "models" -d 'Manage data models'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "measurement" -d 'Inspect Marketing Measurement methodologies, LTV, and signals'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "completions" -d 'Generate shell completion script (bash, zsh, fish)'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "commands" -d 'List every command, or with --json the command tree with arguments and flags'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "version" -d 'Print version'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "update" -d 'Update the Vendo CLI using the hosted installer'
+complete -c vendo -n "__fish_vendo_needs_command" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c vendo -n "__fish_vendo_using_subcommand login" -l api-key -d 'API key for headless/CI login (requires --account)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand login" -l account -d 'Account ID for headless/CI login (requires --api-key)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand login" -l env -d 'Target instance: "staging" or "prod" (default: VENDO_API_URL/profile, else prod)' -r -f -a "staging\t''
+prod\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand login" -l base-url -d 'Explicit API base URL (overrides --env)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand login" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand login" -l force -d 'Sign in through the browser again, even when the saved API key works'
+complete -c vendo -n "__fish_vendo_using_subcommand login" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand login" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand login" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand logout" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand logout" -l all -d 'Remove every saved profile, not just the active one'
+complete -c vendo -n "__fish_vendo_using_subcommand logout" -s y -l yes -d 'Skip the confirmation prompt for --all'
+complete -c vendo -n "__fish_vendo_using_subcommand logout" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand logout" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand logout" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and not __fish_seen_subcommand_from list switch set" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and not __fish_seen_subcommand_from list switch set" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and not __fish_seen_subcommand_from list switch set" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and not __fish_seen_subcommand_from list switch set" -f -a "list" -d 'List all configured profiles'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and not __fish_seen_subcommand_from list switch set" -f -a "switch" -d 'Switch to a different profile'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and not __fish_seen_subcommand_from list switch set" -f -a "set" -d 'Set values on the active profile'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from list" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from list" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from list" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from switch" -l account -d 'Switch by account ID instead of profile name' -r
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from switch" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from switch" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from switch" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from switch" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l api-key -d 'API key for authentication' -r
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l base-url -d 'Base URL for the Vendo API' -r
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l account -d 'Account ID to operate on' -r
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand profile; and __fish_seen_subcommand_from set" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand status" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand status" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand status" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand status" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand workspace" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand workspace" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand workspace" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand workspace" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and not __fish_seen_subcommand_from list diagnose get pause resume delete create update" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and not __fish_seen_subcommand_from list diagnose get pause resume delete create update" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and not __fish_seen_subcommand_from list diagnose get pause resume delete create update" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and not __fish_seen_subcommand_from list diagnose get pause resume delete create update" -f -a "list" -d 'List all apps'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and not __fish_seen_subcommand_from list diagnose get pause resume delete create update" -f -a "diagnose" -d 'Show apps that need attention'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and not __fish_seen_subcommand_from list diagnose get pause resume delete create update" -f -a "get" -d 'Get app details'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and not __fish_seen_subcommand_from list diagnose get pause resume delete create update" -f -a "pause" -d 'Pause an app'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and not __fish_seen_subcommand_from list diagnose get pause resume delete create update" -f -a "resume" -d 'Resume a paused app'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and not __fish_seen_subcommand_from list diagnose get pause resume delete create update" -f -a "delete" -d 'Delete an app (soft delete)'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and not __fish_seen_subcommand_from list diagnose get pause resume delete create update" -f -a "create" -d 'Create a new app'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and not __fish_seen_subcommand_from list diagnose get pause resume delete create update" -f -a "update" -d 'Update an app'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from list" -l state -d 'Filter by state (active, inactive)' -r -f -a "active\t''
+inactive\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from list" -l type -d 'Filter by app type' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from list" -l role -d 'Filter by capability (source, destination) — derived from permissions' -r -f -a "source\t''
+destination\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from list" -l limit -d 'Number of results' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from list" -l offset -d 'Pagination offset' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from list" -l output -d 'Print a single field per row (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from list" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from list" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from list" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from diagnose" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from diagnose" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from diagnose" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from diagnose" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from get" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from get" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from get" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from get" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from pause" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from pause" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from pause" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from pause" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from pause" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from pause" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from resume" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from resume" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from resume" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from resume" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from resume" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from resume" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from delete" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from delete" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from delete" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from delete" -s y -l yes -d 'Skip confirmation prompt'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from delete" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from delete" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from delete" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from create" -l type -d 'App type (e.g. google_ads, onesignal). See: vendo catalog list' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from create" -l name -d 'Human-readable name for this app' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from create" -l role -d 'Comma-separated capability: source, destination (derives default permissions)' -r -f -a "source\t''
+destination\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from create" -l permissions -d 'Comma-separated granular permissions (e.g. performance_data,send_conversions). Overrides --role.' -r -f -a "performance_data\t''
+read_leads\t''
+read_organic_content\t''
+send_conversions\t''
+read_warehouse\t''
+write_warehouse\t''
+sync_audiences\t''
+campaign_changes\t''
+campaign_adjust_bids\t''
+campaign_adjust_spend\t''
+campaign_toggle\t''
+google_tag_manager\t''
+google_analytics\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from create" -l credentials-file -d 'Path to a JSON file with the credential payload' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from create" -l config-file -d 'Path to a JSON file with app-specific config' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from create" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from create" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from create" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from create" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from create" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from update" -l name -d 'New display name' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from update" -l role -d 'Comma-separated capability: source, destination (derives permissions)' -r -f -a "source\t''
+destination\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from update" -l permissions -d 'Comma-separated granular permissions. Overrides --role.' -r -f -a "performance_data\t''
+read_leads\t''
+read_organic_content\t''
+send_conversions\t''
+read_warehouse\t''
+write_warehouse\t''
+sync_audiences\t''
+campaign_changes\t''
+campaign_adjust_bids\t''
+campaign_adjust_spend\t''
+campaign_toggle\t''
+google_tag_manager\t''
+google_analytics\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from update" -l credentials-file -d 'Replace credentials from a JSON file' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from update" -l config-file -d 'Replace config from a JSON file' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from update" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from update" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from update" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from update" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand apps; and __fish_seen_subcommand_from update" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and not __fish_seen_subcommand_from list get sync pause resume delete create update" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and not __fish_seen_subcommand_from list get sync pause resume delete create update" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and not __fish_seen_subcommand_from list get sync pause resume delete create update" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and not __fish_seen_subcommand_from list get sync pause resume delete create update" -f -a "list" -d 'List all data sources'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and not __fish_seen_subcommand_from list get sync pause resume delete create update" -f -a "get" -d 'Get source details'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and not __fish_seen_subcommand_from list get sync pause resume delete create update" -f -a "sync" -d 'Trigger a manual sync'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and not __fish_seen_subcommand_from list get sync pause resume delete create update" -f -a "pause" -d 'Pause a data source'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and not __fish_seen_subcommand_from list get sync pause resume delete create update" -f -a "resume" -d 'Resume a paused data source'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and not __fish_seen_subcommand_from list get sync pause resume delete create update" -f -a "delete" -d 'Delete a data source (soft delete)'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and not __fish_seen_subcommand_from list get sync pause resume delete create update" -f -a "create" -d 'Create a new data source'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and not __fish_seen_subcommand_from list get sync pause resume delete create update" -f -a "update" -d 'Update a data source'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from list" -l state -d 'Filter by state (active, inactive)' -r -f -a "active\t''
+inactive\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from list" -l type -d 'Filter by sync type' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from list" -l app -d 'Filter by app ID' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from list" -l limit -d 'Number of results' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from list" -l offset -d 'Pagination offset' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from list" -l output -d 'Print a single field per row (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from list" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from list" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from list" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from get" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from get" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from get" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from get" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from sync" -l output -d 'Print a single field (e.g. id for job ID)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from sync" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from sync" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from sync" -l watch -d 'Watch the job until it completes'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from sync" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from sync" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from sync" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from pause" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from pause" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from pause" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from pause" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from pause" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from pause" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from resume" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from resume" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from resume" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from resume" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from resume" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from resume" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from delete" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from delete" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from delete" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from delete" -s y -l yes -d 'Skip confirmation prompt'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from delete" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from delete" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from delete" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -l app -d 'App ID (must have source role)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -l sync-type -d 'Connector type (e.g. google_ads)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -l import-tasks -d 'Comma-separated import task IDs (streams to pull)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -l frequency -d 'Sync frequency value' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -l unit -d 'Sync frequency unit (hours, days)' -r -f -a "hours\t''
+days\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -l config-file -d 'Path to a JSON file with source-specific config' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -l run-now -d 'Trigger an initial sync immediately after creation'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from create" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from update" -l import-tasks -d 'Comma-separated import task IDs' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from update" -l frequency -d 'Sync frequency value' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from update" -l unit -d 'Sync frequency unit (hours, days)' -r -f -a "hours\t''
+days\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from update" -l config-file -d 'Replace config from a JSON file' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from update" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from update" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from update" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from update" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand sources; and __fish_seen_subcommand_from update" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -f -a "list" -d 'List all destinations'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -f -a "get" -d 'Get destination details'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -f -a "sync" -d 'Trigger a manual sync'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -f -a "refresh-source" -d 'Check source-data availability for a window and trigger top-up imports for missing ranges'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -f -a "pause" -d 'Pause a destination'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -f -a "resume" -d 'Resume a paused destination'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -f -a "delete" -d 'Delete a destination (soft delete)'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -f -a "create" -d 'Create a new destination (source → destination pipeline)'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and not __fish_seen_subcommand_from list get sync refresh-source pause resume delete create update" -f -a "update" -d 'Update a destination'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from list" -l state -d 'Filter by state (active, inactive)' -r -f -a "active\t''
+inactive\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from list" -l status -d 'Filter by status' -r -f -a "pending\t''
+running\t''
+completed\t''
+warning\t''
+errored\t''
+auth_expired\t''
+failed_permanently\t''
+paused\t''
+draft\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from list" -l type -d 'Filter by data type' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from list" -l limit -d 'Number of results' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from list" -l offset -d 'Pagination offset' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from list" -l output -d 'Print a single field per row (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from list" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from list" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from list" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from get" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from get" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from get" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from get" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from sync" -l output -d 'Print a single field (e.g. id for job ID)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from sync" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from sync" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from sync" -l watch -d 'Watch the job until it completes'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from sync" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from sync" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from sync" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from refresh-source" -l from -d 'Window start — ISO datetime or YYYY-MM-DD (default: 7 days before --to)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from refresh-source" -l to -d 'Window end — ISO datetime or YYYY-MM-DD (default: now)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from refresh-source" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from refresh-source" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from refresh-source" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from refresh-source" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from resume" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from resume" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from resume" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from resume" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from resume" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from resume" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from delete" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from delete" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from delete" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from delete" -s y -l yes -d 'Skip confirmation prompt'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from delete" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from delete" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from delete" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l dest-app -d 'Destination app ID (must have destination role)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l source-app -d 'Source app ID (optional for some data types)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l data-type -d 'Data type (e.g. events, user_properties, conversions)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l config-file -d 'Path to JSON with { global?, tasks: [...] }' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l schedule-file -d 'Path to JSON with schedule overrides' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l frequency -d 'Sync frequency value' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l unit -d 'Sync frequency unit (hours, days, weeks, months)' -r -f -a "hours\t''
+days\t''
+weeks\t''
+months\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l run-now -d 'Trigger first sync immediately'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from create" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from update" -l config-file -d 'Replace config from a JSON file' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from update" -l schedule-file -d 'Replace schedule from a JSON file' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from update" -l frequency -d 'Sync frequency value' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from update" -l unit -d 'Sync frequency unit' -r -f -a "hours\t''
+days\t''
+weeks\t''
+months\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from update" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from update" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from update" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from update" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from update" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and not __fish_seen_subcommand_from list get cancel watch tail" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and not __fish_seen_subcommand_from list get cancel watch tail" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and not __fish_seen_subcommand_from list get cancel watch tail" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and not __fish_seen_subcommand_from list get cancel watch tail" -f -a "list" -d 'List sync jobs'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and not __fish_seen_subcommand_from list get cancel watch tail" -f -a "get" -d 'Get job details'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and not __fish_seen_subcommand_from list get cancel watch tail" -f -a "cancel" -d 'Cancel a pending or running job'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and not __fish_seen_subcommand_from list get cancel watch tail" -f -a "watch" -d 'Watch running and pending jobs (live polling)'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and not __fish_seen_subcommand_from list get cancel watch tail" -f -a "tail" -d 'Tail a single job or the latest job for a source/destination'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from list" -l status -d 'Filter by status (queued, pending, running, completed, warning, failed, canceled)' -r -f -a "queued\t''
+pending\t''
+running\t''
+completed\t''
+warning\t''
+failed\t''
+canceled\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from list" -l type -d 'Filter by job type (import, export, data_quality, attribution)' -r -f -a "import\t''
+export\t''
+data_quality\t''
+attribution\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from list" -l source -d 'Filter by source ID' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from list" -l integration -d 'Filter by destination ID' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from list" -l limit -d 'Number of results' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from list" -l offset -d 'Pagination offset' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from list" -l output -d 'Print a single field per row (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from list" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from list" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from list" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from get" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from get" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from get" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from get" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from cancel" -l output -d 'Print a single field (e.g. id)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from cancel" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from cancel" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from cancel" -s y -l yes -d 'Skip confirmation prompt'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from cancel" -l dry-run -d 'Preview the action without executing'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from cancel" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from cancel" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -l interval -d 'Polling interval in seconds' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -l source -d 'Filter by source ID' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -l integration -d 'Filter by destination ID' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from watch" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l source -d 'Tail the latest job for a source' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l integration -d 'Tail the latest job for a destination' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l interval -d 'Polling interval in seconds' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l next -d 'Wait for the next new job when tailing a source or destination'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand jobs; and __fish_seen_subcommand_from tail" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and not __fish_seen_subcommand_from list get credential-schema" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and not __fish_seen_subcommand_from list get credential-schema" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and not __fish_seen_subcommand_from list get credential-schema" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and not __fish_seen_subcommand_from list get credential-schema" -f -a "list" -d 'List the platforms ready to connect'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and not __fish_seen_subcommand_from list get credential-schema" -f -a "get" -d 'Get details for a specific platform'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and not __fish_seen_subcommand_from list get credential-schema" -f -a "credential-schema" -d 'Print the credential fields required to create an app of this type'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from list" -l category -d 'Filter by category' -r -f -a "advertising\t''
+analytics\t''
+crm\t''
+mobile_attribution\t''
+payment\t''
+platforms\t''
+messaging\t''
+webinar\t''
+data\t''
+ai\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from list" -l role -d 'Filter by role (source, destination)' -r -f -a "source\t''
+destination\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from list" -l output -d 'Print a single field per row (e.g. appType)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from list" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from list" -l all -d 'List every platform, including the ones on request'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from list" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from list" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from get" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from get" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from get" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from get" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from credential-schema" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from credential-schema" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from credential-schema" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand catalog; and __fish_seen_subcommand_from credential-schema" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and not __fish_seen_subcommand_from list search get" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and not __fish_seen_subcommand_from list search get" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and not __fish_seen_subcommand_from list search get" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and not __fish_seen_subcommand_from list search get" -f -a "list" -d 'List catalog definitions (events by default)'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and not __fish_seen_subcommand_from list search get" -f -a "search" -d 'Search one subject type by text in subject ID, name and description'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and not __fish_seen_subcommand_from list search get" -f -a "get" -d 'Look up one catalog definition by the subject ID from list or search, or an alias such as event:<name>'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from list" -l type -d 'Filter by subject type (event, prop, group, column, metric, model, audience)' -r -f -a "event\t''
+prop\t''
+group\t''
+column\t''
+metric\t''
+model\t''
+audience\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from list" -s q -l query -d 'Text search across subject ID, name and description' -r
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from list" -l limit -d 'Number of results' -r
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from list" -l offset -d 'Pagination offset' -r
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from list" -l output -d 'Print a single field per row (e.g. subjectId, displayName)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from list" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from list" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from list" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from search" -l type -d 'Filter by subject type (event, prop, group, column, metric, model, audience)' -r -f -a "event\t''
+prop\t''
+group\t''
+column\t''
+metric\t''
+model\t''
+audience\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from search" -l limit -d 'Number of results' -r
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from search" -l offset -d 'Pagination offset' -r
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from search" -l output -d 'Print a single field per row (e.g. subjectId, displayName)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from search" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from search" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from search" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from search" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from get" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from get" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from get" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand dictionary; and __fish_seen_subcommand_from get" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and not __fish_seen_subcommand_from list get create update activate delete" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and not __fish_seen_subcommand_from list get create update activate delete" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and not __fish_seen_subcommand_from list get create update activate delete" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and not __fish_seen_subcommand_from list get create update activate delete" -f -a "list" -d 'List all custom metrics'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and not __fish_seen_subcommand_from list get create update activate delete" -f -a "get" -d 'Get metric details'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and not __fish_seen_subcommand_from list get create update activate delete" -f -a "create" -d 'Create a new metric'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and not __fish_seen_subcommand_from list get create update activate delete" -f -a "update" -d 'Update a metric'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and not __fish_seen_subcommand_from list get create update activate delete" -f -a "activate" -d 'Activate a draft metric'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and not __fish_seen_subcommand_from list get create update activate delete" -f -a "delete" -d 'Delete a metric'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from list" -l status -d 'Filter by status (draft, active, archived)' -r -f -a "draft\t''
+active\t''
+archived\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from list" -l limit -d 'Number of results' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from list" -l offset -d 'Pagination offset' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from list" -l output -d 'Print a single field per row (e.g. id, name)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from list" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from list" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from list" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from get" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from get" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from get" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from get" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from create" -l name -d 'Metric name' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from create" -l definition -d 'QuerySpec v2 definition JSON file' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from create" -l description -d 'Description' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from create" -l format -d 'Display format: number, currency, percentage, multiplier' -r -f -a "number\t''
+currency\t''
+percentage\t''
+multiplier\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from create" -l unit -d 'Unit suffix (e.g., "$", "%")' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from create" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from create" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from create" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from create" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from update" -l name -d 'New name' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from update" -l description -d 'New description' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from update" -l definition -d 'New QuerySpec v2 definition JSON file' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from update" -l format -d 'New format' -r -f -a "number\t''
+currency\t''
+percentage\t''
+multiplier\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from update" -l unit -d 'New unit' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from update" -l status -d 'New status' -r -f -a "draft\t''
+active\t''
+archived\t''"
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from update" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from update" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from update" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from update" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from activate" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from activate" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from activate" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from activate" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from delete" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from delete" -s y -l yes -d 'Skip confirmation'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from delete" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from delete" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand metrics; and __fish_seen_subcommand_from delete" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and not __fish_seen_subcommand_from list get" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand models; and not __fish_seen_subcommand_from list get" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and not __fish_seen_subcommand_from list get" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and not __fish_seen_subcommand_from list get" -f -a "list" -d 'List all data models'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and not __fish_seen_subcommand_from list get" -f -a "get" -d 'Get model details'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from list" -l type -d 'Filter by data type' -r
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from list" -l limit -d 'Number of results' -r
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from list" -l offset -d 'Pagination offset' -r
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from list" -l output -d 'Print a single field per row (e.g. id, name)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from list" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from list" -l valid -d 'Only show valid models'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from list" -l invalid -d 'Only show invalid models'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from list" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from list" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from get" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from get" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from get" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand models; and __fish_seen_subcommand_from get" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and not __fish_seen_subcommand_from methodologies rules ltv signals" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and not __fish_seen_subcommand_from methodologies rules ltv signals" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and not __fish_seen_subcommand_from methodologies rules ltv signals" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and not __fish_seen_subcommand_from methodologies rules ltv signals" -f -a "methodologies" -d 'List measurement methodologies'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and not __fish_seen_subcommand_from methodologies rules ltv signals" -f -a "rules" -d 'Methodology segmentation rules'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and not __fish_seen_subcommand_from methodologies rules ltv signals" -f -a "ltv" -d 'Cohort lifetime-value views'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and not __fish_seen_subcommand_from methodologies rules ltv signals" -f -a "signals" -d 'Measurement signal availability'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from methodologies" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from methodologies" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from methodologies" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from methodologies" -f -a "list" -d 'List methodologies (system + account)'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from methodologies" -f -a "get" -d 'Show one methodology by ID'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from rules" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from rules" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from rules" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from rules" -f -a "preview" -d 'Preview which segmentation rule fires for recent rows'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from ltv" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from ltv" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from ltv" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from ltv" -f -a "list" -d 'List cohort LTV rows'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from ltv" -f -a "cohort" -d 'Show one cohort by period — retention matrix + cumulative LTV curve + prediction'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from ltv" -f -a "customer" -d 'Show one customer\'s cohort + realised LTV + revenue timeline'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from signals" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from signals" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from signals" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from signals" -f -a "list" -d 'Per-signal availability summary'
+complete -c vendo -n "__fish_vendo_using_subcommand measurement; and __fish_seen_subcommand_from signals" -f -a "click-path" -d 'Click-path signal status — readiness, last-computed, recent SignalEstimates'
+complete -c vendo -n "__fish_vendo_using_subcommand completions" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand completions" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand completions" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand completions" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand commands" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand commands" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand commands" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand commands" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand version" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand version" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand version" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand version" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand update" -l version -d 'Install a specific version' -r
+complete -c vendo -n "__fish_vendo_using_subcommand update" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
+complete -c vendo -n "__fish_vendo_using_subcommand update" -l json -d 'Output raw JSON'
+complete -c vendo -n "__fish_vendo_using_subcommand update" -s h -l help -d 'Print help'
+complete -c vendo -n "__fish_vendo_using_subcommand update" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "login" -d 'Authenticate with your Vendo account'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "logout" -d 'Remove stored credentials'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "profile" -d 'Manage account profiles'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "status" -d 'Account health overview'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "workspace" -d 'Show the current account, your profiles and setup checks'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "apps" -d 'Manage apps'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "sources" -d 'Manage data sources'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "destinations" -d 'Manage data export destinations'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "jobs" -d 'Monitor sync jobs'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "catalog" -d 'Browse available platforms'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "dictionary" -d 'Browse the data dictionary catalog'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "metrics" -d 'Manage custom metrics in the Metrics Library'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "models" -d 'Manage data models'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "measurement" -d 'Inspect Marketing Measurement methodologies, LTV, and signals'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "completions" -d 'Generate shell completion script (bash, zsh, fish)'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "commands" -d 'List every command, or with --json the command tree with arguments and flags'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "version" -d 'Print version'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "update" -d 'Update the Vendo CLI using the hosted installer'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and not __fish_seen_subcommand_from login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from profile" -f -a "list" -d 'List all configured profiles'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from profile" -f -a "switch" -d 'Switch to a different profile'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from profile" -f -a "set" -d 'Set values on the active profile'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from apps" -f -a "list" -d 'List all apps'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from apps" -f -a "diagnose" -d 'Show apps that need attention'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from apps" -f -a "get" -d 'Get app details'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from apps" -f -a "pause" -d 'Pause an app'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from apps" -f -a "resume" -d 'Resume a paused app'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from apps" -f -a "delete" -d 'Delete an app (soft delete)'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from apps" -f -a "create" -d 'Create a new app'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from apps" -f -a "update" -d 'Update an app'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from sources" -f -a "list" -d 'List all data sources'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from sources" -f -a "get" -d 'Get source details'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from sources" -f -a "sync" -d 'Trigger a manual sync'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from sources" -f -a "pause" -d 'Pause a data source'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from sources" -f -a "resume" -d 'Resume a paused data source'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from sources" -f -a "delete" -d 'Delete a data source (soft delete)'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from sources" -f -a "create" -d 'Create a new data source'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from sources" -f -a "update" -d 'Update a data source'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from destinations" -f -a "list" -d 'List all destinations'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from destinations" -f -a "get" -d 'Get destination details'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from destinations" -f -a "sync" -d 'Trigger a manual sync'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from destinations" -f -a "refresh-source" -d 'Check source-data availability for a window and trigger top-up imports for missing ranges'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from destinations" -f -a "pause" -d 'Pause a destination'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from destinations" -f -a "resume" -d 'Resume a paused destination'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from destinations" -f -a "delete" -d 'Delete a destination (soft delete)'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from destinations" -f -a "create" -d 'Create a new destination (source → destination pipeline)'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from destinations" -f -a "update" -d 'Update a destination'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from jobs" -f -a "list" -d 'List sync jobs'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from jobs" -f -a "get" -d 'Get job details'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from jobs" -f -a "cancel" -d 'Cancel a pending or running job'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from jobs" -f -a "watch" -d 'Watch running and pending jobs (live polling)'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from jobs" -f -a "tail" -d 'Tail a single job or the latest job for a source/destination'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from catalog" -f -a "list" -d 'List the platforms ready to connect'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from catalog" -f -a "get" -d 'Get details for a specific platform'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from catalog" -f -a "credential-schema" -d 'Print the credential fields required to create an app of this type'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from dictionary" -f -a "list" -d 'List catalog definitions (events by default)'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from dictionary" -f -a "search" -d 'Search one subject type by text in subject ID, name and description'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from dictionary" -f -a "get" -d 'Look up one catalog definition by the subject ID from list or search, or an alias such as event:<name>'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from metrics" -f -a "list" -d 'List all custom metrics'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from metrics" -f -a "get" -d 'Get metric details'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from metrics" -f -a "create" -d 'Create a new metric'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from metrics" -f -a "update" -d 'Update a metric'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from metrics" -f -a "activate" -d 'Activate a draft metric'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from metrics" -f -a "delete" -d 'Delete a metric'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from models" -f -a "list" -d 'List all data models'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from models" -f -a "get" -d 'Get model details'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from measurement" -f -a "methodologies" -d 'List measurement methodologies'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from measurement" -f -a "rules" -d 'Methodology segmentation rules'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from measurement" -f -a "ltv" -d 'Cohort lifetime-value views'
+complete -c vendo -n "__fish_vendo_using_subcommand help; and __fish_seen_subcommand_from measurement" -f -a "signals" -d 'Measurement signal availability'

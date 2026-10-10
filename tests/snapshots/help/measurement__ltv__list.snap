@@ -1,0 +1,26 @@
+---
+source: tests/cli/snapshots.rs
+---
+List cohort LTV rows
+
+Usage: vendo measurement ltv list [OPTIONS]
+
+Options:
+      --granularity <value>  daily | weekly | monthly [default: monthly]
+      --segment <key>        Segment key (e.g. "all", "channel:meta") [default: all]
+      --from <period>        Inclusive ISO cohort period (YYYY-MM-DD)
+      --to <period>          Inclusive ISO cohort period (YYYY-MM-DD)
+      --limit <n>            Max rows [default: 50]
+      --no-predicted         Skip the naive-decay prediction join
+      --json                 Output raw JSON
+      --output <field>       Print one field per row
+  -h, --help                 Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo measurement ltv list
+  $ vendo measurement ltv list --granularity weekly --segment channel:meta
+  $ vendo measurement ltv list --from 2025-01-01 --to 2025-06-30 --no-predicted

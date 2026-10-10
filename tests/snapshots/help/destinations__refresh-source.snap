@@ -1,0 +1,24 @@
+---
+source: tests/cli/snapshots.rs
+---
+Check source-data availability for a window and trigger top-up imports for missing ranges
+
+Usage: vendo destinations refresh-source [OPTIONS] <destinationId>
+
+Arguments:
+  <destinationId>  
+
+Options:
+      --from <date>  Window start — ISO datetime or YYYY-MM-DD (default: 7 days before --to)
+      --to <date>    Window end — ISO datetime or YYYY-MM-DD (default: now)
+      --json         Output raw JSON
+  -h, --help         Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo destinations refresh-source <destinationId>
+  $ vendo destinations refresh-source <destinationId> --from 2026-06-29 --to 2026-07-02
+  $ vendo destinations refresh-source <destinationId> --json

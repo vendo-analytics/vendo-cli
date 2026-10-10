@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo metrics delete
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <metricId>
+
+Usage: vendo metrics delete <metricId>
+
+For more information, try '--help'.
+
+$ vendo metrics delete --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <metricId>","code":null,"status":null,"requestId":null}}

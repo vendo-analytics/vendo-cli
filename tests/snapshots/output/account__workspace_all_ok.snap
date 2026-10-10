@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo workspace
+exit: 0
+--- stdout ---
+Demo Account (synthetic) · demo-account
+  Account ID:  acct-alpha
+  Profile:     alpha
+  Base URL:    [stub]
+  API key:     vend...0000  (key ID key_fake_0001, scopes full access)
+
+Profiles
+  * alpha  acct-alp…  [stub-host]
+    beta   acct-bet…  [stub-host]
+
+Checks
+  [ok] CLI [version] at ~/.local/bin/vendo, on PATH
+  [ok] Config ~/.config/vendo/config.json
+  [ok] Zsh completions installed
+  [ok] Signed in as Demo Account (synthetic)

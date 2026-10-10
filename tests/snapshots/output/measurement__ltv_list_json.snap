@@ -1,0 +1,49 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement ltv list --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "granularity": "monthly",
+    "segment_key": "all",
+    "cohorts": [
+      {
+        "cohort_period": "2026-08-01",
+        "cohort_granularity": "monthly",
+        "segment_key": "all",
+        "cohort_size": 1200,
+        "realised": {
+          "ltv_30d": 42.5,
+          "ltv_90d": 85.25,
+          "ltv_12m": null,
+          "ltv_full": null,
+          "cac": 20.0,
+          "cac_ltv_ratio": 0.23460410557184752,
+          "payback_period_days": null,
+          "computed_at": null
+        },
+        "predicted": null
+      },
+      {
+        "cohort_period": "2026-07-01",
+        "cohort_granularity": "monthly",
+        "segment_key": "all",
+        "cohort_size": 980,
+        "realised": {
+          "ltv_30d": 38.0,
+          "ltv_90d": 80.0,
+          "ltv_12m": null,
+          "ltv_full": null,
+          "cac": 25.0,
+          "cac_ltv_ratio": 0.3125,
+          "payback_period_days": null,
+          "computed_at": null
+        },
+        "predicted": null
+      }
+    ],
+    "total_returned": 2
+  }
+}

@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+Get job details
+
+Usage: vendo jobs get [OPTIONS] <jobId>
+
+Arguments:
+  <jobId>  
+
+Options:
+      --json  Output raw JSON
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo jobs get <jobId>
+  $ vendo jobs get <jobId> --json

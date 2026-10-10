@@ -1,0 +1,9 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo profile switch alpha
+exit: 0
+--- stdout ---
+Done: Switched to profile alpha.
+  Account ID: acct-alpha  Base URL: [stub]
+  Verify with `vendo workspace`.

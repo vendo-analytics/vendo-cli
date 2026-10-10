@@ -1,0 +1,19 @@
+---
+source: tests/cli/snapshots.rs
+---
+Update the Vendo CLI using the hosted installer
+
+Usage: vendo update [OPTIONS]
+
+Options:
+      --version <version>  Install a specific version
+      --json               Output raw JSON
+  -h, --help               Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo update
+  $ vendo update --version 0.3.0

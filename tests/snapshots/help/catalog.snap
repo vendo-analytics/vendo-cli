@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+Browse available platforms
+
+Usage: vendo catalog [OPTIONS] <COMMAND>
+
+Commands:
+  list  List the platforms ready to connect
+  get   Get details for a specific platform
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources get
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <sourceId>
+
+Usage: vendo sources get <sourceId>
+
+For more information, try '--help'.
+
+$ vendo sources get --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <sourceId>","code":null,"status":null,"requestId":null}}

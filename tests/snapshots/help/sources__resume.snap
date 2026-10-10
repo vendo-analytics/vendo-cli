@@ -1,0 +1,23 @@
+---
+source: tests/cli/snapshots.rs
+---
+Resume a paused data source
+
+Usage: vendo sources resume [OPTIONS] <sourceId>
+
+Arguments:
+  <sourceId>  
+
+Options:
+      --json            Output raw JSON
+      --dry-run         Preview the action without executing
+      --output <field>  Print a single field (e.g. id)
+  -h, --help            Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo sources resume <sourceId>
+  $ vendo sources resume <sourceId> --dry-run

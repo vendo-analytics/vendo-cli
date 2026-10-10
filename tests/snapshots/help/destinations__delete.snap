@@ -1,0 +1,25 @@
+---
+source: tests/cli/snapshots.rs
+---
+Delete a destination (soft delete)
+
+Usage: vendo destinations delete [OPTIONS] <destinationId>
+
+Arguments:
+  <destinationId>  
+
+Options:
+      --json            Output raw JSON
+  -y, --yes             Skip confirmation prompt
+      --dry-run         Preview the action without executing
+      --output <field>  Print a single field (e.g. id)
+  -h, --help            Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo destinations delete <destinationId>
+  $ vendo destinations delete <destinationId> --yes
+  $ vendo destinations delete <destinationId> --dry-run

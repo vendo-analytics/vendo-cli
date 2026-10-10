@@ -1,0 +1,12 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps delete a0000003-0000-4000-8000-000000000003 --yes --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "deleted": true,
+    "id": "a0000003-0000-4000-8000-000000000003"
+  }
+}

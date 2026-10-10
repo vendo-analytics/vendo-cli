@@ -1,0 +1,23 @@
+---
+source: tests/cli/snapshots.rs
+---
+List all custom metrics
+
+Usage: vendo metrics list [OPTIONS]
+
+Options:
+      --status <status>  Filter by status (draft, active, archived)
+      --limit <n>        Number of results [default: 20]
+      --offset <n>       Pagination offset [default: 0]
+      --json             Output raw JSON
+      --output <field>   Print a single field per row (e.g. id, name)
+  -h, --help             Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo metrics list
+  $ vendo metrics list --status active
+  $ vendo metrics list --output id

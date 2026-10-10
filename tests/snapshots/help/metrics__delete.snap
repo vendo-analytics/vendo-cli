@@ -1,0 +1,22 @@
+---
+source: tests/cli/snapshots.rs
+---
+Delete a metric
+
+Usage: vendo metrics delete [OPTIONS] <metricId>
+
+Arguments:
+  <metricId>  
+
+Options:
+  -y, --yes   Skip confirmation
+      --json  Output raw JSON
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo metrics delete <metricId>
+  $ vendo metrics delete <metricId> -y

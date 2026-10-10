@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement ltv customer
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <customerId>
+
+Usage: vendo measurement ltv customer <customerId>
+
+For more information, try '--help'.
+
+$ vendo measurement ltv customer --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <customerId>","code":null,"status":null,"requestId":null}}

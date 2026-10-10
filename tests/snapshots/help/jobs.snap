@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+Monitor sync jobs
+
+Usage: vendo jobs [OPTIONS] <COMMAND>
+
+Commands:
+  list    List sync jobs
+  get     Get job details
+  cancel  Cancel a pending or running job
+  watch   Watch running and pending jobs (live polling)
+  tail    Tail a single job or the latest job for a source/destination
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

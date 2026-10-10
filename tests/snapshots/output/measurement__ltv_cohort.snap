@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement ltv cohort 2026-08-01
+exit: 0
+--- stdout ---
+
+Cohort 2026-08-01 (monthly, segment=all)
+
+  Size:           1,200
+  Retention pts:  2
+  Curve points:   2
+  Cum revenue:    $63,750.00 (t+30d)
+  After COGS:     $51,000.00
+
+  Prediction:
+    Method:       naive_decay
+    LTV 30d:      $42.50
+    LTV 90d:      $85.25
+    LTV 12m:      —
+    Computed:     —

@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo completions
+exit: 0
+--- stdout ---
+--- stderr ---
+`vendo completions <shell>` prints the TAB-completion script for bash, zsh or fish.
+The installer saves it and sets up your shell to load it, so you rarely need to run it yourself.
+
+Current shell could not be detected automatically.
+
+Completions are available for bash, zsh and fish. To install them:
+For bash, add this line to ~/.bashrc:
+  eval "$(vendo completions bash)"
+For zsh, add these lines to the end of ~/.zshrc:
+  autoload -Uz compinit && compinit
+  eval "$(vendo completions zsh)"
+For fish, save the script where fish loads it:
+  vendo completions fish > ~/.config/fish/completions/vendo.fish
+Then open a new terminal.

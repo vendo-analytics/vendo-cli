@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo dictionary get
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <subjectId>
+
+Usage: vendo dictionary get <subjectId>
+
+For more information, try '--help'.
+
+$ vendo dictionary get --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <subjectId>","code":null,"status":null,"requestId":null}}

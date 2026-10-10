@@ -1,0 +1,9 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo jobs get b0000009-0000-4000-8000-000000000009
+exit: 1
+--- stdout ---
+--- stderr ---
+Error: Job not found
+Request ID: cli-[request-id]

@@ -1,0 +1,23 @@
+---
+source: tests/cli/snapshots.rs
+---
+Manage apps
+
+Usage: vendo apps [OPTIONS] <COMMAND>
+
+Commands:
+  list      List all apps
+  diagnose  Show apps that need attention
+  get       Get app details
+  pause     Pause an app
+  resume    Resume a paused app
+  delete    Delete an app (soft delete)
+  create    Create a new app
+  update    Update an app
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

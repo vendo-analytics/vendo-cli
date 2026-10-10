@@ -1,0 +1,7 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources resume 50000002-0000-4000-8000-000000000002
+exit: 0
+--- stdout ---
+Done: Source 50000002... resumed.

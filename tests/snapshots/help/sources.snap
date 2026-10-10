@@ -1,0 +1,23 @@
+---
+source: tests/cli/snapshots.rs
+---
+Manage data sources
+
+Usage: vendo sources [OPTIONS] <COMMAND>
+
+Commands:
+  list    List all data sources
+  get     Get source details
+  sync    Trigger a manual sync
+  pause   Pause a data source
+  resume  Resume a paused data source
+  delete  Delete a data source (soft delete)
+  create  Create a new data source
+  update  Update a data source
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

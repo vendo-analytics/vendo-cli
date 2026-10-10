@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+Manage custom metrics in the Metrics Library
+
+Usage: vendo metrics [OPTIONS] <COMMAND>
+
+Commands:
+  list      List all custom metrics
+  get       Get metric details
+  create    Create a new metric
+  update    Update a metric
+  activate  Activate a draft metric
+  delete    Delete a metric
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

@@ -1,0 +1,61 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo catalog list --json
+exit: 0
+--- stdout ---
+{
+  "data": [
+    {
+      "appType": "bigquery",
+      "displayName": "BigQuery",
+      "category": "warehouse",
+      "description": "BigQuery connector (synthetic description)",
+      "logoUrl": "https://example.com/logos/bigquery.svg",
+      "supportedRoles": [
+        "destination"
+      ],
+      "lifecycle": "ga",
+      "selfServe": true,
+      "availability": "self_serve",
+      "requestAccessReason": null,
+      "provider": "google"
+    },
+    {
+      "appType": "google_ads",
+      "displayName": "Google Ads",
+      "category": "ads",
+      "description": "Google Ads connector (synthetic description)",
+      "logoUrl": "https://example.com/logos/google_ads.svg",
+      "supportedRoles": [
+        "source",
+        "destination"
+      ],
+      "lifecycle": "ga",
+      "selfServe": true,
+      "availability": "self_serve",
+      "requestAccessReason": null,
+      "provider": "google"
+    },
+    {
+      "appType": "shopify",
+      "displayName": "Shopify",
+      "category": "ecommerce",
+      "description": "Shopify connector (synthetic description)",
+      "logoUrl": "https://example.com/logos/shopify.svg",
+      "supportedRoles": [
+        "source"
+      ],
+      "lifecycle": "ga",
+      "selfServe": true,
+      "availability": "self_serve",
+      "requestAccessReason": null,
+      "provider": "shopify"
+    }
+  ],
+  "meta": {
+    "total": 3,
+    "selfServeTotal": 3,
+    "requestAccessTotal": 1
+  }
+}

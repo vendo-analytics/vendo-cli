@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+List all configured profiles
+
+Usage: vendo profile list [OPTIONS]
+
+Options:
+      --json  Output raw JSON
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo profile list

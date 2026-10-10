@@ -1,0 +1,10 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations list
+exit: 0
+--- stdout ---
+ ID           Source     Destination     Data Type       Status  Progress  Last Sync 
+ c0000001...  Demo Shop  Demo Warehouse  orders          active  queued    2h ago    
+ c0000002...  Demo Ads   Demo Warehouse  ad_performance  paused  —         1/5/2026  
+2 destinations

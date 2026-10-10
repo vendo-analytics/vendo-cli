@@ -1,0 +1,10 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources list
+exit: 0
+--- stdout ---
+ ID           Name       Type        Status   Progress                                        Failures  Last Sync 
+ 50000001...  Demo Shop  shopify     active   40% · chunk 2/4 · 12,000 read · 11,800 written  0         2h ago    
+ 50000002...  Demo Ads   google_ads  errored  —                                               3         1/5/2026  
+2 sources

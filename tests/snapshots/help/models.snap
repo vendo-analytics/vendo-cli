@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+Manage data models
+
+Usage: vendo models [OPTIONS] <COMMAND>
+
+Commands:
+  list  List all data models
+  get   Get model details
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

@@ -1,0 +1,13 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations sync c0000002-0000-4000-8000-000000000002 --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "jobId": "b0000005-0000-4000-8000-000000000005",
+    "status": "dispatched",
+    "message": "Sync job has been submitted"
+  }
+}

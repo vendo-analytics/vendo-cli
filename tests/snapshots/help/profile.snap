@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+Manage account profiles
+
+Usage: vendo profile [OPTIONS] <COMMAND>
+
+Commands:
+  list    List all configured profiles
+  switch  Switch to a different profile
+  set     Set values on the active profile
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

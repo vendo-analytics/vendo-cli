@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps delete
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <appId>
+
+Usage: vendo apps delete <appId>
+
+For more information, try '--help'.
+
+$ vendo apps delete --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <appId>","code":null,"status":null,"requestId":null}}

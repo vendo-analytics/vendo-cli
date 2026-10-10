@@ -1,0 +1,7 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo profile set --account acct-alpha
+exit: 0
+--- stdout ---
+Configuration saved [home]/.config/vendo/config.json

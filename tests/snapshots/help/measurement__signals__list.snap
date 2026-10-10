@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+Per-signal availability summary
+
+Usage: vendo measurement signals list [OPTIONS]
+
+Options:
+      --json  Output raw JSON
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo measurement signals list
+  $ vendo measurement signals list --json

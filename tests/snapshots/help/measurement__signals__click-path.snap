@@ -1,0 +1,19 @@
+---
+source: tests/cli/snapshots.rs
+---
+Click-path signal status — readiness, last-computed, recent SignalEstimates
+
+Usage: vendo measurement signals click-path [OPTIONS]
+
+Options:
+      --sample-limit <n>  Number of recent SignalEstimates to fetch (1..500)
+      --json              Output raw JSON
+  -h, --help              Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo measurement signals click-path
+  $ vendo measurement signals click-path --sample-limit 50 --json

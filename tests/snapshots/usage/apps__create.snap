@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps create
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  --type <appType>
+  --name <displayName>
+
+Usage: vendo apps create --type <appType> --name <displayName>
+
+For more information, try '--help'.
+
+$ vendo apps create --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  --type <appType>\n  --name <displayName>","code":null,"status":null,"requestId":null}}

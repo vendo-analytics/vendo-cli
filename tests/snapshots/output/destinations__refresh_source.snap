@@ -1,0 +1,11 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations refresh-source c0000001-0000-4000-8000-000000000001 --from 2026-01-01 --to 2026-01-08
+exit: 0
+--- stdout ---
+Done: Triggered 1 import job(s) for missing data
+Window: 2026-01-01T00:00:00.000Z → 2026-01-08T00:00:00.000Z
+  Import job: b0000005-0000-4000-8000-000000000005
+
+Follow progress: vendo jobs tail b0000005-0000-4000-8000-000000000005

@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations delete c0000002-0000-4000-8000-000000000002 --yes --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "deleted": true,
+    "id": "c0000002-0000-4000-8000-000000000002",
+    "runtime": {
+      "nodesFound": 1,
+      "nodesUpdated": 1,
+      "warnings": []
+    }
+  }
+}

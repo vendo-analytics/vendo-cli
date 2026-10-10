@@ -1,0 +1,11 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps list
+exit: 0
+--- stdout ---
+ ID           Name            Type        Role                 State     Status              Last Sync 
+ a0000001...  Demo Shop       shopify     source               active    connected           2h ago    
+ a0000002...  Demo Ads        google_ads  source, destination  active    reconnect required  1/5/2026  
+ a0000003...  Demo Warehouse  bigquery    destination          inactive  paused              —         
+3 apps

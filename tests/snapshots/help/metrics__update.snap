@@ -1,0 +1,28 @@
+---
+source: tests/cli/snapshots.rs
+---
+Update a metric
+
+Usage: vendo metrics update [OPTIONS] <metricId>
+
+Arguments:
+  <metricId>  
+
+Options:
+      --name <name>         New name
+      --description <desc>  New description
+      --definition <file>   New QuerySpec v2 definition JSON file
+      --format <format>     New format
+      --unit <unit>         New unit
+      --status <status>     New status
+      --json                Output raw JSON
+  -h, --help                Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo metrics update <metricId> --name "New Name"
+  $ vendo metrics update <metricId> --status active
+  $ vendo metrics update <metricId> --definition revised.query.json

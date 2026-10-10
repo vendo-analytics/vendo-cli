@@ -1,0 +1,44 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo dictionary list --json
+exit: 0
+--- stdout ---
+{
+  "data": [
+    {
+      "subjectId": "0123456789abcdef0123456789abcdef",
+      "subjectType": "event",
+      "displayName": "Checkout Completed",
+      "description": "A customer placed an order.",
+      "dataType": null,
+      "semanticType": null,
+      "tags": [],
+      "origin": "lexicon",
+      "lastSeenAt": null,
+      "status": "active"
+    },
+    {
+      "subjectId": "fedcba9876543210fedcba9876543210",
+      "subjectType": "event",
+      "displayName": "Order Refunded",
+      "description": null,
+      "dataType": null,
+      "semanticType": null,
+      "tags": [
+        "orders"
+      ],
+      "origin": "lexicon",
+      "lastSeenAt": null,
+      "status": "active"
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "total": 2,
+      "limit": 20,
+      "offset": 0,
+      "hasMore": false
+    }
+  }
+}

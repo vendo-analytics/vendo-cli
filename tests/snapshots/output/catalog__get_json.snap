@@ -1,0 +1,46 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo catalog get shopify --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "appType": "shopify",
+    "displayName": "Shopify",
+    "category": "ecommerce",
+    "description": "Shopify connector (synthetic description)",
+    "logoUrl": "https://example.com/logos/shopify.svg",
+    "supportedRoles": [
+      "source"
+    ],
+    "lifecycle": "ga",
+    "selfServe": true,
+    "availability": "self_serve",
+    "requestAccessReason": null,
+    "provider": "shopify",
+    "defaultPermissions": {
+      "source": [
+        "performance_data"
+      ],
+      "destination": []
+    },
+    "credentialFields": [
+      {
+        "name": "shop_domain",
+        "label": "Shop domain",
+        "type": "text",
+        "placeholder": "demo-shop.myshopify.com",
+        "description": "The store's myshopify.com domain"
+      },
+      {
+        "name": "access_token",
+        "label": "Admin API access token",
+        "type": "password",
+        "placeholder": "shpat_…",
+        "description": null
+      }
+    ],
+    "documentationUrl": "https://example.com/docs/shopify"
+  }
+}

@@ -1,0 +1,15 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo completions
+exit: 0
+--- stdout ---
+--- stderr ---
+`vendo completions <shell>` prints the TAB-completion script for bash, zsh or fish.
+The installer saves it and sets up your shell to load it, so you rarely need to run it yourself.
+
+Zsh completions are installed in ~/.zshrc.
+
+To reinstall them, run the installer:
+  curl -fsSL https://app2.vendodata.com/install.sh | bash
+Then open a new terminal.

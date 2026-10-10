@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+Cohort lifetime-value views
+
+Usage: vendo measurement ltv [OPTIONS] <COMMAND>
+
+Commands:
+  list      List cohort LTV rows
+  cohort    Show one cohort by period — retention matrix + cumulative LTV curve + prediction
+  customer  Show one customer's cohort + realised LTV + revenue timeline
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

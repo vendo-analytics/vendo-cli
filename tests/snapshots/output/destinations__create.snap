@@ -1,0 +1,9 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations create --dest-app a0000003-0000-4000-8000-000000000003 --source-app a0000001-0000-4000-8000-000000000001 --data-type orders --config-file [home]/export-config.json
+exit: 0
+--- stdout ---
+Done: Destination c0000003... created.
+  Data type: orders
+  State: active

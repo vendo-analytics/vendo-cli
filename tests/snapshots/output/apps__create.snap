@@ -1,0 +1,10 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps create --type shopify --name 'Demo Shop 2' --credentials-file [home]/shop-credentials.json
+exit: 0
+--- stdout ---
+Done: App Demo Shop 2 (a0000004...) created.
+  Type: shopify
+  Capability: source
+  State: active

@@ -1,0 +1,24 @@
+---
+source: tests/cli/snapshots.rs
+---
+Show one cohort by period — retention matrix + cumulative LTV curve + prediction
+
+Usage: vendo measurement ltv cohort [OPTIONS] <period>
+
+Arguments:
+  <period>  
+
+Options:
+      --granularity <value>  daily | weekly | monthly [default: monthly]
+      --segment <key>        Segment key [default: all]
+      --json                 Output raw JSON
+  -h, --help                 Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo measurement ltv cohort 2025-01-01
+  $ vendo measurement ltv cohort 2025-01-01 --granularity weekly --segment channel:meta
+  $ vendo measurement ltv cohort 2025-01-01 --json

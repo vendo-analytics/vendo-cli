@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources create
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  --app <appId>
+  --sync-type <syncType>
+
+Usage: vendo sources create --app <appId> --sync-type <syncType>
+
+For more information, try '--help'.
+
+$ vendo sources create --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  --app <appId>\n  --sync-type <syncType>","code":null,"status":null,"requestId":null}}

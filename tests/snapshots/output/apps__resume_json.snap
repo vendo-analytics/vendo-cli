@@ -1,0 +1,13 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps resume a0000003-0000-4000-8000-000000000003 --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "a0000003-0000-4000-8000-000000000003",
+    "state": "active",
+    "message": "App resumed successfully"
+  }
+}

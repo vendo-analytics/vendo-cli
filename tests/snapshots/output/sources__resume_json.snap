@@ -1,0 +1,19 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo sources resume 50000002-0000-4000-8000-000000000002 --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "50000002-0000-4000-8000-000000000002",
+    "state": "active",
+    "integrationStatus": "pending",
+    "runtime": {
+      "nodesFound": 1,
+      "nodesUpdated": 1,
+      "warnings": []
+    },
+    "message": "Source resumed successfully"
+  }
+}

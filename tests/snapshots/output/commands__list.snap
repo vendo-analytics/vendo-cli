@@ -1,0 +1,50 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo commands
+exit: 0
+--- stdout ---
+Vendo CLI — manage your data pipeline from the terminal
+
+Usage: vendo [OPTIONS] <COMMAND>
+
+Account:
+  login         Authenticate with your Vendo account
+  logout        Remove stored credentials
+  workspace     Show the current account, your profiles and setup checks
+  status        Account health overview
+  help          Print this message or the help of the given subcommand(s)
+  version       Print version
+  profile       Manage account profiles
+                list, switch, set
+  update        Update the Vendo CLI using the hosted installer
+
+Data pipeline:
+  apps          Manage apps
+                list, diagnose, get, pause, resume, delete, create, update
+  sources       Manage data sources
+                list, get, sync, pause, resume, delete, create, update
+  destinations  Manage data export destinations
+                list, get, sync, refresh-source, pause, resume, delete, create,
+                update
+  jobs          Monitor sync jobs
+                list, get, cancel, watch, tail
+
+Data catalog:
+  catalog       Browse available platforms
+                list, get
+  dictionary    Browse the data dictionary catalog
+                list, search, get
+  metrics       Manage custom metrics in the Metrics Library
+                list, get, create, update, activate, delete
+  models        Manage data models
+                list, get
+  measurement   Inspect Marketing Measurement methodologies, LTV, and signals
+                methodologies list, methodologies get, rules preview, ltv list,
+                ltv cohort, ltv customer, signals list, signals click-path
+
+Options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+See `vendo <command> --help` for flags and examples.

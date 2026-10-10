@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement signals click-path
+exit: 0
+--- stdout ---
+
+Click-path signal
+
+  Enabled:        yes
+  Last computed:  —
+  Sample rows:    2
+
+  Readiness:
+    ✓ Has click data
+    ✗ Has conversions
+      No conversions in 30 days

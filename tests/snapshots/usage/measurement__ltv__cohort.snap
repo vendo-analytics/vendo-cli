@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement ltv cohort
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <period>
+
+Usage: vendo measurement ltv cohort <period>
+
+For more information, try '--help'.
+
+$ vendo measurement ltv cohort --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <period>","code":null,"status":null,"requestId":null}}

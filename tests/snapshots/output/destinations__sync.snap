@@ -1,0 +1,8 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations sync c0000002-0000-4000-8000-000000000002
+exit: 0
+--- stdout ---
+Done: Sync triggered for destination c0000002....
+Use 'vendo jobs list --integration c0000002-0000-4000-8000-000000000002' to monitor.

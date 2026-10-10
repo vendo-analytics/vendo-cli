@@ -1,0 +1,26 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo workspace
+exit: 1
+--- stdout ---
+  Account ID:  acct-alpha
+  Profile:     alpha
+  Base URL:    [stub]
+  API key:     vend...d_00
+
+  Env overrides active: VENDO_API_KEY
+
+Profiles
+  * alpha  acct-alp…  [stub-host]
+    beta   acct-bet…  [stub-host]
+
+Checks
+  [warn] CLI [version] at [bin] (standard install path is ~/.local/bin/vendo), not on PATH
+         Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` if you want the managed install path.
+         Fix: Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc`, then restart your shell.
+  [ok] Config ~/.config/vendo/config.json
+  [warn] Zsh completions are not installed yet
+         Fix: Reinstall with `curl -fsSL https://app2.vendodata.com/install.sh | bash` to set them up, or run `vendo completions` for the manual steps.
+  [fail] API auth: HTTP 401: Unauthorized
+         Fix: Run `vendo login` to refresh credentials, then retry `vendo workspace`.

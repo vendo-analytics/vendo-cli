@@ -1,0 +1,25 @@
+---
+source: tests/cli/snapshots.rs
+---
+List all data models
+
+Usage: vendo models list [OPTIONS]
+
+Options:
+      --type <type>     Filter by data type
+      --valid           Only show valid models
+      --invalid         Only show invalid models
+      --limit <n>       Number of results [default: 20]
+      --offset <n>      Pagination offset [default: 0]
+      --json            Output raw JSON
+      --output <field>  Print a single field per row (e.g. id, name)
+  -h, --help            Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo models list
+  $ vendo models list --valid
+  $ vendo models list --output id

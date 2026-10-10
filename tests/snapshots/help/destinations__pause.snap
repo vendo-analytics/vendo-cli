@@ -1,0 +1,23 @@
+---
+source: tests/cli/snapshots.rs
+---
+Pause a destination
+
+Usage: vendo destinations pause [OPTIONS] <destinationId>
+
+Arguments:
+  <destinationId>  
+
+Options:
+      --json            Output raw JSON
+      --dry-run         Preview the action without executing
+      --output <field>  Print a single field (e.g. id)
+  -h, --help            Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo destinations pause <destinationId>
+  $ vendo destinations pause <destinationId> --dry-run

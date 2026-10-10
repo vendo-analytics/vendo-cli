@@ -1,0 +1,18 @@
+---
+source: tests/cli/snapshots.rs
+---
+Show the current account, your profiles and setup checks
+
+Usage: vendo workspace [OPTIONS]
+
+Options:
+      --json  Output raw JSON
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo workspace
+  $ vendo workspace --json

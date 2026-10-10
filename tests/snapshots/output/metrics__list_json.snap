@@ -1,0 +1,45 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo metrics list --json
+exit: 0
+--- stdout ---
+{
+  "data": [
+    {
+      "id": "6f1c2a9e-1111-4c3b-9a7e-000000000001",
+      "access_scope": "workspace",
+      "account_id": "acct-alpha",
+      "name": "ROAS",
+      "description": "Return on ad spend",
+      "format": "multiplier",
+      "higher_is_better": true,
+      "unit": "x",
+      "status": "active",
+      "verified_at": null,
+      "verified_by": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-05T09:07:03.000Z"
+    },
+    {
+      "id": "7a2d3b0f-2222-4c3b-9a7e-000000000002",
+      "access_scope": "workspace",
+      "account_id": "acct-alpha",
+      "name": "Blended CAC",
+      "description": "",
+      "format": "currency",
+      "higher_is_better": false,
+      "unit": "$",
+      "status": "draft",
+      "verified_at": null,
+      "verified_by": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": null
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "total": 2
+    }
+  }
+}

@@ -1,0 +1,9 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo version --json
+exit: 0
+--- stdout ---
+{
+  "version": "[version]"
+}

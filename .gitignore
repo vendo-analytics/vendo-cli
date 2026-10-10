@@ -1,10 +1,8 @@
-node_modules/
 dist/
-.turbo/
-*.tsbuildinfo
+target/
 .DS_Store
 .vscode/
 .idea/
-coverage/
-parity/out/
-rust/target/
+# insta's pending snapshots (VE-3824): review them, never commit them
+*.snap.new
+*.pending-snap

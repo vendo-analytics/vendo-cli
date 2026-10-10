@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+Get destination details
+
+Usage: vendo destinations get [OPTIONS] <destinationId>
+
+Arguments:
+  <destinationId>  
+
+Options:
+      --json  Output raw JSON
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo destinations get <destinationId>
+  $ vendo destinations get <destinationId> --json

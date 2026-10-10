@@ -1,0 +1,12 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo catalog list --all
+exit: 0
+--- stdout ---
+ App Type    Name        Category   Roles                Availability 
+ bigquery    BigQuery    warehouse  destination          ready        
+ google_ads  Google Ads  ads        source, destination  ready        
+ shopify     Shopify     ecommerce  source               ready        
+ tiktok_ads  TikTok Ads  ads        source               on request   
+4 platforms

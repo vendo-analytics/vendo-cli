@@ -1,0 +1,27 @@
+---
+source: tests/cli/snapshots.rs
+---
+Create a new destination (source → destination pipeline)
+
+Usage: vendo destinations create [OPTIONS] --dest-app <appId> --data-type <type> --config-file <path>
+
+Options:
+      --dest-app <appId>      Destination app ID (must have destination role)
+      --source-app <appId>    Source app ID (optional for some data types)
+      --data-type <type>      Data type (e.g. events, user_properties, conversions)
+      --config-file <path>    Path to JSON with { global?, tasks: [...] }
+      --schedule-file <path>  Path to JSON with schedule overrides
+      --frequency <value>     Sync frequency value [default: 1]
+      --unit <unit>           Sync frequency unit (hours, days, weeks, months) [default: days]
+      --run-now               Trigger first sync immediately
+      --json                  Output raw JSON
+      --output <field>        Print a single field (e.g. id)
+  -h, --help                  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo destinations create --dest-app <onesignal-app-id> --data-type events --config-file tasks.json
+  $ vendo destinations create --source-app <bq-id> --dest-app <os-id> --data-type user_properties --config-file tasks.json --run-now

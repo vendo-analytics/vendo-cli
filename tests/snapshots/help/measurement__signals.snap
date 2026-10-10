@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+Measurement signal availability
+
+Usage: vendo measurement signals [OPTIONS] <COMMAND>
+
+Commands:
+  list        Per-signal availability summary
+  click-path  Click-path signal status — readiness, last-computed, recent SignalEstimates
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

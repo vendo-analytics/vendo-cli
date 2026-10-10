@@ -1,5 +1,5 @@
 // The locale tags Node's ICU has data for (VE-3728), for the generators of the locale tables in
-// rust/src/output/: every language, language-script and language(-script)-region tag that
+// src/output/: every language, language-script and language(-script)-region tag that
 // `Intl.DateTimeFormat` resolves to exactly that tag, plus `und`. Sorted.
 const LETTERS = 'abcdefghijklmnopqrstuvwxyz';
 const SCRIPTS = ['Adlm', 'Arab', 'Beng', 'Cyrl', 'Deva', 'Guru', 'Hans', 'Hant', 'Latn', 'Mtei', 'Olck', 'Rohg', 'Vaii'];

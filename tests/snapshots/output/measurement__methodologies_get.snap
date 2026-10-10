@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement methodologies get m-account-2-with-a-long-id
+exit: 0
+--- stdout ---
+
+Blended (linear)
+
+  ID:             m-account-2-with-a-long-id
+  Scope:          account
+  Version:        3
+  Updated:        —
+  Description:   Click path and survey
+
+  Ensemble weights:
+    2             5
+    click_path    0.7
+    survey_response_share  0.333
+    mmm           0

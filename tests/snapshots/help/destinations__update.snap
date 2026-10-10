@@ -1,0 +1,26 @@
+---
+source: tests/cli/snapshots.rs
+---
+Update a destination
+
+Usage: vendo destinations update [OPTIONS] <destinationId>
+
+Arguments:
+  <destinationId>  
+
+Options:
+      --config-file <path>    Replace config from a JSON file
+      --schedule-file <path>  Replace schedule from a JSON file
+      --frequency <value>     Sync frequency value
+      --unit <unit>           Sync frequency unit
+      --json                  Output raw JSON
+      --output <field>        Print a single field (e.g. id)
+  -h, --help                  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo destinations update <destinationId> --frequency 6 --unit hours
+  $ vendo destinations update <destinationId> --config-file new-tasks.json

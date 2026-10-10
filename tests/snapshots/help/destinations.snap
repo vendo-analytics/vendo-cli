@@ -1,0 +1,24 @@
+---
+source: tests/cli/snapshots.rs
+---
+Manage data export destinations
+
+Usage: vendo destinations [OPTIONS] <COMMAND>
+
+Commands:
+  list            List all destinations
+  get             Get destination details
+  sync            Trigger a manual sync
+  refresh-source  Check source-data availability for a window and trigger top-up imports for missing ranges
+  pause           Pause a destination
+  resume          Resume a paused destination
+  delete          Delete a destination (soft delete)
+  create          Create a new destination (source → destination pipeline)
+  update          Update a destination
+
+Options:
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics

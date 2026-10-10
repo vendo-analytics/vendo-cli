@@ -1,0 +1,10 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo completions --json
+exit: 0
+--- stdout ---
+{
+  "shell": "zsh",
+  "installed": false
+}

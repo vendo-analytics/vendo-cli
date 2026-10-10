@@ -1,0 +1,22 @@
+---
+source: tests/cli/snapshots.rs
+---
+Set values on the active profile
+
+Usage: vendo profile set [OPTIONS]
+
+Options:
+      --api-key <key>   API key for authentication
+      --base-url <url>  Base URL for the Vendo API
+      --account <id>    Account ID to operate on
+      --json            Output raw JSON
+  -h, --help            Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo profile set --api-key <key>
+  $ vendo profile set --account <id>
+  $ vendo profile set --api-key <key> --account <id>

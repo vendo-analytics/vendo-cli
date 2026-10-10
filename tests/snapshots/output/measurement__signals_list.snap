@@ -1,0 +1,11 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement signals list
+exit: 0
+--- stdout ---
+ Signal      State  Available  Reason / Notes           
+ click_path  live   yes        —                        
+ mmm         stub   no         Not enough spend history 
+ geo_lift    stub   —          —                        
+3 signals

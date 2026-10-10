@@ -1,0 +1,10 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo dictionary list
+exit: 0
+--- stdout ---
+ Subject ID                        Display             Description                 
+ 0123456789abcdef0123456789abcdef  Checkout Completed  A customer placed an order. 
+ fedcba9876543210fedcba9876543210  Order Refunded      —                           
+2 events

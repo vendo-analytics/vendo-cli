@@ -1,0 +1,25 @@
+---
+source: tests/cli/snapshots.rs
+---
+Delete an app (soft delete)
+
+Usage: vendo apps delete [OPTIONS] <appId>
+
+Arguments:
+  <appId>  
+
+Options:
+      --json            Output raw JSON
+  -y, --yes             Skip confirmation prompt
+      --dry-run         Preview the action without executing
+      --output <field>  Print a single field (e.g. id)
+  -h, --help            Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo apps delete <appId>
+  $ vendo apps delete <appId> --yes
+  $ vendo apps delete <appId> --dry-run

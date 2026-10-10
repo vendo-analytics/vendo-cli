@@ -1,0 +1,10 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo measurement rules preview --from 2026-09-01 --to 2026-09-30
+exit: 0
+--- stdout ---
+ Objective  Channel      Custom Label  Methodology  Via      Sample 
+ sales      —                          Last click   default  12     
+ —          Paid Social  promo         Blended      rule     1234   
+2 distinct contexts

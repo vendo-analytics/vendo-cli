@@ -1,0 +1,69 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo destinations list --json
+exit: 0
+--- stdout ---
+{
+  "data": [
+    {
+      "id": "c0000001-0000-4000-8000-000000000001",
+      "accountId": "acct-alpha",
+      "sourceAppId": "a0000001-0000-4000-8000-000000000001",
+      "sourceAppName": "Demo Shop",
+      "sourceAppType": "shopify",
+      "destinationAppId": "a0000003-0000-4000-8000-000000000003",
+      "destinationAppName": "Demo Warehouse",
+      "destinationAppType": "bigquery",
+      "dataType": "orders",
+      "config": {
+        "dataset": "demo_exports"
+      },
+      "schedule": {
+        "frequency_value": 6,
+        "frequency_unit": "hours"
+      },
+      "state": "active",
+      "status": "active",
+      "isActive": true,
+      "lastSyncAt": "[now-2h30m]",
+      "lastError": null,
+      "consecutiveFailures": 0,
+      "importDependencyStatus": null,
+      "latestJobId": "b0000003-0000-4000-8000-000000000003",
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    },
+    {
+      "id": "c0000002-0000-4000-8000-000000000002",
+      "accountId": "acct-alpha",
+      "sourceAppId": "a0000002-0000-4000-8000-000000000002",
+      "sourceAppName": "Demo Ads",
+      "sourceAppType": "google_ads",
+      "destinationAppId": "a0000003-0000-4000-8000-000000000003",
+      "destinationAppName": "Demo Warehouse",
+      "destinationAppType": "bigquery",
+      "dataType": "ad_performance",
+      "config": null,
+      "schedule": null,
+      "state": "inactive",
+      "status": "paused",
+      "isActive": false,
+      "lastSyncAt": "2026-01-05T09:07:03.000Z",
+      "lastError": "Destination dataset is missing (synthetic)",
+      "consecutiveFailures": 1,
+      "importDependencyStatus": null,
+      "latestJobId": null,
+      "createdAt": "2026-01-02T08:00:00.000Z",
+      "updatedAt": "2026-01-05T09:07:03.000Z"
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "total": 2,
+      "limit": 20,
+      "offset": 0,
+      "hasMore": false
+    }
+  }
+}

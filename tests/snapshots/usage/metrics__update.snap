@@ -1,0 +1,17 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo metrics update
+exit: 2
+--- stderr ---
+error: the following required arguments were not provided:
+  <metricId>
+
+Usage: vendo metrics update <metricId>
+
+For more information, try '--help'.
+
+$ vendo metrics update --json
+exit: 2
+--- stderr ---
+{"error":{"message":"the following required arguments were not provided:\n  <metricId>","code":null,"status":null,"requestId":null}}

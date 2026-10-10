@@ -1,0 +1,20 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo apps update a0000001-0000-4000-8000-000000000001 --name 'Demo Shop (renamed)' --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "id": "a0000001-0000-4000-8000-000000000001",
+    "accountId": "acct-alpha",
+    "appType": "shopify",
+    "displayName": "Demo Shop (renamed)",
+    "permissions": [
+      "performance_data"
+    ],
+    "state": "active",
+    "createdAt": "2026-01-02T08:00:00.000Z",
+    "updatedAt": "2026-01-05T09:07:03.000Z"
+  }
+}

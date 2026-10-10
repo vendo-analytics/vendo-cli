@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+Get app details
+
+Usage: vendo apps get [OPTIONS] <appId>
+
+Arguments:
+  <appId>  
+
+Options:
+      --json  Output raw JSON
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo apps get <appId>
+  $ vendo apps get <appId> --json

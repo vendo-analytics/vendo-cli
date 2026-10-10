@@ -1,0 +1,22 @@
+---
+source: tests/cli/snapshots.rs
+---
+Watch running and pending jobs (live polling)
+
+Usage: vendo jobs watch [OPTIONS]
+
+Options:
+      --interval <seconds>           Polling interval in seconds [default: 5]
+      --source <sourceId>            Filter by source ID
+      --integration <integrationId>  Filter by destination ID
+      --json                         Output raw JSON
+  -h, --help                         Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo jobs watch
+  $ vendo jobs watch --source <sourceId>
+  $ vendo jobs watch --interval 10

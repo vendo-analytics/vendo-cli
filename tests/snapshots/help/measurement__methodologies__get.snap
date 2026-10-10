@@ -1,0 +1,21 @@
+---
+source: tests/cli/snapshots.rs
+---
+Show one methodology by ID
+
+Usage: vendo measurement methodologies get [OPTIONS] <methodologyId>
+
+Arguments:
+  <methodologyId>  
+
+Options:
+      --json  Output raw JSON
+  -h, --help  Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo measurement methodologies get <methodologyId>
+  $ vendo measurement methodologies get <methodologyId> --json
