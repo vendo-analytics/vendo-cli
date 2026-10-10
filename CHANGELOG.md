@@ -3,6 +3,11 @@
 Each release's notes. The release workflow publishes the section of a `cli-vX.Y.Z` tag's version as that GitHub
 release's notes, so every release needs a `## X.Y.Z` section here before it is tagged.
 
+## Unreleased
+
+- `vendo status` counts an app as errored when its status needs attention (reconnect required or disconnected),
+  the apps `vendo apps diagnose` lists as broken, instead of always showing 0.
+
 ## 1.1.0
 
 The Vendo CLI is rewritten in Rust and replaces the TypeScript CLI (0.3.1). Your commands, flags, profiles and

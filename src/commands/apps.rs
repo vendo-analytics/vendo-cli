@@ -127,6 +127,15 @@ pub(crate) fn role_label(app: &Value) -> String {
     }
 }
 
+/// An app whose status needs attention: active (not paused) and the API's `accessStatus` says its access
+/// is broken, `disconnected` or `auth_expired` (the table's "reconnect required"). `apps diagnose` lists
+/// these as broken and `status` counts them as errored (VE-3841); nothing in Vendo counts an app's
+/// failures, so its `consecutiveFailureCount` is always 0.
+pub(crate) fn needs_attention(app: &Value) -> bool {
+    text(app, "state").as_deref() != Some("inactive")
+        && matches!(text(app, "accessStatus").as_deref(), Some("disconnected" | "auth_expired"))
+}
+
 fn access_status_label(app: &Value) -> String {
     if app.get("state").and_then(Value::as_str) == Some("inactive") {
         return dim("paused");
@@ -230,7 +239,7 @@ pub async fn diagnose(ctx: &Ctx, json: bool) -> Result<()> {
         if text(app, "state").as_deref() == Some("inactive") {
             continue;
         }
-        if matches!(text(app, "accessStatus").as_deref(), Some("disconnected" | "auth_expired")) {
+        if needs_attention(app) {
             broken.push(app.clone());
         }
         let id = text(app, "id").unwrap_or_default();
@@ -749,6 +758,17 @@ mod tests {
         assert_eq!(role_label(&json!({ "roles": [] })), "—");
         assert_eq!(role_label(&json!({ "permissions": ["campaign_toggle"] })), "destination");
         assert_eq!(role_label(&json!({ "permissions": [] })), "—");
+    }
+
+    #[test]
+    fn apps_need_attention_when_active_with_broken_access() {
+        let app = |state: &str, access: Value| json!({ "state": state, "accessStatus": access });
+        assert!(needs_attention(&app("active", json!("auth_expired"))));
+        assert!(needs_attention(&app("active", json!("disconnected"))));
+        assert!(!needs_attention(&app("active", json!("connected"))));
+        assert!(!needs_attention(&app("active", Value::Null)));
+        assert!(!needs_attention(&json!({ "state": "active", "consecutiveFailureCount": 3 })));
+        assert!(!needs_attention(&app("inactive", json!("auth_expired"))));
     }
 
     #[test]

@@ -70,7 +70,7 @@ pub async fn status(ctx: &Ctx, json: bool) -> Result<()> {
         apps.len().to_string(),
         green(&count(&apps, &field_is("state", "active"))),
         gray(&count(&apps, &field_is("state", "inactive"))),
-        red(&count(&apps, &|a| a.get("consecutiveFailureCount").and_then(Value::as_f64).is_some_and(|n| n > 0.0))),
+        red(&count(&apps, &super::apps::needs_attention)),
     ]);
     summary.add_row(vec![
         bold("Sources"),
