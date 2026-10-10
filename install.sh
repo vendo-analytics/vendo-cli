@@ -239,11 +239,11 @@ EOF
   log "  Settings     ${settings}"
   log ""
   case ":$PATH:" in
-    *":${INSTALL_DIR}:"*) log "Get started in a new terminal, so completions load:" ;;
-    *) log "Add $(tilde "$INSTALL_DIR") to your PATH, then in a new terminal:" ;;
+    *":${INSTALL_DIR}:"*) log "Open a new terminal to load completions, then:" ;;
+    *) log "Add $(tilde "$INSTALL_DIR") to your PATH, then open a new terminal:" ;;
   esac
-  log "  vendo login    Sign in through your browser and check your account"
-  log "  vendo --help   See every command"
+  log "  vendo login     Sign in to get started"
+  log "  vendo version   Confirm the install"
   log ""
   log "Docs: https://docs.vendodata.com/cli"
 }
