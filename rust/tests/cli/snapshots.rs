@@ -461,10 +461,11 @@ fn completions_offer_no_moved_command_and_no_group_help() {
     let sandbox = Sandbox::new(CLOSED);
     let bash = text(&sandbox.run(&["completions", "bash"]).stdout);
     let offered = |opts: &str| bash.lines().any(|line| line.trim() == format!("opts=\"{opts}\""));
-    assert!(offered("-h --profile --debug --help list switch set"), "vendo profile");
-    assert!(offered("-h --profile --debug --help list get credential-schema"), "vendo catalog");
-    assert!(offered("-h --profile --debug --help list diagnose get pause resume delete create update"), "vendo apps");
-    let root = bash.lines().find(|line| line.trim().starts_with("opts=\"-V -h")).unwrap();
+    // Each command's `-h, --help` comes before the global options since VE-4109 put it on each command.
+    assert!(offered("-h --help --profile --debug list switch set"), "vendo profile");
+    assert!(offered("-h --help --profile --debug list get credential-schema"), "vendo catalog");
+    assert!(offered("-h --help --profile --debug list diagnose get pause resume delete create update"), "vendo apps");
+    let root = bash.lines().find(|line| line.trim().starts_with("opts=\"-h -V")).unwrap();
     for word in ["config", "integrations", "int", "init"] {
         assert!(!root.split(['"', ' ']).any(|w| w == word), "vendo {word}: {root}");
     }
@@ -1933,6 +1934,10 @@ fn the_command_tree_matches_the_help_screens() {
         screen.commands.retain(|name| name != CLAP_HELP);
         let mut expected = json_screen(node, &root_globals);
         expected.commands.retain(|name| name != IN_THE_TREE_ONLY);
+        // The root help lists the `version` command, not `-V, --version`, which still works and the tree keeps.
+        if path.is_empty() {
+            expected.options.retain(|option| option.name != "--version");
+        }
         assert_eq!(expected, screen, "vendo {}", args.join(" "));
         checked += 1;
         for child in node["commands"].as_array().unwrap() {

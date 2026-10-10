@@ -63,7 +63,7 @@ fn node(cmd: &clap::Command, path: &str) -> Value {
 }
 
 fn node_with(cmd: &clap::Command, path: &str, commands: Vec<Value>) -> Value {
-    let args: Vec<&Arg> = cmd.get_arguments().filter(|arg| !arg.is_hide_set()).collect();
+    let args: Vec<&Arg> = cmd.get_arguments().filter(|arg| in_the_tree(arg)).collect();
     json!({
         "name": cmd.get_name(),
         "path": path,
@@ -73,6 +73,14 @@ fn node_with(cmd: &clap::Command, path: &str, commands: Vec<Value>) -> Value {
         "options": args.iter().filter(|arg| !arg.is_positional()).map(|arg| option(arg)).collect::<Vec<_>>(),
         "commands": commands,
     })
+}
+
+/// The options and arguments the tree lists: the visible ones, as the help shows them, but not
+/// `-h, --help`, which every command takes and the tree never listed (clap added it as it built the
+/// tree until VE-4109 put it on each command), and with the root's `-V, --version`, which the root
+/// help leaves out since VE-4109 (it lists the `version` command) while it still works.
+fn in_the_tree(arg: &Arg) -> bool {
+    !matches!(arg.get_action(), clap::ArgAction::Help) && (!arg.is_hide_set() || arg.get_id() == "version")
 }
 
 /// A positional argument: `<appId>` (required) or `[shell]`.

@@ -23,10 +23,10 @@ _vendo() {
     _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--debug[Enable verbose request diagnostics]' \
-'-V[Print version]' \
-'--version[Print version]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
 ":: :_vendo_commands" \
 "*::: :->vendo" \
 && ret=0
@@ -45,9 +45,9 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--force[Sign in through the browser again, even when the saved API key works]' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (logout)
@@ -57,17 +57,17 @@ _arguments "${_arguments_options[@]}" : \
 '-y[Skip the confirmation prompt for --all]' \
 '--yes[Skip the confirmation prompt for --all]' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (profile)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__profile_commands" \
 "*::: :->profile" \
 && ret=0
@@ -82,9 +82,9 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (switch)
@@ -92,9 +92,9 @@ _arguments "${_arguments_options[@]}" : \
 '--account=[Switch by account ID instead of profile name]:accountId:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 '::profile_name:_default' \
 && ret=0
 ;;
@@ -105,9 +105,9 @@ _arguments "${_arguments_options[@]}" : \
 '--account=[Account ID to operate on]:id:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
         esac
@@ -118,26 +118,26 @@ esac
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (workspace)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (apps)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__apps_commands" \
 "*::: :->apps" \
 && ret=0
@@ -158,27 +158,27 @@ _arguments "${_arguments_options[@]}" : \
 '--output=[Print a single field per row (e.g. id)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (diagnose)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (get)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -188,9 +188,9 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -200,9 +200,9 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -214,9 +214,9 @@ _arguments "${_arguments_options[@]}" : \
 '-y[Skip confirmation prompt]' \
 '--yes[Skip confirmation prompt]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -231,9 +231,9 @@ _arguments "${_arguments_options[@]}" : \
 '--output=[Print a single field (e.g. id)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (update)
@@ -246,9 +246,9 @@ _arguments "${_arguments_options[@]}" : \
 '--output=[Print a single field (e.g. id)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -259,9 +259,9 @@ esac
 (sources)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__sources_commands" \
 "*::: :->sources" \
 && ret=0
@@ -282,18 +282,18 @@ _arguments "${_arguments_options[@]}" : \
 '--output=[Print a single field per row (e.g. id)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (get)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -304,9 +304,9 @@ _arguments "${_arguments_options[@]}" : \
 '--json[Output raw JSON]' \
 '--watch[Watch the job until it completes]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -316,9 +316,9 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -328,9 +328,9 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -342,9 +342,9 @@ _arguments "${_arguments_options[@]}" : \
 '-y[Skip confirmation prompt]' \
 '--yes[Skip confirmation prompt]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -360,9 +360,9 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--run-now[Trigger an initial sync immediately after creation]' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (update)
@@ -374,9 +374,9 @@ _arguments "${_arguments_options[@]}" : \
 '--output=[Print a single field (e.g. id)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -387,9 +387,9 @@ esac
 (destinations)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__destinations_commands" \
 "*::: :->destinations" \
 && ret=0
@@ -410,18 +410,18 @@ _arguments "${_arguments_options[@]}" : \
 '--output=[Print a single field per row (e.g. id)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (get)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -432,9 +432,9 @@ _arguments "${_arguments_options[@]}" : \
 '--json[Output raw JSON]' \
 '--watch[Watch the job until it completes]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -444,9 +444,9 @@ _arguments "${_arguments_options[@]}" : \
 '--to=[Window end — ISO datetime or YYYY-MM-DD (default\: now)]:date:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -456,9 +456,9 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -468,9 +468,9 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -482,9 +482,9 @@ _arguments "${_arguments_options[@]}" : \
 '-y[Skip confirmation prompt]' \
 '--yes[Skip confirmation prompt]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -501,9 +501,9 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--run-now[Trigger first sync immediately]' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (update)
@@ -515,9 +515,9 @@ _arguments "${_arguments_options[@]}" : \
 '--output=[Print a single field (e.g. id)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -528,9 +528,9 @@ esac
 (jobs)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__jobs_commands" \
 "*::: :->jobs" \
 && ret=0
@@ -552,18 +552,18 @@ _arguments "${_arguments_options[@]}" : \
 '--output=[Print a single field per row (e.g. id)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (get)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':job_id:_default' \
 && ret=0
 ;;
@@ -575,9 +575,9 @@ _arguments "${_arguments_options[@]}" : \
 '-y[Skip confirmation prompt]' \
 '--yes[Skip confirmation prompt]' \
 '--dry-run[Preview the action without executing]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':job_id:_default' \
 && ret=0
 ;;
@@ -588,9 +588,9 @@ _arguments "${_arguments_options[@]}" : \
 '--integration=[Filter by destination ID]:integrationId:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (tail)
@@ -601,9 +601,9 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--next[Wait for the next new job when tailing a source or destination]' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 '::job_id:_default' \
 && ret=0
 ;;
@@ -614,9 +614,9 @@ esac
 (catalog)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__catalog_commands" \
 "*::: :->catalog" \
 && ret=0
@@ -635,18 +635,18 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--all[List every platform, including the ones on request]' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (get)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':app_type:_default' \
 && ret=0
 ;;
@@ -654,9 +654,9 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':app_type:_default' \
 && ret=0
 ;;
@@ -667,9 +667,9 @@ esac
 (dictionary)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__dictionary_commands" \
 "*::: :->dictionary" \
 && ret=0
@@ -690,9 +690,9 @@ _arguments "${_arguments_options[@]}" : \
 '--output=[Print a single field per row (e.g. subjectId, displayName)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (search)
@@ -703,9 +703,9 @@ _arguments "${_arguments_options[@]}" : \
 '--output=[Print a single field per row (e.g. subjectId, displayName)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':query:_default' \
 && ret=0
 ;;
@@ -713,9 +713,9 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':subject_id:_default' \
 && ret=0
 ;;
@@ -726,9 +726,9 @@ esac
 (metrics)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__metrics_commands" \
 "*::: :->metrics" \
 && ret=0
@@ -747,18 +747,18 @@ _arguments "${_arguments_options[@]}" : \
 '--output=[Print a single field per row (e.g. id, name)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (get)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -771,9 +771,9 @@ _arguments "${_arguments_options[@]}" : \
 '--unit=[Unit suffix (e.g., "\$", "%")]:unit:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (update)
@@ -786,9 +786,9 @@ _arguments "${_arguments_options[@]}" : \
 '--status=[New status]:status:(draft active archived)' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -796,9 +796,9 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -808,9 +808,9 @@ _arguments "${_arguments_options[@]}" : \
 '-y[Skip confirmation]' \
 '--yes[Skip confirmation]' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -821,9 +821,9 @@ esac
 (models)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__models_commands" \
 "*::: :->models" \
 && ret=0
@@ -844,18 +844,18 @@ _arguments "${_arguments_options[@]}" : \
 '--valid[Only show valid models]' \
 '--invalid[Only show invalid models]' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (get)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -866,9 +866,9 @@ esac
 (measurement)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__measurement_commands" \
 "*::: :->measurement" \
 && ret=0
@@ -882,9 +882,9 @@ _arguments "${_arguments_options[@]}" : \
             (methodologies)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__measurement__subcmd__methodologies_commands" \
 "*::: :->methodologies" \
 && ret=0
@@ -901,18 +901,18 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--no-system[Exclude system-seeded methodologies]' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (get)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':id:_default' \
 && ret=0
 ;;
@@ -923,9 +923,9 @@ esac
 (rules)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__measurement__subcmd__rules_commands" \
 "*::: :->rules" \
 && ret=0
@@ -943,9 +943,9 @@ _arguments "${_arguments_options[@]}" : \
 '--limit=[Max distinct contexts to return]:n:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
         esac
@@ -955,9 +955,9 @@ esac
 (ltv)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__measurement__subcmd__ltv_commands" \
 "*::: :->ltv" \
 && ret=0
@@ -979,9 +979,9 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--no-predicted[Skip the naive-decay prediction join]' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (cohort)
@@ -990,9 +990,9 @@ _arguments "${_arguments_options[@]}" : \
 '--segment=[Segment key]:key:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':period:_default' \
 && ret=0
 ;;
@@ -1000,9 +1000,9 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':customer_id:_default' \
 && ret=0
 ;;
@@ -1013,9 +1013,9 @@ esac
 (signals)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ":: :_vendo__subcmd__measurement__subcmd__signals_commands" \
 "*::: :->signals" \
 && ret=0
@@ -1030,9 +1030,9 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (click-path)
@@ -1040,9 +1040,9 @@ _arguments "${_arguments_options[@]}" : \
 '--sample-limit=[Number of recent SignalEstimates to fetch (1..500)]:n:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
         esac
@@ -1058,18 +1058,18 @@ _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output only the mcpServers JSON block]' \
 '--show-key[Embed your actual API key instead of a \${VENDO_API_KEY} placeholder]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (completions)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 ':shell:(bash zsh fish)' \
 && ret=0
 ;;
@@ -1077,18 +1077,18 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (version)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (update)
@@ -1096,9 +1096,9 @@ _arguments "${_arguments_options[@]}" : \
 '--version=[Install a specific version]:version:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
-'--debug[Enable verbose request diagnostics]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
 && ret=0
 ;;
 (help)

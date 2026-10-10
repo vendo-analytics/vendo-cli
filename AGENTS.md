@@ -80,7 +80,13 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   Three sections since VE-4109 (Yalcin 2026-10-10): "Account" first, "Getting started" and "Account" in one
   (❓ open: the order inside, Getting started's commands then Account's, keeps `help` and `version` after `status`,
   so `vendo commands --json` lists `profile`, `mcp`, `completions` and `update` before `apps`, its only change),
-  then "Data pipeline" and "Data catalog".
+  then "Data pipeline" and "Data catalog". The root help's `Options:` lists only `--profile` and `--debug`
+  (VE-4109, Yalcin 2026-10-10): `-V, --version` and `-h, --help` still work, hidden there, as the `version` and
+  `help` rows list them. clap cannot hide its own help flag on one command, so the root disables it and
+  `cli::help_flags` gives every other command `-h, --help` back in clap's words; their help screens are unchanged,
+  and in the completion scripts each command's `-h`/`--help` now comes before `--profile`/`--debug` (the same words,
+  reordered). `vendo commands --json` keeps the root's `--version` and lists no `--help`, as before
+  (`tree::in_the_tree`).
   Group screens have no `help` row; `--profile`/`--debug` sit under "Global options". "Getting started" ended with
   `help` and `version` (VE-3893, decided by Yalcin 2026-10-07). `help` is clap's own command, which the tree
   `cli::command` returns has only once clap builds it, so its row is `CLAP_HELP` in `cli.rs` (clap's words, which a

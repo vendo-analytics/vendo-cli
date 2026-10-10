@@ -26,13 +26,31 @@ const GLOBAL_OPTIONS: &str = "Global options";
 
 /// The clap command: [`Cli`] plus what commander did implicitly. Every
 /// option value may start with `-` (`--frequency -5`, `--name -Prod`), and the
-/// root lists `-V, --version`, which [`preprocess`] handles before clap runs.
+/// root takes `-V, --version`, which [`preprocess`] handles before clap runs.
 /// The root help is sectioned ([`HELP_SECTIONS`]) and group screens have no `help` row (VE-3827).
+/// The root help's options leave out `-V, --version` and `-h, --help`, which still work, as the
+/// `version` and `help` rows list them (VE-4109, Yalcin 2026-10-10); every other screen keeps its
+/// `-h, --help` row.
 pub fn command() -> clap::Command {
-    let cmd = no_help_rows(allow_hyphen_values(Cli::command()))
-        .arg(Arg::new("version").short('V').long("version").action(ArgAction::SetTrue).help("Print version"));
+    let cmd = help_flags(no_help_rows(allow_hyphen_values(Cli::command())))
+        .disable_help_flag(true)
+        .arg(help_flag().hide(true))
+        .arg(
+            Arg::new("version").short('V').long("version").action(ArgAction::SetTrue).help("Print version").hide(true),
+        );
     let template = root_help_template(&cmd);
     cmd.help_template(template)
+}
+
+/// `-h, --help`, which clap adds to every command unless the root disables it, as it does to leave it
+/// out of the root help's options (VE-4109): each command below the root gets it back here, in clap's
+/// words and place.
+fn help_flag() -> Arg {
+    Arg::new("help").short('h').long("help").action(ArgAction::Help).help("Print help")
+}
+
+fn help_flags(cmd: clap::Command) -> clap::Command {
+    cmd.mut_subcommands(|sub| help_flags(sub.arg(help_flag())))
 }
 
 fn allow_hyphen_values(cmd: clap::Command) -> clap::Command {

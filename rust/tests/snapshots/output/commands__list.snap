@@ -102,7 +102,5 @@ Data catalog:
 Options:
       --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
       --debug           Enable verbose request diagnostics
-  -V, --version         Print version
-  -h, --help            Print help
 
 See `vendo <command> --help` for flags and examples.
