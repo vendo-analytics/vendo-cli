@@ -118,9 +118,10 @@ impl Recorder {
 
 // ── help screens ────────────────────────────────────────────────────────────
 
-/// The headings that list commands: a group's `Commands:`, and the four sections of the root
-/// help (VE-3827), which name every command with the commands under it.
-const COMMAND_LISTS: [&str; 5] = ["Commands:", "Getting started:", "Data pipeline:", "Data catalog:", "Account:"];
+/// The headings that list commands: a group's `Commands:`, and the three sections of the root
+/// help (VE-3827; "Getting started" and "Account" are one, "Account", since VE-4109), which name every
+/// command with the commands under it.
+const COMMAND_LISTS: [&str; 4] = ["Commands:", "Account:", "Data pipeline:", "Data catalog:"];
 
 /// The names in a help screen's command lists. Entries sit two spaces in; anything indented
 /// further continues a description, or lists the commands under a group in the root help, which
@@ -259,7 +260,7 @@ fn the_help_walk_reads_clap_command_lists() {
     let screen = "About\n\nUsage: vendo x <COMMAND>\n\nCommands:\n  list          List things [alias: ls]\n  get-one       Get one\n                that wraps\n\nOptions:\n  -h, --help  Print help\n";
     assert_eq!(subcommands(screen), ["list", "get-one"]);
     assert!(subcommands("Usage: vendo x\n\nOptions:\n  -h, --help  Print help\n").is_empty());
-    let root = "About\n\nUsage: vendo <COMMAND>\n\nGetting started:\n  login  Log in\n\nData pipeline:\n  Apps         Manage apps\n    apps list  List apps that\n               wrap\n\nOptions:\n  -h, --help  Print help\n";
+    let root = "About\n\nUsage: vendo <COMMAND>\n\nAccount:\n  login  Log in\n\nData pipeline:\n  Apps         Manage apps\n    apps list  List apps that\n               wrap\n\nOptions:\n  -h, --help  Print help\n";
     assert_eq!(subcommands(root), ["login", "apps"]);
 }
 

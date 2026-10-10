@@ -77,14 +77,18 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   tree after `status` (`tree::KEPT_IN_THE_TREE`). ❓ Open for Yalcin, built with cautious defaults: the group's name
   capitalized as in his example, a description column per section (one column for the whole help would put every
   description at column 36), no blank line between groups, and `commands` kept in the JSON tree.
-  Group screens have no `help` row; `--profile`/`--debug` sit under "Global options". "Getting started" ends with
+  Three sections since VE-4109 (Yalcin 2026-10-10): "Account" first, "Getting started" and "Account" in one
+  (❓ open: the order inside, Getting started's commands then Account's, keeps `help` and `version` after `status`,
+  so `vendo commands --json` lists `profile`, `mcp`, `completions` and `update` before `apps`, its only change),
+  then "Data pipeline" and "Data catalog".
+  Group screens have no `help` row; `--profile`/`--debug` sit under "Global options". "Getting started" ended with
   `help` and `version` (VE-3893, decided by Yalcin 2026-10-07). `help` is clap's own command, which the tree
   `cli::command` returns has only once clap builds it, so its row is `CLAP_HELP` in `cli.rs` (clap's words, which a
   test checks) with nothing under it; `vendo help <command>` prints that command's screen (`vendo help help` the
   `help` command's own), and `vendo help --help` stays clap's usage error (exit 2). `vendo version` prints exactly
   what `--version` and `-V` print, which `preprocess` still reads anywhere before `--` (`commands/version.rs`
   prints both), and with `--json`
-  `{"version":"<v>"}`. ❓ Open for Yalcin, built with cautious defaults: the two rows last in "Getting started", their
+  `{"version":"<v>"}`. ❓ Open for Yalcin, built with cautious defaults: the two rows after `status`, their
   descriptions in clap's words for `-h` and `-V` ("Print this message or the help of the given subcommand(s)",
   "Print version"), and `vendo help --help` left as the usage error. `workspace`
   is the one identity and setup command (VE-3891, below; `whoami` until then) and `config` moved under `profile`;

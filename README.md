@@ -85,14 +85,13 @@ first; pass `--yes` in scripts).
 ## Commands
 
 `vendo help` (or `vendo --help`) lists every command with its description, each group followed by the commands
-under it (`apps list`, `measurement ltv cohort`), in four sections:
+under it (`apps list`, `measurement ltv cohort`), in three sections:
 
 | Section | Commands |
 | --- | --- |
-| Getting started | `login`, `logout`, `workspace`, `status`, `help`, `version` |
+| Account | `login`, `logout`, `workspace`, `status`, `help`, `version`, `profile`, `mcp`, `completions`, `update` |
 | Data pipeline | `apps`, `sources`, `destinations`, `jobs` |
 | Data catalog | `catalog`, `dictionary`, `metrics`, `models`, `measurement` |
-| Account | `profile`, `mcp`, `completions`, `update` |
 
 The commands in each group:
 

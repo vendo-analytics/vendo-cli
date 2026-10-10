@@ -8,13 +8,21 @@ Vendo CLI — manage your data pipeline from the terminal
 
 Usage: vendo [OPTIONS] <COMMAND>
 
-Getting started:
-  login      Authenticate with your Vendo account
-  logout     Remove stored credentials
-  workspace  Show the current account, your profiles and setup checks
-  status     Account health overview
-  help       Print this message or the help of the given subcommand(s)
-  version    Print version
+Account:
+  login             Authenticate with your Vendo account
+  logout            Remove stored credentials
+  workspace         Show the current account, your profiles and setup checks
+  status            Account health overview
+  help              Print this message or the help of the given subcommand(s)
+  version           Print version
+  Profile           Manage account profiles
+    profile list    List all configured profiles
+    profile switch  Switch to a different profile
+    profile set     Set values on the active profile
+  mcp               Show how to connect an MCP client (Claude, Cursor, Windsurf)
+                    to Vendo
+  completions       Generate shell completion script (bash, zsh, fish)
+  update            Update the Vendo CLI using the hosted installer
 
 Data pipeline:
   Apps                           Manage apps
@@ -90,16 +98,6 @@ Data catalog:
     measurement signals list        Per-signal availability summary
     measurement signals click-path  Click-path signal status — readiness,
                                     last-computed, recent SignalEstimates
-
-Account:
-  Profile           Manage account profiles
-    profile list    List all configured profiles
-    profile switch  Switch to a different profile
-    profile set     Set values on the active profile
-  mcp               Show how to connect an MCP client (Claude, Cursor, Windsurf)
-                    to Vendo
-  completions       Generate shell completion script (bash, zsh, fish)
-  update            Update the Vendo CLI using the hosted installer
 
 Options:
       --profile <name>  Use a specific account profile (or set VENDO_PROFILE)

@@ -54,12 +54,15 @@ fn no_help_rows(cmd: clap::Command) -> clap::Command {
 
 /// The sections of `vendo --help`, in order. Every visible command sits in exactly one: a test
 /// fails when one is missing, so a new command cannot drop out of the root help. Move a command
-/// by moving its name. `help` is clap's own command, listed since VE-3893 with `version`.
-pub const HELP_SECTIONS: [(&str, &[&str]); 4] = [
-    ("Getting started", &["login", "logout", "workspace", "status", "help", "version"]),
+/// by moving its name. `help` is clap's own command, listed since VE-3893 with `version`. "Account"
+/// is "Getting started" and "Account" in one, first (VE-4109, Yalcin 2026-10-10).
+pub const HELP_SECTIONS: [(&str, &[&str]); 3] = [
+    (
+        "Account",
+        &["login", "logout", "workspace", "status", "help", "version", "profile", "mcp", "completions", "update"],
+    ),
     ("Data pipeline", &["apps", "sources", "destinations", "jobs"]),
     ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement"]),
-    ("Account", &["profile", "mcp", "completions", "update"]),
 ];
 
 /// The root help fits 80 columns: a description that would go further wraps onto lines of its own
@@ -2288,12 +2291,19 @@ mod tests {
         }
         assert_eq!(listed, expected);
         assert!(listed.iter().any(|(path, _)| path == "measurement ltv cohort"), "nested groups list their commands");
-        // `help` and `version` close "Getting started", in clap's words for -h and -V (VE-3893).
-        let started = lines.iter().position(|line| *line == "Getting started:").unwrap();
-        let rows: Vec<&str> = lines[started + 1..].iter().take_while(|line| !line.is_empty()).copied().collect();
+        // "Account" comes first, "Getting started" and "Account" in one (VE-4109); `help` and `version` follow
+        // `status`, in clap's words for -h and -V (VE-3893).
+        let titles: Vec<&str> =
+            lines.iter().copied().filter(|line| line.ends_with(':') && !line.starts_with(' ')).collect();
+        assert_eq!(titles, ["Account:", "Data pipeline:", "Data catalog:", "Options:"]);
+        let account = lines.iter().position(|line| *line == "Account:").unwrap();
+        let rows: Vec<&str> = lines[account + 1..].iter().take_while(|line| !line.is_empty()).copied().collect();
         assert_eq!(
-            rows[rows.len() - 2..],
-            ["  help       Print this message or the help of the given subcommand(s)", "  version    Print version"]
+            rows[4..6],
+            [
+                "  help              Print this message or the help of the given subcommand(s)",
+                "  version           Print version"
+            ]
         );
         assert!(!lines.contains(&"Commands:"), "the sections replace the Commands: list");
         // Hidden commands and aliases stay out, `commands` among them since VE-4109.

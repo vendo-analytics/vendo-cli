@@ -253,6 +253,230 @@ exit: 0
       "commands": []
     },
     {
+      "name": "profile",
+      "path": "profile",
+      "description": "Manage account profiles",
+      "aliases": [],
+      "arguments": [],
+      "options": [],
+      "commands": [
+        {
+          "name": "list",
+          "path": "profile list",
+          "description": "List all configured profiles",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "switch",
+          "path": "profile switch",
+          "description": "Switch to a different profile",
+          "aliases": [],
+          "arguments": [
+            {
+              "name": "profile",
+              "description": null,
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": []
+            }
+          ],
+          "options": [
+            {
+              "name": "--account",
+              "short": null,
+              "valueName": "accountId",
+              "description": "Switch by account ID instead of profile name",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        },
+        {
+          "name": "set",
+          "path": "profile set",
+          "description": "Set values on the active profile",
+          "aliases": [],
+          "arguments": [],
+          "options": [
+            {
+              "name": "--api-key",
+              "short": null,
+              "valueName": "key",
+              "description": "API key for authentication",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--base-url",
+              "short": null,
+              "valueName": "url",
+              "description": "Base URL for the Vendo API",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--account",
+              "short": null,
+              "valueName": "id",
+              "description": "Account ID to operate on",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
+              "name": "--json",
+              "short": null,
+              "valueName": null,
+              "description": "Output raw JSON",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            }
+          ],
+          "commands": []
+        }
+      ]
+    },
+    {
+      "name": "mcp",
+      "path": "mcp",
+      "description": "Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output only the mcpServers JSON block",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--show-key",
+          "short": null,
+          "valueName": null,
+          "description": "Embed your actual API key instead of a ${VENDO_API_KEY} placeholder",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
+      "name": "completions",
+      "path": "completions",
+      "description": "Generate shell completion script (bash, zsh, fish)",
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "shell",
+          "description": null,
+          "required": false,
+          "default": null,
+          "possibleValues": [
+            "bash",
+            "zsh",
+            "fish"
+          ],
+          "suggestedValues": []
+        }
+      ],
+      "options": [
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
+      "name": "update",
+      "path": "update",
+      "description": "Update the Vendo CLI using the hosted installer",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--version",
+          "short": null,
+          "valueName": "version",
+          "description": "Install a specific version",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
+    },
+    {
       "name": "apps",
       "path": "apps",
       "description": "Manage apps",
@@ -3575,230 +3799,6 @@ exit: 0
           ]
         }
       ]
-    },
-    {
-      "name": "profile",
-      "path": "profile",
-      "description": "Manage account profiles",
-      "aliases": [],
-      "arguments": [],
-      "options": [],
-      "commands": [
-        {
-          "name": "list",
-          "path": "profile list",
-          "description": "List all configured profiles",
-          "aliases": [],
-          "arguments": [],
-          "options": [
-            {
-              "name": "--json",
-              "short": null,
-              "valueName": null,
-              "description": "Output raw JSON",
-              "required": false,
-              "default": null,
-              "possibleValues": [],
-              "suggestedValues": [],
-              "global": false
-            }
-          ],
-          "commands": []
-        },
-        {
-          "name": "switch",
-          "path": "profile switch",
-          "description": "Switch to a different profile",
-          "aliases": [],
-          "arguments": [
-            {
-              "name": "profile",
-              "description": null,
-              "required": false,
-              "default": null,
-              "possibleValues": [],
-              "suggestedValues": []
-            }
-          ],
-          "options": [
-            {
-              "name": "--account",
-              "short": null,
-              "valueName": "accountId",
-              "description": "Switch by account ID instead of profile name",
-              "required": false,
-              "default": null,
-              "possibleValues": [],
-              "suggestedValues": [],
-              "global": false
-            },
-            {
-              "name": "--json",
-              "short": null,
-              "valueName": null,
-              "description": "Output raw JSON",
-              "required": false,
-              "default": null,
-              "possibleValues": [],
-              "suggestedValues": [],
-              "global": false
-            }
-          ],
-          "commands": []
-        },
-        {
-          "name": "set",
-          "path": "profile set",
-          "description": "Set values on the active profile",
-          "aliases": [],
-          "arguments": [],
-          "options": [
-            {
-              "name": "--api-key",
-              "short": null,
-              "valueName": "key",
-              "description": "API key for authentication",
-              "required": false,
-              "default": null,
-              "possibleValues": [],
-              "suggestedValues": [],
-              "global": false
-            },
-            {
-              "name": "--base-url",
-              "short": null,
-              "valueName": "url",
-              "description": "Base URL for the Vendo API",
-              "required": false,
-              "default": null,
-              "possibleValues": [],
-              "suggestedValues": [],
-              "global": false
-            },
-            {
-              "name": "--account",
-              "short": null,
-              "valueName": "id",
-              "description": "Account ID to operate on",
-              "required": false,
-              "default": null,
-              "possibleValues": [],
-              "suggestedValues": [],
-              "global": false
-            },
-            {
-              "name": "--json",
-              "short": null,
-              "valueName": null,
-              "description": "Output raw JSON",
-              "required": false,
-              "default": null,
-              "possibleValues": [],
-              "suggestedValues": [],
-              "global": false
-            }
-          ],
-          "commands": []
-        }
-      ]
-    },
-    {
-      "name": "mcp",
-      "path": "mcp",
-      "description": "Show how to connect an MCP client (Claude, Cursor, Windsurf) to Vendo",
-      "aliases": [],
-      "arguments": [],
-      "options": [
-        {
-          "name": "--json",
-          "short": null,
-          "valueName": null,
-          "description": "Output only the mcpServers JSON block",
-          "required": false,
-          "default": null,
-          "possibleValues": [],
-          "suggestedValues": [],
-          "global": false
-        },
-        {
-          "name": "--show-key",
-          "short": null,
-          "valueName": null,
-          "description": "Embed your actual API key instead of a ${VENDO_API_KEY} placeholder",
-          "required": false,
-          "default": null,
-          "possibleValues": [],
-          "suggestedValues": [],
-          "global": false
-        }
-      ],
-      "commands": []
-    },
-    {
-      "name": "completions",
-      "path": "completions",
-      "description": "Generate shell completion script (bash, zsh, fish)",
-      "aliases": [],
-      "arguments": [
-        {
-          "name": "shell",
-          "description": null,
-          "required": false,
-          "default": null,
-          "possibleValues": [
-            "bash",
-            "zsh",
-            "fish"
-          ],
-          "suggestedValues": []
-        }
-      ],
-      "options": [
-        {
-          "name": "--json",
-          "short": null,
-          "valueName": null,
-          "description": "Output raw JSON",
-          "required": false,
-          "default": null,
-          "possibleValues": [],
-          "suggestedValues": [],
-          "global": false
-        }
-      ],
-      "commands": []
-    },
-    {
-      "name": "update",
-      "path": "update",
-      "description": "Update the Vendo CLI using the hosted installer",
-      "aliases": [],
-      "arguments": [],
-      "options": [
-        {
-          "name": "--version",
-          "short": null,
-          "valueName": "version",
-          "description": "Install a specific version",
-          "required": false,
-          "default": null,
-          "possibleValues": [],
-          "suggestedValues": [],
-          "global": false
-        },
-        {
-          "name": "--json",
-          "short": null,
-          "valueName": null,
-          "description": "Output raw JSON",
-          "required": false,
-          "default": null,
-          "possibleValues": [],
-          "suggestedValues": [],
-          "global": false
-        }
-      ],
-      "commands": []
     }
   ]
 }
