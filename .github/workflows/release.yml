@@ -121,7 +121,7 @@ jobs:
               cat "$RUNNER_TEMP/changelog.md"
               cat <<'EOF'
 
-          ## Install
+          ### Install
 
           curl -fsSL https://app2.vendodata.com/install.sh | bash
 

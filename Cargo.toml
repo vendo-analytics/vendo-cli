@@ -2,7 +2,7 @@
 name = "vendo"
 # The CLI's release version. A release tag cli-vX.Y.Z or cli-vX.Y.Z-rc.N must
 # match it (release.yml checks).
-version = "1.1.0-rc.6"
+version = "1.1.0"
 edition = "2024"
 description = "Vendo CLI — manage your data pipeline from the terminal"
 license = "MIT"
