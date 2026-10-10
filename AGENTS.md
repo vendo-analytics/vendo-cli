@@ -4,57 +4,60 @@ Agent guide for this repo, shared by every coding agent (Codex reads it directly
 Claude Code reads it through `CLAUDE.md` = `@AGENTS.md`). Edit this file, not `CLAUDE.md`.
 
 ## Purpose
-Standalone TypeScript CLI — "manage your data pipeline from the terminal". Published as the
-`vendo` binary. Talks to the pipelines/web API (`/api/v1/*`). **This repo is the canonical and
-only active Vendo CLI** — the former in-monorepo `vendo-web-v2/apps/cli` was removed (2026-06-02).
+The Vendo CLI, in Rust — "manage your data pipeline from the terminal". Published as the `vendo` binary for
+macOS and Linux (x64 and arm64). Talks to the pipelines/web API (`/api/v1/*`) and the web app's routes.
+**This repo is the canonical and only active Vendo CLI** — the former in-monorepo `vendo-web-v2/apps/cli` was
+removed (2026-06-02).
 
 ## Stack
-- Node ≥ 22, TypeScript 5.9, `commander` 13, `chalk` 5, `cli-table3`, `ora`.
-- Build: `tsup` (ESM → `dist/cli.js`) + Node SEA single-executable for standalone binaries.
-- Tests: `vitest`. Lint: `eslint` 9. Version: see `package.json`.
+- Rust (stable, edition 2024): clap 4, reqwest (rustls), tokio, serde_json (`preserve_order`,
+  `arbitrary_precision`), ICU4X, comfy-table, indicatif, inquire and crossterm (the group menus, the `menu` feature).
+- The crate sits at the repo root: `Cargo.toml`, `Cargo.lock`, `src/`, `tests/`, `deny.toml`, `rustfmt.toml`.
+  Version: `Cargo.toml`. User-facing changes per release: `CHANGELOG.md`.
 
-## Rust port (`rust/`, Linear project "Vendo CLI in Rust")
-The CLI is being ported to Rust one command group at a time (VE-3664 to VE-3669); the TypeScript
-CLI in `src/` stays the shipped binary and takes bug fixes only until the switch-over (VE-3669).
-- Goal: works exactly like the TypeScript CLI, just faster. `pnpm parity --rust rust/target/debug/vendo`
-  compares the two on staging; allowed differences live in `parity/intended-differences.json`.
+## History
+The CLI was TypeScript (Node SEA binaries, 0.x) until 1.1.0. It was ported to Rust one command group at a time
+(Linear project "Vendo CLI in Rust", VE-3664 to VE-3669) with one goal: work exactly like the TypeScript CLI, just
+faster. A parity harness compared the two on staging until 1.1.0 replaced the TypeScript CLI (VE-3669, Yalcin
+2026-10-10) and deleted it and the harness; the snapshot tests (below) are the regression net now. The intended differences
+it accepted are listed in `CHANGELOG.md` (1.1.0); the harness and `parity/intended-differences.json` are in git
+history before VE-3669. The decisions below still mention the TypeScript CLI where they explain why behaviour
+differs from it.
+
+## Decisions
 - `--json` prints the API response verbatim (no key rewriting), so nested `config`/`schedule`/
   `metrics` keys print snake_case where the TS client camelCased them (decided 2026-10-05). Where a TS command
   built its own JSON (whoami's `config`, now in `workspace --json`; the `metrics` `{ data }` envelope), Rust keeps that shape (Yalcin,
   2026-10-05, VE-3668). Numbers print as the API sent them (serde_json `arbitrary_precision`), and keys take
   JavaScript's order, array-index keys first, as `JSON.parse` gave the TS CLI (VE-3728).
 - Locale (VE-3728): dates, numbers, the rate-limit time and measurement money follow `LC_ALL`/`LC_MESSAGES`/
-  `LANG` as Node's ICU does (ICU4X, `rust/src/output/locale.rs`). Node-generated tables fill ICU4X's gaps
+  `LANG` as Node's ICU does (ICU4X, `src/output/locale.rs`). Node-generated tables fill ICU4X's gaps
   (`scripts/gen-ymd-patterns.mjs`, `scripts/gen-usd-patterns.mjs`), and `scripts/gen-locale-fixture.mjs`
   writes the Node values the tests check. Regenerate all three when Node's ICU changes.
 - Confirmation (VE-3823, decided by Yalcin, 2026-10-05): delete, cancel, reset and `logout --all` ask y/N only when
   stdin and stdout are both terminals and prompts are not off (`CI`/`VENDO_NO_INPUT`, VE-3826). Otherwise they need
   `--yes` and stop with exit 1 before any request, where the TS CLI went ahead; `--json` no longer implies `--yes`.
   `output::confirm` owns this.
-- Stack: clap 4, reqwest (rustls), tokio, serde_json (`preserve_order`, `arbitrary_precision`), ICU4X,
-  comfy-table, indicatif, inquire and crossterm (the group menus, the `menu` feature).
-  Toolchain: `rustup` stable (`~/.cargo/bin`); `pnpm rust:test`, `pnpm rust:build`,
-  `cargo clippy --all-targets` and `cargo fmt` (120 columns, `rust/rustfmt.toml`) from `rust/`.
-- Tests: unit tests sit next to the code; `rust/tests/cli.rs` runs the built binary end to end with an isolated
+- Tests: unit tests sit next to the code; `tests/cli.rs` runs the built binary end to end with an isolated
   HOME, fake keys, a local stub server and a fresh update-check cache, so nothing leaves the machine (VE-3727). The
   caller's `CI`, `VENDO_NO_INPUT` and `TERM` are removed, so prompts behave as on a person's terminal on CI runners
   too (VE-3826). A test that starts many stubs in one loop should drop each with `release(server).await`: dropping
   a wiremock `MockServer` blocks on its state outside tokio, which hangs for good once the test's task has spent
   tokio's cooperative budget (it hung the VE-3831 refusal test).
-- Snapshots (VE-3824), the regression net once the parity harness goes at 1.0.0: `rust/tests/cli/snapshots.rs`
-  records every `--help` screen, found by walking the real command tree, in `rust/tests/snapshots/help/` (clap's
+- Snapshots (VE-3824), the regression net since the parity harness went at 1.1.0: `tests/cli/snapshots.rs`
+  records every `--help` screen, found by walking the real command tree, in `tests/snapshots/help/` (clap's
   `help`, which the root help lists, takes no `--help`: its own screen is `vendo help help`, recorded as
   `help/help.snap`; VE-3893), the table, `--json` and confirmation output of each command against
-  the stub's synthetic account in `rust/tests/snapshots/output/`, and the usage error of every command that requires
+  the stub's synthetic account in `tests/snapshots/output/`, and the usage error of every command that requires
   a value (37 with the hidden `catalog credential-schema`), as text and with `--json`, in
-  `rust/tests/snapshots/usage/` (VE-3881), with that of `--profile` typed last with no name (`usage/profile_flag`,
+  `tests/snapshots/usage/` (VE-3881), with that of `--profile` typed last with no name (`usage/profile_flag`,
   VE-3892). Any change to them fails `cargo test`. After a deliberate change run
-  `INSTA_UPDATE=always cargo test --test cli` from `rust/` (it also deletes stale snapshots), review
-  `git diff rust/tests/snapshots` and commit the snapshots with the change. Bare `vendo completions` for bash and
+  `INSTA_UPDATE=always cargo test --test cli` (it also deletes stale snapshots), review
+  `git diff tests/snapshots` and commit the snapshots with the change. Bare `vendo completions` for bash and
   for an unknown shell is recorded per system (VE-3830): `completions__bare_bash_macos`/`_linux` and
   `completions__bare_unknown_shell_macos`/`_linux`. The update command rewrites only this system's two, and CI,
   which tests on Linux only, checks only the `_linux` ones. So after a change to what they show, on a Mac also force
-  the Linux rules and run the update command again, from `rust/`:
+  the Linux rules and run the update command again:
   `sed -i '' 's/cfg!(target_os = "macos")/cfg!(any())/' src/commands/completions.rs tests/cli.rs tests/cli/snapshots.rs`
   (`cfg!(any())` is false; the three places are `Os::current`, `Session::record_per_system` and
   `the_installer_adds_bash_completions_where_bash_reads_them`), then
@@ -66,7 +69,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   (`jobs … --integration <integrationId>`), API paths, JSON fields, `--json` output and code identifiers keep the
   API's "integration"; renaming a flag needs Yalcin's approval.
 - Help layout (VE-3827, CLI 1.1): `vendo --help` is one sectioned list built at runtime from the command tree;
-  `HELP_SECTIONS` in `rust/src/cli.rs` places each command, and a test fails when a visible command is in none.
+  `HELP_SECTIONS` in `src/cli.rs` places each command, and a test fails when a visible command is in none.
   Each group is one row, its name as typed (`apps`) and description, with its visible commands under the description,
   in its column, as one comma-separated list of bold names (`list, diagnose, get, …`; nested ones by their path,
   `methodologies list, ltv cohort`; `command_paths`); a command that runs on its own (`login`, `status`) is one row.
@@ -109,7 +112,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   through the browser when there is no working key, checks the key with `/me` and prints the workspace screen
   (VE-4109, below). A key it has (profile or `VENDO_API_KEY`) is checked and kept; `--force`, `--env`/`--base-url` naming another instance, or a
   401/403 from `/me` sign in again, and any other failed check exits 1 without creating a key. With `VENDO_API_KEY`
-  set it never opens a browser. Tests act as the browser (`login_at_browser` in `rust/tests/cli.rs` visits the printed
+  set it never opens a browser. Tests act as the browser (`login_at_browser` in `tests/cli.rs` visits the printed
   sign-in URL on the stub); stdin stays closed, so no real browser opens. The one test of a piped stdin (VE-3826)
   writes no line end and keeps the pipe open until `vendo` has exited (`OnTerminal` stops it first on a failure).
   Login screen (VE-4109, decided by Yalcin 2026-10-10: "combine the results of vendo init and vendo workspace"): in
@@ -122,7 +125,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   then login's error, exit 1 as before; the workspace's own exit rule does not apply. The VENDO_PROFILE note follows
   the screen. `login --json` keeps its five keys first and adds `workspace`, the `vendo workspace --json` object of
   the same profile. Tests compare login's output with what `vendo [--profile <p>] workspace` prints in the same
-  sandbox (`workspace_screen`, `workspace_json` in `rust/tests/cli.rs`). ❓ Open for Yalcin, built with cautious
+  sandbox (`workspace_screen`, `workspace_json` in `tests/cli.rs`). ❓ Open for Yalcin, built with cautious
   defaults: the screen of the saved profile rather than of the VENDO_PROFILE one a later `vendo workspace` shows,
   the screen also on a failed check, the `Next steps` heading kept over the one line, `Done:` kept last, and the
   JSON's `workspace` nested rather than its keys merged into the top level.
@@ -142,8 +145,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   `Type:` line, which replaces `Data Type:`, show the API's `modelType` (`sql`, `bqml`, `grouping`, …; VE-3840,
   Yalcin 2026-10-06). The metrics routes send no type, so `metrics list` has no Type column and `metrics get` no
   type after the name and no `Type:` line (VE-3856, Yalcin 2026-10-06); Format has its own column. The TS CLI read
-  fields the API does not send (`dataType`, `metric_type`) and showed `undefined` or a blank, which `pnpm parity`
-  reports.
+  fields the API does not send (`dataType`, `metric_type`) and showed `undefined` or a blank.
 - Errored apps (VE-3841, CLI 1.1): `status` counts an app as errored when its `consecutiveFailureCount` is above 0.
   Only the single-app response had it until vendo-web-v2 PR #2147 adds it to the apps list (Yalcin, 2026-10-06), so
   against an API without that change the count is 0. The snapshot stub's list sends it as the PR builds it, Demo Ads
@@ -156,7 +158,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   up, and stdout stays empty: without `--json`, stdout carries nothing but a script, so an `eval` or redirect that
   leaves the shell out gets nothing. With `--json` (VE-3831) stdout carries JSON instead and stderr stays quiet: bare,
   `{"shell","installed"}`; with a shell, the script wrapped in `{"shell","script"}`.
-  `rust/src/commands/completions.rs` owns that detection (the installer's saved script and startup-file block, or a
+  `src/commands/completions.rs` owns that detection (the installer's saved script and startup-file block, or a
   line in a startup file that runs `vendo completions <shell>`), and the workspace's check uses it. Bash's startup file is
   `~/.bashrc` and, on macOS, whose Terminal opens login shells, also its login file: the first of `~/.bash_profile`,
   `~/.bash_login` and `~/.profile` that exists (Yalcin, 2026-10-06). There install.sh (`uname -s` Darwin) adds its
@@ -170,14 +172,14 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   The bare text tells zsh users to add its lines at the end of `~/.zshrc`, after a framework's compinit. What it
   says for bash is recorded per system (`completions__…_macos`/`…_linux`; see Snapshots for refreshing both), and
   `the_installer_adds_bash_completions_where_bash_reads_them` in
-  `rust/tests/cli.rs` runs install.sh's `install_completions` (the script without its last line, `main "$@"`) in
+  `tests/cli.rs` runs install.sh's `install_completions` (the script without its last line, `main "$@"`) in
   scratch HOMEs. A flag with a fixed set of values offers them on TAB through `Suggest` in `cli.rs`, each list citing
   its source: parsing still takes any string (the API decides), and clap sees the values only while a script is
   generated (`cli::suggesting`), so help screens and parse errors are as they were. `jobs list`'s `--status` and
   `--type` help lists the values TAB offers (`JOB_STATUSES`, `JOB_TYPES`; Yalcin, 2026-10-06). The scripts are
   generated with the shell argument required, so they complete `completions` as before;
-  `rust/tests/snapshots/output/completions__*` record them whole. `completions --help` shows `[shell]` where the TS
-  CLI shows `<shell>`, which `pnpm parity:help` reports.
+  `tests/snapshots/output/completions__*` record them whole. `completions --help` shows `[shell]` where the TS
+  CLI showed `<shell>`.
 - Agents (VE-3831, decided by Yalcin 2026-10-05, CLI 1.1):
   - Errors with `--json`: one line of JSON on stderr, the last line, in one fixed shape (document it in cli.mdx at
     release): `{"error":{"message":"…","code":"NOT_FOUND"|null,"status":404|null,"requestId":"…"|null}}`. `message`
@@ -212,7 +214,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     error on stderr), `completions <shell>` (`{"shell","script"}`; bare, `{"shell","installed"}`, null for a shell
     it does not know) and `update` (`self-update` until VE-4109; the installer's output on stderr, then
     `{"previousVersion","version","installPath","binaryPath"}`; a failed installer is the JSON error with its code).
-    `rust/src/watch.rs`'s `JsonScreen` owns the two job shapes.
+    `src/watch.rs`'s `JsonScreen` owns the two job shapes.
   - Short IDs: wherever a command takes the full ID of an app, source, destination, job, metric, model or
     methodology (arguments and flags such as `--app`, `--source`), it takes the 8 characters tables show, with or
     without the `...` tables print after them (`1a2b3c4d...`; Yalcin, 2026-10-06). Exactly 8 hex digits, alone or
@@ -247,7 +249,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
     problem, VE-3891 exit codes below; it was a warning that could exit 0 with `VENDO_API_KEY` and
     `VENDO_ACCOUNT_ID` until then). `--profile`, which wins over VENDO_PROFILE, works as before.
 - Workspace (VE-3891, decided by Yalcin 2026-10-07, CLI 1.1): `vendo workspace` is `whoami` and `doctor` in one
-  command and one screen, each fact once (`rust/src/commands/workspace.rs`; the checks stay doctor's,
+  command and one screen, each fact once (`src/commands/workspace.rs`; the checks stay doctor's,
   `health::local_checks` and `health::auth_check`). First the account: the title is `/me`'s name and slug
   (`T101 · t101`), then `Account ID:`, `Profile:`, `Base URL:` and `API key:` (the key masked as doctor masked it,
   `vend...eKuE`, with `(key ID <apiKeyId>, scopes <scopes>)` once `/me` answers, `full access` for none); whoami's
@@ -331,7 +333,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   release binary without and with the feature, reports the difference, and only warns at 150,000 bytes or more
   (linux-x64 was 152,488 at 1.1.0-rc.1). On macOS arm64 the code segment grows in 16 KB
   pages, so there the difference moves in steps of 16,384 bytes. Tests drive the menu on a
-  pseudo-terminal that is `vendo`'s controlling terminal (`OnTerminal` in `rust/tests/cli.rs`; `screen` there replays
+  pseudo-terminal that is `vendo`'s controlling terminal (`OnTerminal` in `tests/cli.rs`; `screen` there replays
   what the terminal shows). `OnTerminal` keeps its own copy of the terminal end until `vendo` exits: macOS drops what
   the reader has not read yet when the last copy closes. `OnTerminal::start_detached` runs `vendo` on a terminal that
   is not its controlling terminal, and `hang_up` closes every copy of the controller and the test's terminal end;
@@ -353,7 +355,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   ask.
 - Missing values (VE-3881, decided by Yalcin 2026-10-07, CLI 1.1): a command typed without a value it requires asks for
   it where the group menu opens (`output::can_show_menu`, the same rule, the hang-up watch included) instead of stopping
-  with clap's usage error; optional values are not asked. `rust/src/ask.rs` (the `menu` feature) owns it: `VALUES` says
+  with clap's usage error; optional values are not asked. `src/ask.rs` (the `menu` feature) owns it: `VALUES` says
   how each value is asked for, and a value not there keeps the usage error. A value with choices opens an arrow-key list
   with type-to-filter (`output::choose_value`: the menu's inquire Select and hint, plain-text rows padded per column in
   the screen's columns, a wide character such as 東 taking two as inquire and the terminal count it (`unicode-width`;
@@ -412,7 +414,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   questions (Q12), an `update` with no change asking first (Q13), and `--dry-run` sending the list request (Q14); not
   narrowed either: `jobs cancel` to running and queued jobs, `metrics activate` to drafts (Q2). Without a terminal, with
   prompts off, on `TERM=dumb`, with stderr redirected or a write-only stdin, the usage error stays byte for byte and
-  nothing is sent (`rust/tests/snapshots/usage/`). Every required value of every command is asked for (43 values of 37
+  nothing is sent (`tests/snapshots/usage/`). Every required value of every command is asked for (43 values of 37
   commands, the hidden `catalog credential-schema` and the `integrations`/`int` aliases too); `ask.rs`'s coverage test
   fails when a required value has no row in `VALUES`. An agent that runs `vendo` on a pseudo-terminal without `CI` or
   `VENDO_NO_INPUT` now waits at the question where it got exit 2, as at the group menu and the y/N questions;
@@ -458,7 +460,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   list selectable"): where the group menu opens (`output::can_show_menu`, the same rule, the hang-up watch included), a
   list command that would print its table (no `--json`, no `--output`, an empty one included) shows the same rows, from
   the same requests and flags (short IDs looked up as typed, and for sources and destinations the active-jobs request
-  that feeds Progress), as a `choose_value` list (VE-3881's) instead. `rust/src/browse.rs` owns it: the list
+  that feeds Progress), as a `choose_value` list (VE-3881's) instead. `src/browse.rs` owns it: the list
   command builds the table's cells once into a `browse::Table`, which prints the table, footer and all, where the list
   does not open (`Table::print`, the code that printed it before), and `browse::shown` decides (`browse::opens`; a stub
   that is false without the `menu` feature). Each row is the table's own cells as plain text (`output::strip_ansi`) on
@@ -551,69 +553,64 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   rather than showing its view on Enter, which would send a request each time), a methodology, a cohort and the
   mmm and survey signals offering back only, and a profile offering `switch` by the saved `activeProfile` and nothing
   else (proposed, not built: that profile's `--profile <name> workspace` screen, and logging out of it).
-- Ported so far: login, init, logout, whoami, config, profile, status, doctor, completions,
-  self-update (VE-3665; whoami and doctor are `workspace` since VE-3891, self-update is `update` since VE-4109;
-  `mcp` was ported and then removed in VE-4109, Yalcin 2026-10-10: "it can't be done from the CLI, we have this in
-  the docs", so `vendo mcp` is clap's unknown-subcommand error and the MCP setup lives at docs.vendodata.com); jobs list/get/cancel/watch/tail and the shared watcher (VE-3666); apps, sources,
-  integrations (`int`) and catalog (VE-3667); metrics, models and measurement (VE-3668); dictionary (VE-3713).
-  `rust/src/web_app.rs` is the one place that knows the web-app routes (`/api/metrics`, `/api/measurement/*`),
-  which go out as raw paths with no account prefix. `rust/src/dictionary.rs` pins the dictionary field and
-  param names to vendo-web-v2's `route-handlers/dictionary/serialize.ts`, like `dictionary-contract.test.ts`.
-- Versions: `rust/Cargo.toml` carries the Rust CLI's release version, and release-candidate tags must match
-  it. `package.json` stays the TypeScript CLI's version until the switch-over (VE-3669).
+- Commands: login, logout, workspace, status, profile, completions and update (VE-3665; whoami and doctor are
+  `workspace` since VE-3891, self-update is `update` since VE-4109; `mcp` was ported and then removed in VE-4109,
+  Yalcin 2026-10-10: "it can't be done from the CLI, we have this in the docs", so `vendo mcp` is clap's
+  unknown-subcommand error and the MCP setup lives at docs.vendodata.com); jobs list/get/cancel/watch/tail and the
+  shared watcher (VE-3666); apps, sources, destinations (`integrations`, `int`) and catalog (VE-3667); metrics,
+  models and measurement (VE-3668); dictionary (VE-3713). `src/web_app.rs` is the one place that knows the web-app
+  routes (`/api/metrics`, `/api/measurement/*`), which go out as raw paths with no account prefix.
+  `src/dictionary.rs` pins the dictionary field and param names to vendo-web-v2's
+  `route-handlers/dictionary/serialize.ts`, like `dictionary-contract.test.ts`.
+- Versions: `Cargo.toml` carries the release version, and release tags must match it. Each release has a section
+  in `CHANGELOG.md`, in plain words for users, which becomes its GitHub release's notes.
 
-## Layout (`src/`)
-`cli.ts`, `client.ts`, `config.ts`, `identity.ts`, plus `commands/` (21 modules on 2026-10-05 — `ls src/commands` to recount: apps, sources,
-integrations, jobs, metrics, models, catalog, dictionary, measurement, pipeline-resource, mcp, login,
-logout, init, doctor, status, whoami, profile, config, completions, self-update). Tests in `src/__tests__/`.
+## Layout
+- `src/main.rs` (entry), `src/cli.rs` (the clap tree, `preprocess`, `MOVED`, `HELP_SECTIONS`, `Suggest`),
+  `src/client.rs`, `src/config.rs`, `src/output.rs` (tables, colours, confirm, menus) and `src/output/` (locale),
+  `src/ask.rs` (missing values), `src/browse.rs` (selectable lists), `src/short_ids.rs`, `src/watch.rs`,
+  `src/update_check.rs`, and `src/commands/` (one module per group or command; `ls src/commands` to recount).
+- Tests: unit tests next to the code; `tests/cli.rs` (end to end against a local stub) and
+  `tests/cli/snapshots.rs` with the insta snapshots in `tests/snapshots/` (`help/`, `output/`, `usage/`);
+  `tests/fixtures/` holds the Node-generated locale and JSON-error tables.
+- `scripts/menu-size.sh`: the menu's size report (bash). `scripts/gen-*.mjs` and `scripts/node-locales.mjs`
+  regenerate `src/output/ymd_patterns.rs`, `src/output/usd_patterns.rs` and the two fixtures from Node's ICU and V8
+  (they need Node and no npm packages; each file's header has its command). Run them only when
+  Node's ICU changes.
+- `install.sh`: the installer served at `https://app2.vendodata.com/install.sh`.
 
 ## Key commands
-- `pnpm run typecheck` — `tsc --noEmit`
-- `pnpm run test` — `vitest run`
-- `pnpm run lint` / `pnpm run lint:fix`
-- `pnpm run build` — `tsup` (dev bundle); `pnpm run build:standalone` — SEA binary
-- `pnpm parity --profile <staging profile> [--rust <binary>] [--only <prefix>]` — runs every read-only command
-  against staging with the TypeScript CLI (and the Rust CLI when given) and reports differences and
-  commands that fail today. Needs `pnpm build`. Refuses non-staging URLs. When you add or rename a
-  command, classify it in `parity/commands.json` or the run fails. Tests: `pnpm test:parity` (VE-3664).
-- `pnpm parity:help [--rust <binary>] [--only <prefix>]` — compares `--help` of every command (root, groups and
-  leaves) between the two CLIs: description, arguments, options with defaults, subcommands with aliases, and
-  examples. Offline, no profile; needs `pnpm build` and a Rust binary. clap's layout is accepted (VE-3713).
-- `pnpm parity:writes --profile <staging profile> --rust <binary> [--only pipeline|metrics]` — runs the write
-  commands with both CLIs on throwaway resources, compares output, and deletes everything it created, also on
-  failure: apps, sources and integration refusals on webhook apps (`pipeline`, VE-3667), and draft metrics
-  named "CLI parity …" (`metrics`, VE-3668). Point it at a disposable staging workspace ("Vendo CLI test"),
-  not one people use.
+Toolchain: `rustup` stable (`~/.cargo/bin`). From the repo root:
+- `cargo build` / `cargo build --release` — the binary is `target/release/vendo`.
+- `SHELL=/bin/bash cargo test --locked` — unit, end-to-end and snapshot tests.
+- `cargo fmt` (120 columns, `rustfmt.toml`); `cargo clippy --all-targets --locked -- -D warnings`, and again with
+  `--no-default-features` (the build without the menu).
+- `cargo deny check` (`cargo install cargo-deny --locked` once).
+- `scripts/menu-size.sh [--target <triple>]` — what the `menu` feature adds to the release binary.
 - Distribution: `install.sh` pulls per-platform binaries from GitHub Releases
   (`vendo-analytics/vendo-cli`); releases are tag-triggered, see below.
 
-## CI and releases (VE-3731)
-- CI (`.github/workflows/ci.yml`) runs on every pull request and push to `main`, one job per area:
-  - TypeScript: `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:parity`.
-  - Rust, from `rust/`: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`,
-    `cargo test --locked`.
-  - `cargo deny check` with `rust/deny.toml` (advisories in one job; licences, bans and sources in another).
-    Locally: `cargo install cargo-deny --locked`, then `cargo deny check` from `rust/`. Allow a new licence or
-    ignore an advisory only with a reason in `deny.toml`.
-- `cli-vX.Y.Z` tags run `release.yml`: the TypeScript binaries, published as a normal release that becomes
-  "latest", which is what `install.sh`, `vendo update` and the update notice install. Stays until VE-3669.
-- `cli-vX.Y.Z-rc.N` tags run `release-rc.yml`: the Rust binaries for linux-x64, linux-arm64, darwin-arm64 and
-  darwin-x64 (cross-compiled on Apple silicon), same asset names and `.sha256` files, published as a GitHub
-  pre-release that never becomes "latest". The workflow checks the tag matches `rust/Cargo.toml`, runs
-  `cargo test`, then for each target checks the menu's size (`scripts/menu-size.sh`, which writes the sizes with and
-  without the menu to the run's summary and warns, never fails, when the menu adds 150,000 bytes or more),
-  builds, smoke-tests and uploads the binary.
-- Cutting a release candidate: bump `version` in `rust/Cargo.toml` to `X.Y.Z-rc.N` and update `rust/Cargo.lock`
-  (`cargo update --workspace` from `rust/`) in one commit, merged through a PR like any change. Then tag that
-  commit `cli-vX.Y.Z-rc.N` and push the tag. Agents never push tags or create releases: Yalcin approves each one.
-- Before tagging, run `pnpm build && pnpm parity:help --rust rust/target/release/vendo` on that commit. Every help
-  screen must be the same, except the two accepted for VE-3823 (`logout`, `metrics delete`; Yalcin, 2026-10-06),
-  `--profile`'s description on the root screen, which names VENDO_PROFILE (VE-3831, Yalcin 2026-10-06),
-  `jobs list`'s `--status` and `--type`, which list the API's values (VE-3830, Yalcin 2026-10-06), and `config set`'s
-  description, `profile set`'s "Set values on the active profile" (VE-3827, Yalcin 2026-10-06), and `workspace` in the
-  root help where `whoami` and `doctor` were, whose screens are now `workspace`'s (VE-3891, Yalcin 2026-10-07).
-  This is a manual step, not a CI job (decided by Yalcin, 2026-10-05): the TypeScript CLI
-  it compares against is deleted at 1.0.0 (VE-3669).
+## CI and releases (VE-3731, VE-3669)
+- CI (`.github/workflows/ci.yml`) runs on every pull request and push to `main`:
+  - Rust: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`.
+  - `cargo deny check` with `deny.toml` (advisories in one job; licences, bans and sources in another). Allow a new
+    licence or ignore an advisory only with a reason in `deny.toml`.
+- Every `cli-v*` tag runs `release.yml`. It checks the tag is `cli-vX.Y.Z` or `cli-vX.Y.Z-rc.N` and matches
+  `Cargo.toml`, runs `cargo test` and `cargo deny check`, and creates a draft GitHub release. Then for linux-x64,
+  linux-arm64, darwin-arm64 and darwin-x64 (cross-compiled on Apple silicon) it reports the menu's size
+  (`scripts/menu-size.sh`, which writes the sizes with and without the menu to the run's summary and warns, never
+  fails, when the menu adds 150,000 bytes or more), builds, checks the macOS architecture, smoke-tests `--version`
+  and `completions bash`, and uploads `vendo-<target>` and `vendo-<target>.sha256` (asset names install.sh relies
+  on). Once all eight files are there it publishes the release:
+  - `cli-vX.Y.Z`: a normal release that becomes "latest", which `install.sh`, `vendo update` and the update notice
+    install. Its notes are the `## X.Y.Z` section of `CHANGELOG.md` plus install lines; without that section the
+    release fails before anything is built.
+  - `cli-vX.Y.Z-rc.N`: a pre-release that never becomes "latest", with notes on installing that tag.
+  A target that fails leaves the release a draft, so "latest" never lacks a binary.
+- Cutting a release: bump `version` in `Cargo.toml` to `X.Y.Z` (or `X.Y.Z-rc.N`) and update `Cargo.lock`
+  (`cargo update --workspace`) in one commit, with the `CHANGELOG.md` section for a release, merged through a PR like
+  any change. Then tag that commit `cli-vX.Y.Z[-rc.N]` and push the tag. Agents never push tags or create
+  releases: Yalcin approves each one.
 - Installing a release candidate: `VENDO_VERSION=cli-vX.Y.Z-rc.N bash install.sh` from a checkout,
   `curl -fsSL https://app2.vendodata.com/install.sh | VENDO_VERSION=cli-vX.Y.Z-rc.N bash` from anywhere, or
   `vendo update --version cli-vX.Y.Z-rc.N` (`vendo self-update` on the TypeScript CLI and on 1.1.0-rc.3 or earlier).

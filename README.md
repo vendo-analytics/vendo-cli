@@ -464,13 +464,23 @@ Delete, cancel and `logout --all` no longer go ahead without `--yes` when no one
 
 ## Build from source
 
-The CLI is written in Rust. With a stable toolchain from [rustup](https://rustup.rs):
+The CLI is written in Rust. With a stable toolchain from [rustup](https://rustup.rs), from the repo root:
 
 ```bash
-cd rust
-cargo build --release   # the binary is rust/target/release/vendo
+cargo build --release   # the binary is target/release/vendo
 cargo test
 ```
+
+Before a pull request, run what CI runs:
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets --locked -- -D warnings
+cargo test --locked
+cargo deny check        # cargo install cargo-deny --locked, once
+```
+
+What changed in each release is in [CHANGELOG.md](./CHANGELOG.md).
 
 ## License
 
