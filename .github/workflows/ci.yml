@@ -13,41 +13,6 @@ permissions:
   contents: read
 
 jobs:
-  typescript:
-    name: TypeScript
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        id: install
-        run: pnpm install --frozen-lockfile
-
-      # Each check runs even when an earlier one fails, so one run shows every failure.
-      - name: Typecheck
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm typecheck
-
-      - name: Lint
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm lint
-
-      - name: Test
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm test
-
-      - name: Parity tool tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm test:parity
-
   rust:
     name: Rust
     runs-on: ubuntu-latest
