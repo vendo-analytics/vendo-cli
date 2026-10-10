@@ -379,40 +379,6 @@ exit: 0
       ]
     },
     {
-      "name": "completions",
-      "path": "completions",
-      "description": "Generate shell completion script (bash, zsh, fish)",
-      "aliases": [],
-      "arguments": [
-        {
-          "name": "shell",
-          "description": null,
-          "required": false,
-          "default": null,
-          "possibleValues": [
-            "bash",
-            "zsh",
-            "fish"
-          ],
-          "suggestedValues": []
-        }
-      ],
-      "options": [
-        {
-          "name": "--json",
-          "short": null,
-          "valueName": null,
-          "description": "Output raw JSON",
-          "required": false,
-          "default": null,
-          "possibleValues": [],
-          "suggestedValues": [],
-          "global": false
-        }
-      ],
-      "commands": []
-    },
-    {
       "name": "update",
       "path": "update",
       "description": "Update the Vendo CLI using the hosted installer",

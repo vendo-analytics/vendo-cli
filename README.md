@@ -89,7 +89,7 @@ on the lines below (`list, diagnose, get, …`; nested ones as `ltv cohort`), in
 
 | Section | Commands |
 | --- | --- |
-| Account | `login`, `logout`, `workspace`, `status`, `help`, `version`, `profile`, `completions`, `update` |
+| Account | `login`, `logout`, `workspace`, `status`, `help`, `version`, `profile`, `update` |
 | Data pipeline | `apps`, `sources`, `destinations`, `jobs` |
 | Data catalog | `catalog`, `dictionary`, `metrics`, `models`, `measurement` |
 
@@ -277,8 +277,9 @@ a client is in the docs at [docs.vendodata.com](https://docs.vendodata.com).
 ## Shell completions
 
 The installer sets up TAB completion for bash, zsh and fish. TAB completes commands and flags, and offers the
-values of flags that take one of a fixed list, such as `jobs list --status`. Run `vendo completions` to see
-whether completions are set up for your shell and how to set them up by hand.
+values of flags that take one of a fixed list, such as `jobs list --status`. The installer and `vendo update` run
+`vendo completions <shell>`, which the help does not list. Run `vendo completions` to see whether completions are
+set up for your shell and how to set them up by hand.
 
 **zsh.** Add these lines at the end of `~/.zshrc`, after any framework such as oh-my-zsh, Prezto or Zim:
 

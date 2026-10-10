@@ -196,8 +196,9 @@ fn record_help(sandbox: &Sandbox, recorder: &mut Recorder, path: &[String]) -> u
 
 /// Commands hidden from the help screens that still run as themselves (not aliases), so the
 /// walk does not find them (VE-3827). `commands` since VE-4109, when the root help came to list
-/// every command; it stays in `vendo commands --json` ([`IN_THE_TREE_ONLY`]).
-const HIDDEN_COMMANDS: [&[&str]; 2] = [&["catalog", "credential-schema"], &["commands"]];
+/// every command; it stays in `vendo commands --json` ([`IN_THE_TREE_ONLY`]). `completions` since
+/// VE-4109 (Yalcin 2026-10-10), which the installer and `vendo update` run; out of the tree too.
+const HIDDEN_COMMANDS: [&[&str]; 3] = [&["catalog", "credential-schema"], &["commands"], &["completions"]];
 
 /// The hidden command `vendo commands --json` still lists, where it was (VE-4109).
 const IN_THE_TREE_ONLY: &str = "commands";
@@ -1943,8 +1944,9 @@ fn the_command_tree_matches_the_help_screens() {
             pending.push((child_path, child));
         }
     }
-    // Every help screen the snapshot walk records, less the hidden `catalog credential-schema` and clap's
-    // `help` (`help/help.snap`), which the tree leaves out (VE-3893); the hidden `commands` is in it.
+    // Every help screen the snapshot walk records, less the hidden `catalog credential-schema` and
+    // `completions` and clap's `help` (`help/help.snap`), which the tree leaves out (VE-3893); the hidden
+    // `commands` is in it.
     let help_screens = std::fs::read_dir(Path::new(SNAPSHOTS).join("help"))
         .unwrap()
         .flatten()

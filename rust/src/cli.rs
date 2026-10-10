@@ -75,7 +75,7 @@ fn no_help_rows(cmd: clap::Command) -> clap::Command {
 /// by moving its name. `help` is clap's own command, listed since VE-3893 with `version`. "Account"
 /// is "Getting started" and "Account" in one, first (VE-4109, Yalcin 2026-10-10).
 pub const HELP_SECTIONS: [(&str, &[&str]); 3] = [
-    ("Account", &["login", "logout", "workspace", "status", "help", "version", "profile", "completions", "update"]),
+    ("Account", &["login", "logout", "workspace", "status", "help", "version", "profile", "update"]),
     ("Data pipeline", &["apps", "sources", "destinations", "jobs"]),
     ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement"]),
 ];
@@ -683,7 +683,10 @@ pub enum Command {
         command: MeasurementCommand,
     },
     /// Generate shell completion script (bash, zsh, fish)
+    // Hidden from the help, the menus and `vendo commands` (VE-4109, Yalcin 2026-10-10); the installer
+    // and `vendo update` run `vendo completions <shell>`, and it works as before.
     #[command(
+        hide = true,
         after_help = "Examples:\n  $ vendo completions bash\n  $ vendo completions zsh\n  $ vendo completions fish"
     )]
     Completions {

@@ -80,7 +80,7 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   (`tree::KEPT_IN_THE_TREE`). ❓ Open for Yalcin: `commands` kept in the JSON tree.
   Three sections since VE-4109 (Yalcin 2026-10-10): "Account" first, "Getting started" and "Account" in one
   (❓ open: the order inside, Getting started's commands then Account's, keeps `help` and `version` after `status`,
-  so `vendo commands --json` lists `profile`, `completions` and `update` before `apps`, its only change),
+  so `vendo commands --json` lists `profile` and `update` before `apps`, its only change),
   then "Data pipeline" and "Data catalog". The root help's `Options:` lists only `--profile` and `--debug`
   (VE-4109, Yalcin 2026-10-10): `-V, --version` and `-h, --help` still work, hidden there, as the `version` and
   `help` rows list them. clap cannot hide its own help flag on one command, so the root disables it and
@@ -148,7 +148,10 @@ CLI in `src/` stays the shipped binary and takes bug fixes only until the switch
   Only the single-app response had it until vendo-web-v2 PR #2147 adds it to the apps list (Yalcin, 2026-10-06), so
   against an API without that change the count is 0. The snapshot stub's list sends it as the PR builds it, Demo Ads
   with 2, so `account__status` records one errored app.
-- Completions (VE-3830, CLI 1.1): `vendo completions <shell>` prints the script the installer saves. Bare, it exits 0
+- Completions (VE-3830, CLI 1.1): `vendo completions <shell>` prints the script the installer saves. Hidden (clap
+  `hide`) since VE-4109 (Yalcin 2026-10-10): not in the root help, `vendo commands` or `vendo commands --json`
+  (`tree::visible`), its help snapshot kept through `HIDDEN_COMMANDS`; it runs as before, the installer and
+  `vendo update` call it, and clap_complete's scripts still offer it after TAB. Bare, it exits 0
   and says on stderr what it does, whether completions are set up for the shell `$SHELL` names, and how to set them
   up, and stdout stays empty: without `--json`, stdout carries nothing but a script, so an `eval` or redirect that
   leaves the shell out gets nothing. With `--json` (VE-3831) stdout carries JSON instead and stderr stays quiet: bare,

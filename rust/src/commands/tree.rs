@@ -163,8 +163,8 @@ mod tests {
         let tree = tree(&cli::command());
         let mut found = Vec::new();
         paths(&tree, &mut found);
-        for hidden in ["catalog credential-schema", "config", "init", "integrations", "int", "help", "profile current"]
-        {
+        let hidden = ["catalog credential-schema", "completions", "config", "init", "integrations", "int", "help"];
+        for hidden in hidden.into_iter().chain(["profile current"]) {
             assert!(!found.contains(&hidden.to_string()), "{hidden}");
         }
         assert_eq!(find(&tree, "destinations")["aliases"], json!([]), "integrations and int are hidden aliases");
@@ -219,8 +219,10 @@ mod tests {
         );
         let yes = delete["options"].as_array().unwrap().iter().find(|o| o["name"] == "--yes").unwrap();
         assert_eq!(yes["short"], "-y");
-        // The one list parsing enforces.
-        let shell = &find(&tree, "completions")["arguments"][0];
+        // The one list parsing enforces, on `completions`, hidden from the tree since VE-4109.
+        let root = cli::command();
+        let completions = node(root.find_subcommand("completions").unwrap(), "completions");
+        let shell = &completions["arguments"][0];
         assert_eq!((&shell["name"], &shell["required"]), (&json!("shell"), &json!(false)));
         assert_eq!(
             (&shell["possibleValues"], &shell["suggestedValues"]),
