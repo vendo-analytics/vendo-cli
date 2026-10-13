@@ -1035,12 +1035,16 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__destinations__subcmd__pause)
-            opts="-h --json --dry-run --output --help --profile --debug"
+            opts="-h --config-file --json --dry-run --output --help --profile --debug"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --config-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --output)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -1083,12 +1087,16 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__destinations__subcmd__resume)
-            opts="-h --json --dry-run --output --help --profile --debug"
+            opts="-h --config-file --json --dry-run --output --help --profile --debug"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --config-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --output)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0

@@ -208,7 +208,7 @@ const DATA_TYPES: [&str; 13] = [
 
 /// Every required value a command asks for: the command as the tree names it, the value's clap ID,
 /// and how it is asked for. A value not here keeps the usage error.
-const VALUES: [(&str, &str, Ask); 43] = [
+const VALUES: [(&str, &str, Ask); 45] = [
     ("apps get", "id", Ask::Listed(Listed::Apps)),
     ("apps pause", "id", Ask::Listed(Listed::Apps)),
     ("apps resume", "id", Ask::Listed(Listed::Apps)),
@@ -228,7 +228,9 @@ const VALUES: [(&str, &str, Ask); 43] = [
     ("destinations sync", "id", Ask::Listed(Listed::Destinations)),
     ("destinations refresh-source", "id", Ask::Listed(Listed::Destinations)),
     ("destinations pause", "id", Ask::Listed(Listed::Destinations)),
+    ("destinations pause", "config_file", Ask::Text),
     ("destinations resume", "id", Ask::Listed(Listed::Destinations)),
+    ("destinations resume", "config_file", Ask::Text),
     ("destinations delete", "id", Ask::Listed(Listed::Destinations)),
     ("destinations update", "id", Ask::Listed(Listed::Destinations)),
     ("destinations create", "dest_app", Ask::Listed(Listed::Apps)),
@@ -343,6 +345,7 @@ struct LeftOut<'a> {
 /// What `typed` leaves out, read from clap's partial matches (`ignore_errors`); `None` when it leaves
 /// out no required value.
 fn left_out<'a>(root: &'a clap::Command, typed: &[OsString]) -> Option<LeftOut<'a>> {
+    let required_names = required_names(root, typed);
     let matches = root.clone().ignore_errors(true).try_get_matches_from(typed).ok()?;
     let profile = matches.try_get_one::<String>("profile").ok().flatten().cloned();
     let debug = matches.try_get_one::<bool>("debug").ok().flatten().copied().unwrap_or(false);
@@ -354,10 +357,29 @@ fn left_out<'a>(root: &'a clap::Command, typed: &[OsString]) -> Option<LeftOut<'
     }
     let args: Vec<&clap::Arg> = command
         .get_arguments()
-        .filter(|arg| arg.is_required_set() && !matched.contains_id(arg.get_id().as_str()))
+        .filter(|arg| required_by_clap(arg, &required_names) && !matched.contains_id(arg.get_id().as_str()))
         .collect();
     let given = matched.clone();
     (!args.is_empty()).then_some(LeftOut { path, args, given, profile, debug })
+}
+
+fn required_names(command: &clap::Command, words: &[OsString]) -> Vec<String> {
+    use clap::error::{ContextKind, ContextValue};
+    match command
+        .clone()
+        .try_get_matches_from(words)
+        .err()
+        .and_then(|error| error.get(ContextKind::InvalidArg).cloned())
+    {
+        Some(ContextValue::Strings(names)) => names,
+        Some(ContextValue::String(name)) => vec![name],
+        _ => vec![],
+    }
+}
+
+fn required_by_clap(arg: &clap::Arg, names: &[String]) -> bool {
+    arg.is_required_set()
+        || names.iter().any(|name| arg.get_long().is_some_and(|long| name.starts_with(&format!("--{long} "))))
 }
 
 /// The client the lists and the command need, checked before anything is asked: the API key (the
@@ -666,7 +688,8 @@ mod tests {
             if sub.has_subcommands() {
                 commands(sub, &path, found);
             } else {
-                let required = sub.get_arguments().filter(|arg| arg.is_required_set());
+                let names = required_names(&sub.clone().disable_help_flag(true), &[OsString::from(sub.get_name())]);
+                let required = sub.get_arguments().filter(|arg| required_by_clap(arg, &names));
                 found.push((path.join(" "), required.map(|arg| arg.get_id().to_string()).collect()));
             }
         }
@@ -679,7 +702,7 @@ mod tests {
         let requiring: Vec<&(String, Vec<String>)> =
             found.iter().filter(|(_, required)| !required.is_empty()).collect();
         let values: usize = requiring.iter().map(|(_, required)| required.len()).sum();
-        assert_eq!((requiring.len(), values, VALUES.len()), (37, 43, 43), "{requiring:?}");
+        assert_eq!((requiring.len(), values, VALUES.len()), (37, 45, 45), "{requiring:?}");
         for (command, required) in &requiring {
             for id in required {
                 assert!(asked_by(command, id).is_some(), "{command}: the required {id} has no row in VALUES");
@@ -767,6 +790,8 @@ mod tests {
 
     #[test]
     fn the_values_left_out_are_the_required_ones_not_typed_in_clap_order() {
+        assert_eq!(left_out_of(&["vendo", "destinations", "pause", "destination"]).unwrap().1, ["config_file"]);
+        assert!(left_out_of(&["vendo", "destinations", "pause", "destination", "--dry-run"]).is_none());
         let path = |words: &[&str]| words.iter().map(|word| word.to_string()).collect::<Vec<_>>();
         let ids = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect::<Vec<_>>();
         assert_eq!(

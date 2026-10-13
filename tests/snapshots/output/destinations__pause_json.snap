@@ -1,7 +1,7 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-$ vendo destinations pause c0000002-0000-4000-8000-000000000002 --json
+$ vendo destinations pause c0000002-0000-4000-8000-000000000002 --config-file [home]/activation.json --json
 exit: 0
 --- stdout ---
 {

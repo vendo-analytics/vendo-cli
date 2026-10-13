@@ -319,12 +319,14 @@ complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_see
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from refresh-source" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from refresh-source" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from refresh-source" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -l config-file -d 'JSON request with expectedUpdatedAt, maintenance (pause) and optional approved decisionId' -r
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -l output -d 'Print a single field (e.g. id)' -r
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -l json -d 'Output raw JSON'
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -l dry-run -d 'Preview the action without executing'
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -s h -l help -d 'Print help'
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from pause" -l debug -d 'Enable verbose request diagnostics'
+complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from resume" -l config-file -d 'JSON request with expectedUpdatedAt, maintenance (pause) and optional approved decisionId' -r
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from resume" -l output -d 'Print a single field (e.g. id)' -r
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from resume" -l profile -d 'Use a specific account profile (or set VENDO_PROFILE)' -r
 complete -c vendo -n "__fish_vendo_using_subcommand destinations; and __fish_seen_subcommand_from resume" -l json -d 'Output raw JSON'

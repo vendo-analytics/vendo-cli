@@ -1789,6 +1789,17 @@ exit: 0
           ],
           "options": [
             {
+              "name": "--config-file",
+              "short": null,
+              "valueName": "path",
+              "description": "JSON request with expectedUpdatedAt, maintenance (pause) and optional approved decisionId",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
+            {
               "name": "--json",
               "short": null,
               "valueName": null,
@@ -1840,6 +1851,17 @@ exit: 0
             }
           ],
           "options": [
+            {
+              "name": "--config-file",
+              "short": null,
+              "valueName": "path",
+              "description": "JSON request with expectedUpdatedAt, maintenance (pause) and optional approved decisionId",
+              "required": false,
+              "default": null,
+              "possibleValues": [],
+              "suggestedValues": [],
+              "global": false
+            },
             {
               "name": "--json",
               "short": null,

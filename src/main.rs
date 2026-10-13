@@ -214,13 +214,13 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             IntegrationsCommand::RefreshSource { id, from, to, json } => {
                 integrations::refresh_source(ctx, &id, from, to, json).await
             }
-            IntegrationsCommand::Pause { id, json, dry_run, output } => {
+            IntegrationsCommand::Pause { id, config_file, json, dry_run, output } => {
                 let opts = ActionOpts { json, dry_run, output };
-                resource::state_action(ctx, resource::INTEGRATION, &id, "pause", opts).await.map(|_| ok)
+                integrations::activation(ctx, &id, "pause", config_file.as_deref(), opts).await
             }
-            IntegrationsCommand::Resume { id, json, dry_run, output } => {
+            IntegrationsCommand::Resume { id, config_file, json, dry_run, output } => {
                 let opts = ActionOpts { json, dry_run, output };
-                resource::state_action(ctx, resource::INTEGRATION, &id, "resume", opts).await.map(|_| ok)
+                integrations::activation(ctx, &id, "resume", config_file.as_deref(), opts).await
             }
             IntegrationsCommand::Delete { id, json, yes, dry_run, output } => {
                 resource::delete(ctx, resource::INTEGRATION, &id, yes, ActionOpts { json, dry_run, output })

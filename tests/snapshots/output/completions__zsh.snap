@@ -452,6 +452,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (pause)
 _arguments "${_arguments_options[@]}" : \
+'--config-file=[JSON request with expectedUpdatedAt, maintenance (pause) and optional approved decisionId]:path:_default' \
 '--output=[Print a single field (e.g. id)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
@@ -464,6 +465,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (resume)
 _arguments "${_arguments_options[@]}" : \
+'--config-file=[JSON request with expectedUpdatedAt, maintenance (pause) and optional approved decisionId]:path:_default' \
 '--output=[Print a single field (e.g. id)]:field:_default' \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
 '--json[Output raw JSON]' \
