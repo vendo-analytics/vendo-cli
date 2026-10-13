@@ -226,6 +226,86 @@ pub async fn refresh_source(
     Ok(std::process::ExitCode::SUCCESS)
 }
 
+/// Destination activation carries the exact reviewed request through the existing API.
+/// A pending Decision is not a completed pause and must stop shell command chains.
+pub async fn activation(
+    ctx: &Ctx,
+    id: &str,
+    action: &str,
+    config_file: Option<&str>,
+    opts: crate::commands::pipeline_resource::ActionOpts,
+) -> Result<std::process::ExitCode> {
+    if opts.dry_run {
+        crate::output::print_dry_run(action, "destination", id, &[]);
+        return Ok(std::process::ExitCode::SUCCESS);
+    }
+    let path = config_file.ok_or_else(|| anyhow!(
+        "Destination {action} requires --config-file with expectedUpdatedAt, pause maintenance details and an optional approved decisionId. Use destinations get --json to review its current version."
+    ))?;
+    let body = activation_request(read_json_file(path)?, action)?;
+    let client = ctx.client()?;
+    let id = resolve(&client, Listing::Destinations, id).await?;
+    let res =
+        run_action("Reviewing destination action...", client.post(&format!("/integrations/{id}/{action}"), Some(body)))
+            .await?;
+    let data = payload(&res);
+    let pending = data.get("status").and_then(Value::as_str) == Some("pending")
+        && data.get("decisionId").and_then(Value::as_str).is_some();
+    if pending {
+        match resolve_output_mode(opts.json, opts.output.as_deref()) {
+            OutputMode::Json => print_json(&res),
+            OutputMode::Field => {
+                crate::output::print_single_field(data, opts.output.as_deref().unwrap_or("decisionId"))
+            }
+            OutputMode::Table => {
+                println!("Approval required. Destination delivery has not changed.");
+                println!("  Decision: {}", js_template(data.get("decisionId")));
+                println!("  Approve:  {}", js_template(data.get("approveUrl")));
+                println!("  Retry the same file with decisionId after human approval.");
+            }
+        }
+        return Ok(std::process::ExitCode::from(2));
+    }
+    match resolve_output_mode(opts.json, opts.output.as_deref()) {
+        OutputMode::Json => print_json(&res),
+        OutputMode::Field => println!("{id}"),
+        OutputMode::Table => print_success(&format!(
+            "Destination {} {}.",
+            short_id(&id),
+            if action == "pause" { "paused" } else { "resumed" }
+        )),
+    }
+    Ok(std::process::ExitCode::SUCCESS)
+}
+
+fn activation_request(body: Value, action: &str) -> Result<Value> {
+    if !body.is_object() || body.get("expectedUpdatedAt").and_then(Value::as_str).is_none() {
+        bail!("Destination activation JSON requires expectedUpdatedAt from its current detail.");
+    }
+    if action == "pause" {
+        let maintenance = body.get("maintenance").ok_or_else(|| anyhow!("Pause requires maintenance details."))?;
+        for key in ["reason", "ownerUserId", "reviewAt", "resumePlan"] {
+            if maintenance.get(key).and_then(Value::as_str).is_none_or(|v| v.trim().is_empty()) {
+                bail!("Pause maintenance requires {key}.");
+            }
+        }
+    }
+    Ok(body)
+}
+
+#[cfg(test)]
+mod activation_tests {
+    use super::*;
+    #[test]
+    fn destination_activation_keeps_exact_approval_fields() {
+        let body = json!({"expectedUpdatedAt":"2026-10-13T00:00:00Z","decisionId":"approved",
+          "maintenance":{"reason":"Maintenance","ownerUserId":"owner","reviewAt":"2026-10-14T00:00:00Z","resumePlan":"Verify and resume"}});
+        assert_eq!(activation_request(body.clone(), "pause").unwrap(), body);
+        assert!(activation_request(json!({}), "pause").is_err());
+        assert!(activation_request(json!({"expectedUpdatedAt":"version"}), "pause").is_err());
+    }
+}
+
 pub struct CreateArgs {
     pub dest_app: String,
     pub source_app: Option<String>,

@@ -16,6 +16,63 @@ mod snapshots;
 /// Nothing listens here: a test that forgets its stub fails locally.
 const CLOSED: &str = "http://127.0.0.1:9";
 
+fn activation_fixture() -> Value {
+    json!({"expectedUpdatedAt":"2026-10-13T00:00:00Z",
+        "decisionId":"10000000-0000-4000-8000-000000000004",
+        "maintenance":{"reason":"Maintenance","ownerUserId":"10000000-0000-4000-8000-000000000002",
+          "reviewAt":"2030-10-14T00:00:00Z","resumePlan":"Verify and resume"}})
+}
+
+fn activation_file(sandbox: &Sandbox) -> String {
+    let path = sandbox.home.path().join("activation.json");
+    std::fs::write(&path, activation_fixture().to_string()).unwrap();
+    path.to_string_lossy().into_owned()
+}
+
+#[tokio::test]
+async fn destination_activation_requires_review_and_reports_pending_without_success() {
+    for action in ["pause", "resume"] {
+        let server = MockServer::start().await;
+        let sandbox = Sandbox::new(&server.uri());
+        let id = "10000000-0000-4000-8000-000000000003";
+        let unreviewed = sandbox.run(&["destinations", action, id]);
+        assert_eq!(unreviewed.status.code(), Some(2));
+        assert!(server.received_requests().await.unwrap().is_empty());
+        assert_eq!(sandbox.run(&["destinations", action, id, "--dry-run"]).status.code(), Some(0));
+        let file = activation_file(&sandbox);
+        let route = format!("{V1}/connections/{id}/{action}");
+        serve(
+            &server,
+            "POST",
+            &route,
+            202,
+            json!({"data":{"status":"pending","decisionId":"approval",
+          "approveUrl":"https://app.example.invalid/demo/approvals/approval"}}),
+        )
+        .await;
+        let out = sandbox.run(&["destinations", action, id, "--config-file", &file]);
+        assert_eq!(out.status.code(), Some(2), "{}", text(&out.stderr));
+        assert!(text(&out.stdout).contains("Approval required"));
+        assert!(!text(&out.stdout).contains("Done:"));
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].body_json::<Value>().unwrap(), activation_fixture());
+        server.reset().await;
+        serve(
+            &server,
+            "POST",
+            &route,
+            200,
+            json!({"data":{"id":id,"state":if action=="pause" {"inactive"} else {"active"},
+                "status":if action=="pause" {"paused"} else {"pending"}}}),
+        )
+        .await;
+        let approved = sandbox.run(&["destinations", action, id, "--config-file", &file, "--json"]);
+        assert_eq!(approved.status.code(), Some(0), "{}", text(&approved.stderr));
+        assert!(serde_json::from_slice::<Value>(&approved.stdout).is_ok());
+    }
+}
+
 struct Sandbox {
     home: tempfile::TempDir,
 }
@@ -3795,9 +3852,27 @@ async fn a_short_id_that_one_resource_starts_with_is_that_resource() {
         ),
     ] {
         let server = short_id_stub().await;
-        let out = Sandbox::new(&server.uri()).run(&args);
+        let sandbox = Sandbox::new(&server.uri());
+        let file = activation_file(&sandbox);
+        let args = if args[0] == "destinations" && args[1] == "resume" {
+            [&args[..], &["--config-file", file.as_str()]].concat()
+        } else {
+            args
+        };
+        let out = sandbox.run(&args);
         assert_eq!(out.status.code(), Some(0), "{args:?}: {}", text(&out.stderr));
-        assert_eq!(sent(&server).await, requests, "{args:?}");
+        let sent = sent(&server).await;
+        let sent: Vec<String> = sent
+            .iter()
+            .map(|r| {
+                if args[0] == "destinations" && args[1] == "resume" {
+                    r.split(" {").next().unwrap().to_string()
+                } else {
+                    r.clone()
+                }
+            })
+            .collect();
+        assert_eq!(sent, requests, "{args:?}");
     }
     // The other commands that take these IDs: one lookup, first, then only the full ID goes out.
     for (args, listing) in [
@@ -3961,9 +4036,27 @@ async fn a_short_id_as_tables_print_it_with_dots_is_looked_up_like_the_8_digits(
         ),
     ] {
         let server = short_id_stub().await;
-        let out = Sandbox::new(&server.uri()).run(&args);
+        let sandbox = Sandbox::new(&server.uri());
+        let file = activation_file(&sandbox);
+        let args = if args[0] == "destinations" && args[1] == "resume" {
+            [&args[..], &["--config-file", file.as_str()]].concat()
+        } else {
+            args
+        };
+        let out = sandbox.run(&args);
         assert_eq!(out.status.code(), Some(0), "{args:?}: {}", text(&out.stderr));
-        assert_eq!(sent(&server).await, requests, "{args:?}");
+        let sent = sent(&server).await;
+        let sent: Vec<String> = sent
+            .iter()
+            .map(|r| {
+                if args[0] == "destinations" && args[1] == "resume" {
+                    r.split(" {").next().unwrap().to_string()
+                } else {
+                    r.clone()
+                }
+            })
+            .collect();
+        assert_eq!(sent, requests, "{args:?}");
     }
 }
 
@@ -5649,6 +5742,15 @@ async fn a_missing_source_or_destination_is_chosen_from_the_accounts_list_and_th
     cases.push((vec!["int", "get"], destinations));
     cases.push((vec!["integrations", "sync", "--dry-run"], destinations));
     for (args, (rows, chosen, named, list)) in cases {
+        let file = activation_file(&sandbox);
+        let args = if ["destinations", "integrations", "int"].contains(&args[0])
+            && ["pause", "resume"].contains(&args[1])
+            && !args.contains(&"--dry-run")
+        {
+            [&args[..], &["--config-file", file.as_str()]].concat()
+        } else {
+            args
+        };
         let case = args.join(" ");
         let path = format!("vendo {} {}", if args[0] == "sources" { "sources" } else { "destinations" }, args[1]);
         let before = sent(&server).await.len();
@@ -9495,6 +9597,12 @@ async fn a_chosen_source_destination_or_job_action_runs_exactly_as_typed_and_the
         terminal.press(keys);
         let answered = format!("? vendo {} {action} {}", browsed.group, browsed.named(at));
         terminal.wait_for(&answered[2..]);
+        let file = activation_file(&sandbox);
+        let maintenance_action = browsed.group == "destinations" && ["pause", "resume"].contains(&action);
+        if maintenance_action {
+            terminal.wait_for("--config-file");
+            terminal.press(&format!("{file}\n"));
+        }
         if let Some(answer) = answer {
             terminal.wait_for("(y/N) ");
             terminal.press(answer);
@@ -9502,18 +9610,27 @@ async fn a_chosen_source_destination_or_job_action_runs_exactly_as_typed_and_the
         let (rest, code) = terminal.finish();
         let asked = sent(&server).await;
         // The list and the item, then what the typed command sends, and nothing else.
-        let typed = (!typed_args.is_empty()).then(|| sandbox.run(typed_args));
+        let typed_args = if maintenance_action {
+            [typed_args, &["--config-file", file.as_str()]].concat()
+        } else {
+            typed_args.to_vec()
+        };
+        let typed = (!typed_args.is_empty()).then(|| sandbox.run(&typed_args));
         let typed_sent = sent(&server).await[asked.len()..].to_vec();
         let shown = 2 * browsed.reads();
         assert!(asked[..shown].iter().all(|request| request.starts_with("GET ")), "{case}: {asked:#?}");
-        assert_eq!(without_window(asked[shown..].to_vec()), without_window(typed_sent), "{case}");
+        assert_eq!(
+            without_window(asked[shown..].to_vec()),
+            without_window(typed_sent),
+            "{case}: code={code:?}, output={rest:?}"
+        );
         match typed {
             Some(typed) => {
                 assert_eq!(code, typed.status.code(), "{case}: {rest:?}");
                 // What it showed after the answer (and the y/N question, answered) is what the typed
                 // command printed.
                 let mut after = after_answer(&terminal, &answered);
-                after.retain(|line| !line.contains("(y/N)"));
+                after.retain(|line| !line.contains("(y/N)") && !line.contains("--config-file"));
                 assert_eq!(without_window(after), without_window(printed_lines(&typed)), "{case}");
             }
             None => {

@@ -1190,11 +1190,14 @@ pub enum IntegrationsCommand {
     },
     /// Pause a destination
     #[command(
-        after_help = "Examples:\n  $ vendo destinations pause <destinationId>\n  $ vendo destinations pause <destinationId> --dry-run"
+        after_help = "Examples:\n  $ vendo destinations pause <destinationId> --config-file pause.json\n  $ vendo destinations pause <destinationId> --dry-run"
     )]
     Pause {
         #[arg(value_name = "destinationId")]
         id: String,
+        /// JSON request with expectedUpdatedAt, maintenance (pause) and optional approved decisionId
+        #[arg(long, value_name = "path", required_unless_present = "dry_run")]
+        config_file: Option<String>,
         /// Output raw JSON
         #[arg(long)]
         json: bool,
@@ -1207,11 +1210,14 @@ pub enum IntegrationsCommand {
     },
     /// Resume a paused destination
     #[command(
-        after_help = "Examples:\n  $ vendo destinations resume <destinationId>\n  $ vendo destinations resume <destinationId> --dry-run"
+        after_help = "Examples:\n  $ vendo destinations resume <destinationId> --config-file resume.json\n  $ vendo destinations resume <destinationId> --dry-run"
     )]
     Resume {
         #[arg(value_name = "destinationId")]
         id: String,
+        /// JSON request with expectedUpdatedAt, maintenance (pause) and optional approved decisionId
+        #[arg(long, value_name = "path", required_unless_present = "dry_run")]
+        config_file: Option<String>,
         /// Output raw JSON
         #[arg(long)]
         json: bool,

@@ -37,6 +37,8 @@ use std::{
 
 use jiff::SignedDuration;
 use serde_json::{Value, json};
+
+use super::activation_fixture;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path, query_param, query_param_is_missing},
@@ -1532,6 +1534,7 @@ async fn sources_output() {
 #[tokio::test]
 async fn destinations_output() {
     let (_server, mut s) = Session::start("destinations").await;
+    let activation = s.file("activation.json", &activation_fixture().to_string());
     s.record("list", &["destinations", "list"]);
     s.record("list_json", &["destinations", "list", "--json"]);
     s.record("get", &["destinations", "get", INT_ORDERS]);
@@ -1552,10 +1555,10 @@ async fn destinations_output() {
     let refresh = ["destinations", "refresh-source", INT_ORDERS, "--from", "2026-01-01", "--to", "2026-01-08"];
     s.record("refresh_source", &refresh);
     s.record("refresh_source_json", &[&refresh[..], &["--json"]].concat());
-    s.record("pause", &["destinations", "pause", INT_ADS]);
-    s.record("pause_json", &["destinations", "pause", INT_ADS, "--json"]);
-    s.record("resume", &["destinations", "resume", INT_ADS]);
-    s.record("resume_json", &["destinations", "resume", INT_ADS, "--json"]);
+    s.record("pause", &["destinations", "pause", INT_ADS, "--config-file", &activation]);
+    s.record("pause_json", &["destinations", "pause", INT_ADS, "--config-file", &activation, "--json"]);
+    s.record("resume", &["destinations", "resume", INT_ADS, "--config-file", &activation]);
+    s.record("resume_json", &["destinations", "resume", INT_ADS, "--config-file", &activation, "--json"]);
     s.record("delete", &["destinations", "delete", INT_ADS, "--yes"]);
     s.record("delete_json", &["destinations", "delete", INT_ADS, "--yes", "--json"]);
 
@@ -1567,7 +1570,7 @@ async fn destinations_output() {
         &create,
         &["update", INT_ORDERS, "--frequency", "12", "--unit", "hours"],
         &["sync", INT_ADS],
-        &["pause", INT_ADS],
+        &["pause", INT_ADS, "--config-file", &activation],
         &["delete", INT_ADS, "--yes"],
     ];
     for command in commands {
