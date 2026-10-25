@@ -27,7 +27,7 @@ defaults:
 jobs:
   verify:
     name: Verify tag and run tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     timeout-minutes: 20
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -65,7 +65,7 @@ jobs:
 
   cargo-deny:
     name: cargo deny
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -79,7 +79,7 @@ jobs:
   release:
     name: Create draft release
     needs: [verify, cargo-deny]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     timeout-minutes: 10
     permissions:
       contents: write
@@ -282,7 +282,7 @@ jobs:
   finalize:
     name: Publish the release
     needs: [verify, publish]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     timeout-minutes: 10
     permissions:
       contents: write
