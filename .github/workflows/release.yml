@@ -27,7 +27,7 @@ defaults:
 jobs:
   verify:
     name: Verify tag and run tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     timeout-minutes: 20
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -65,7 +65,7 @@ jobs:
 
   cargo-deny:
     name: cargo deny
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -79,7 +79,7 @@ jobs:
   release:
     name: Create draft release
     needs: [verify, cargo-deny]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     timeout-minutes: 10
     permissions:
       contents: write
@@ -163,7 +163,7 @@ jobs:
   publish:
     name: Build ${{ matrix.target }}
     needs: [verify, release]
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ fromJSON(matrix.runner) }}
     timeout-minutes: 30
     permissions:
       contents: write
@@ -173,19 +173,21 @@ jobs:
         include:
           # A Rust binary needs at least the glibc of the image it was built on,
           # so both Linux builds pin Ubuntu 24.04 (ubuntu-latest moves to 26).
+          # Our Hetzner box runs Ubuntu 24.04 (x64).
           - target: linux-x64
-            runner: ubuntu-24.04
+            runner: '["self-hosted", "hetzner"]'
             triple: x86_64-unknown-linux-gnu
+          # No ARM box of our own: the one GitHub-hosted job, inside the free minutes.
           - target: linux-arm64
-            runner: ubuntu-24.04-arm
+            runner: '"ubuntu-24.04-arm"'
             triple: aarch64-unknown-linux-gnu
           - target: darwin-arm64
-            runner: macos-14
+            runner: '["self-hosted", "mac"]'
             triple: aarch64-apple-darwin
             lipo-arch: arm64
           # No Intel runner: cross-compiled on Apple silicon.
           - target: darwin-x64
-            runner: macos-14
+            runner: '["self-hosted", "mac"]'
             triple: x86_64-apple-darwin
             lipo-arch: x86_64
     env:
@@ -282,7 +284,7 @@ jobs:
   finalize:
     name: Publish the release
     needs: [verify, publish]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     timeout-minutes: 10
     permissions:
       contents: write
