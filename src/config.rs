@@ -16,8 +16,14 @@ use serde_json::{Map, Value};
 
 use crate::output::js_key_order;
 
-pub const DEFAULT_BASE_URL: &str = "https://app2.vendodata.com";
+/// The live plane: customer workspaces are on the staging Supabase behind stg (Yalcin, 2026-10-28).
 pub const STAGING_BASE_URL: &str = "https://stg.vendodata.com";
+/// The production plane, chosen with `--env prod`.
+pub const PROD_BASE_URL: &str = "https://app2.vendodata.com";
+pub const DEFAULT_BASE_URL: &str = STAGING_BASE_URL;
+/// Until 1.1.x login left `baseUrl` out of a profile on the then-default app2, so a saved profile
+/// without one still means app2; changing the default must not move existing sign-ins.
+const LEGACY_PROFILE_BASE_URL: &str = PROD_BASE_URL;
 
 /// The `VENDO_*` environment variables, read once at startup.
 #[derive(Debug, Clone, Default)]
@@ -162,12 +168,35 @@ impl ConfigStore {
         self.write(&merged)
     }
 
+    /// The file holds full-access API keys: the directory is created 0700 and the file is written
+    /// 0600 through a temp file and a rename, so no other user can read it and a crash mid-write
+    /// leaves the old file whole. A file an older CLI left readable is tightened by the next save.
     fn write(&self, config: &Map<String, Value>) -> Result<()> {
+        use std::{
+            io::Write,
+            os::unix::fs::{DirBuilderExt, OpenOptionsExt},
+        };
         if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(dir)
+                .with_context(|| format!("creating {}", dir.display()))?;
         }
         let body = serde_json::to_string_pretty(&js_key_order(config.clone()))? + "\n";
-        fs::write(&self.path, body).with_context(|| format!("writing {}", self.path.display()))
+        let tmp = self.path.with_extension(format!("json.tmp-{}", std::process::id()));
+        let written = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .and_then(|mut file| file.write_all(body.as_bytes()).and_then(|()| file.sync_all()))
+            .and_then(|()| fs::rename(&tmp, &self.path));
+        if written.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        written.with_context(|| format!("writing {}", self.path.display()))
     }
 
     /// Read with legacy flat fields migrated into profiles. The migration is
@@ -212,8 +241,9 @@ impl ConfigStore {
         let field = |key: &str| profile.and_then(|p| p.get(key)).and_then(Value::as_str);
 
         let (api_key, api_key_source) = resolve(self.env.api_key.as_deref(), field("apiKey"), None);
+        let profile_base_url = field("baseUrl").or(profile.map(|_| LEGACY_PROFILE_BASE_URL));
         let (base_url, base_url_source) =
-            resolve(self.env.api_url.as_deref(), field("baseUrl"), Some(DEFAULT_BASE_URL));
+            resolve(self.env.api_url.as_deref(), profile_base_url, Some(DEFAULT_BASE_URL));
         let (account_id, account_id_source) = resolve(self.env.account_id.as_deref(), field("accountId"), None);
 
         EffectiveConfig {
@@ -245,7 +275,7 @@ impl ConfigStore {
                 name: name.clone(),
                 active: Some(name) == active.as_ref(),
                 account_id: profile.get("accountId").and_then(Value::as_str).map(str::to_string),
-                base_url: profile.get("baseUrl").and_then(Value::as_str).unwrap_or(DEFAULT_BASE_URL).to_string(),
+                base_url: profile.get("baseUrl").and_then(Value::as_str).unwrap_or(LEGACY_PROFILE_BASE_URL).to_string(),
             })
             .collect()
     }
@@ -339,7 +369,7 @@ impl ConfigStore {
         if let Some(env) = env {
             return match env.to_lowercase().as_str() {
                 "staging" | "stg" => Ok(STAGING_BASE_URL.to_string()),
-                "prod" | "production" => Ok(DEFAULT_BASE_URL.to_string()),
+                "prod" | "production" => Ok(PROD_BASE_URL.to_string()),
                 _ => bail!("Unknown --env \"{env}\". Use \"staging\" or \"prod\"."),
             };
         }
@@ -525,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn list_profiles_reports_active_account_and_default_base_url() {
+    fn list_profiles_reports_active_account_and_legacy_base_url() {
         let f = fixture(Some(json!({
             "profiles": {
                 "a": { "apiKey": "k", "accountId": "acct-a" },
@@ -540,12 +570,41 @@ mod tests {
                     name: "a".into(),
                     active: false,
                     account_id: Some("acct-a".into()),
-                    base_url: DEFAULT_BASE_URL.into()
+                    // Saved without a base URL by a CLI whose default was app2.
+                    base_url: PROD_BASE_URL.into()
                 },
                 ProfileSummary { name: "b".into(), active: true, account_id: None, base_url: STAGING_BASE_URL.into() },
             ]
         );
         assert!(store(&fixture(None)).profile_summaries().is_empty());
+    }
+
+    #[test]
+    fn a_profile_saved_without_a_base_url_keeps_app2_and_no_profile_uses_stg() {
+        let legacy = fixture(Some(json!({
+            "profiles": { "old": { "apiKey": "k", "accountId": "a" } },
+            "activeProfile": "old",
+        })));
+        assert_eq!(store(&legacy).effective().base_url, PROD_BASE_URL);
+        assert_eq!(store(&fixture(None)).effective().base_url, STAGING_BASE_URL);
+        assert_eq!(store(&fixture(None)).resolve_login_base_url(None, None).unwrap(), STAGING_BASE_URL);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_config_holding_api_keys_is_private_to_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = fixture(Some(json!({ "profiles": {} })));
+        fs::set_permissions(&f.path, fs::Permissions::from_mode(0o644)).unwrap();
+        store(&f).save(vec![("activeProfile", Some(json!("a")))]).unwrap();
+        assert_eq!(fs::metadata(&f.path).unwrap().permissions().mode() & 0o777, 0o600);
+
+        let fresh = fixture(None);
+        store(&fresh).save(vec![("activeProfile", Some(json!("a")))]).unwrap();
+        assert_eq!(fs::metadata(&fresh.path).unwrap().permissions().mode() & 0o777, 0o600);
+        let dir = fresh.path.parent().unwrap();
+        assert_eq!(fs::metadata(dir).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(fs::read_dir(dir).unwrap().count(), 1, "no temp file left behind");
     }
 
     #[test]
@@ -562,8 +621,8 @@ mod tests {
         let s = store(&fixture(Some(json!({}))));
         assert_eq!(s.resolve_login_base_url(Some("staging"), None).unwrap(), STAGING_BASE_URL);
         assert_eq!(s.resolve_login_base_url(Some("stg"), None).unwrap(), STAGING_BASE_URL);
-        assert_eq!(s.resolve_login_base_url(Some("prod"), None).unwrap(), DEFAULT_BASE_URL);
-        assert_eq!(s.resolve_login_base_url(Some("Production"), None).unwrap(), DEFAULT_BASE_URL);
+        assert_eq!(s.resolve_login_base_url(Some("prod"), None).unwrap(), PROD_BASE_URL);
+        assert_eq!(s.resolve_login_base_url(Some("Production"), None).unwrap(), PROD_BASE_URL);
         assert!(s.resolve_login_base_url(Some("qa"), None).unwrap_err().to_string().contains("Unknown --env"));
     }
 

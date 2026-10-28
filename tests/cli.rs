@@ -3397,7 +3397,7 @@ async fn an_unknown_vendo_profile_is_an_error_that_names_it_and_says_how_to_fix_
     assert_eq!((out.status.code(), text(&out.stderr)), (Some(1), String::new()));
     let shown = text(&out.stdout);
     assert!(
-        shown.starts_with("  Profile:     nope\n  Base URL:    https://app2.vendodata.com\n\nProfiles\n"),
+        shown.starts_with("  Profile:     nope\n  Base URL:    https://stg.vendodata.com\n\nProfiles\n"),
         "{shown}"
     );
     assert!(
@@ -7914,9 +7914,9 @@ async fn workspace_shows_the_account_the_profiles_and_the_checks_on_one_screen()
   API key:     vend...eKuE  (key ID {T101_KEY_ID}, scopes *)
 
 Profiles
-    provin          28bb9a3b…  stg.vendodata.com
+    provin          28bb9a3b…
   * t101            73743172…  {}
-    vendo-cli-test  d3b82ae5…  stg.vendodata.com
+    vendo-cli-test  d3b82ae5…
 
 Checks
   [ok] CLI {version} at ~/.local/bin/vendo, on PATH
@@ -7945,7 +7945,7 @@ async fn signed_out_workspace_shows_what_it_can_and_each_check_with_its_fix() {
     assert_eq!(
         text(&out.stdout),
         format!(
-            "  Base URL:    https://app2.vendodata.com
+            "  Base URL:    https://stg.vendodata.com
 
 Checks
 {cli}  [warn] Config ~/.config/vendo/config.json (not found yet)
