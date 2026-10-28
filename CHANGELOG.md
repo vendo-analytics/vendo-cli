@@ -5,6 +5,12 @@ release's notes, so every release needs a `## X.Y.Z` section here before it is t
 
 ## Unreleased
 
+- `vendo login` signs in to `stg.vendodata.com`, where Vendo workspaces live, by default; `--env prod` still signs in
+  to `app2.vendodata.com`. A profile you already saved keeps the host it signed in to.
+- The config file that holds your API keys is now readable only by you (`0600`, in a `0700` folder) and is replaced
+  in one step, so an interrupted save can no longer leave it half written. A file an older version left readable is
+  fixed the next time the CLI saves it.
+- `vendo update` no longer reports success when the installer could not be downloaded.
 - `vendo status` counts an app as errored when its status needs attention (reconnect required or disconnected),
   the apps `vendo apps diagnose` lists as broken, instead of always showing 0.
 
