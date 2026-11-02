@@ -1,0 +1,8 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo query --metric Nope --breakdown plan --range last_month --json
+exit: 1
+--- stdout ---
+--- stderr ---
+{"error":{"message":"\"Nope\" has no data entity in common to break down or filter by.","code":"NOT_EXPRESSIBLE","status":422,"requestId":"cli-[request-id]"}}

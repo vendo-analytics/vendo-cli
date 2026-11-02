@@ -1,0 +1,8 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo query --range last_7_days
+exit: 1
+--- stdout ---
+--- stderr ---
+Error: Pass --metric or --event for a governed query, or --sql

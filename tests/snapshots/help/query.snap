@@ -1,0 +1,36 @@
+---
+source: tests/cli/snapshots.rs
+---
+Query saved metrics, events or read-only SQL
+
+Usage: vendo query [OPTIONS]
+
+Options:
+      --metric <name|id>         Saved metric by exact name or ID (repeatable)
+      --event <name>             Event to aggregate (repeatable; the i-th --agg applies to the i-th --event)
+      --agg <agg>                Aggregation for each --event: count (default), unique_users, sum, avg, min, max
+      --property <property>      Property to aggregate, in order, for each --event whose --agg is sum, avg, min or max
+      --breakdown <property>     Break down by an event property, user:<source>:<key> or group:<type>:<column> (repeatable)
+      --granularity <grain>      Trend by day, week, month or quarter
+      --filter <field:op:value>  Filter as field:op:value; op is eq, neq, in, not_in (comma-separated values), gt, gte, lt, lte, contains, not_contains, is_set or is_not_set (no value) (repeatable)
+      --range <preset>           Time range preset: last_7_days, last_30_days, last_90_days, this_month, last_month
+      --from <date>              First day, YYYY-MM-DD (with --to)
+      --to <date>                Last day, inclusive, YYYY-MM-DD (with --from)
+      --compare <period>         Compare with the previous period or the previous year
+      --limit <n>                Maximum rows returned (1-1000, default 100)
+      --sql <query>              One read-only BigQuery SELECT over this workspace's datasets (needs Editor access)
+      --sql-file <path>          Read the SQL from a file
+      --include-sql              Also print the SQL a governed query ran
+      --json                     Output raw JSON
+  -h, --help                     Print help
+
+Global options:
+      --profile <name>  Use a specific account profile (or set VENDO_PROFILE)
+      --debug           Enable verbose request diagnostics
+
+Examples:
+  $ vendo query --metric "New MRR" --granularity month --range last_90_days
+  $ vendo query --metric "New MRR" --breakdown plan --range last_month
+  $ vendo query --event Purchase --agg sum --property revenue --from 2026-10-01 --to 2026-10-31
+  $ vendo query --event Purchase --filter country:eq:AU --range last_7_days --json
+  $ vendo query --sql "SELECT COUNT(*) AS n FROM my_dataset.orders"

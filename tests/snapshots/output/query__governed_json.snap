@@ -1,0 +1,52 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo query --metric 'New MRR' --granularity month --range last_90_days --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "source": "governed",
+    "columns": [
+      {
+        "name": "Date",
+        "type": "DATE"
+      },
+      {
+        "name": "New MRR",
+        "type": "NUMBER",
+        "unit": "AUD"
+      }
+    ],
+    "rows": [
+      [
+        "2026-08-01",
+        18250.5
+      ],
+      [
+        "2026-09-01",
+        21410
+      ],
+      [
+        "2026-10-01",
+        null
+      ]
+    ],
+    "row_count": 3,
+    "truncated": false,
+    "definitions": [
+      {
+        "kind": "metric",
+        "id": "aaaaaaaa-0000-4000-8000-000000000001",
+        "name": "New MRR"
+      }
+    ],
+    "time_range": {
+      "preset": "last_90_days",
+      "from": "2026-08-04",
+      "to": "2026-11-01"
+    },
+    "query_ref": "qr1.eyJ2ZXJzaW9uIjoyfQ",
+    "bytes_processed": "10485760"
+  }
+}

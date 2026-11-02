@@ -39,7 +39,7 @@ use jiff::SignedDuration;
 use serde_json::{Value, json};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{method, path, query_param, query_param_is_missing},
+    matchers::{body_partial_json, method, path, query_param, query_param_is_missing},
 };
 
 use super::{
@@ -580,7 +580,7 @@ pub(super) const PROFILE_WITHOUT_A_NAME: [&[&str]; 4] = [
 /// The groups of `output/`, one test each. A Session's recorder only owns its
 /// own group's files, so a renamed or removed group would leave its snapshots
 /// behind unnoticed; [`every_output_snapshot_has_a_group`] catches them.
-const OUTPUT_GROUPS: [&str; 13] = [
+const OUTPUT_GROUPS: [&str; 14] = [
     "account",
     "apps",
     "catalog",
@@ -592,6 +592,7 @@ const OUTPUT_GROUPS: [&str; 13] = [
     "measurement",
     "metrics",
     "models",
+    "query",
     "sources",
     "version",
 ];
@@ -1626,6 +1627,64 @@ async fn dictionary_output() {
     s.record("search_json", &["dictionary", "search", "customer", "--type", "column", "--json"]);
     s.record("get", &["dictionary", "get", COLUMN_ID]);
     s.record("get_json", &["dictionary", "get", COLUMN_ID, "--json"]);
+    s.finish();
+}
+
+/// `POST /query` answers by what the body asks for: the governed result, the SQL result, or the
+/// route's NOT_EXPRESSIBLE refusal.
+async fn mount_query(server: &MockServer) {
+    let query = format!("{ACCOUNT}/query");
+    let governed = data(json!({
+        "source": "governed",
+        "columns": [{ "name": "Date", "type": "DATE" }, { "name": "New MRR", "type": "NUMBER", "unit": "AUD" }],
+        "rows": [["2026-08-01", 18250.5], ["2026-09-01", 21410], ["2026-10-01", null]],
+        "row_count": 3,
+        "truncated": false,
+        "definitions": [{ "kind": "metric", "id": "aaaaaaaa-0000-4000-8000-000000000001", "name": "New MRR" }],
+        "time_range": { "preset": "last_90_days", "from": "2026-08-04", "to": "2026-11-01" },
+        "query_ref": "qr1.eyJ2ZXJzaW9uIjoyfQ",
+        "bytes_processed": "10485760",
+    }));
+    let sql = data(json!({
+        "source": "sql",
+        "columns": [{ "name": "n", "type": "INTEGER" }],
+        "rows": [[42]],
+        "row_count": 1,
+        "truncated": false,
+        "bytes_processed": "0",
+    }));
+    let refused = json!({ "error": {
+        "code": "NOT_EXPRESSIBLE",
+        "message": "\"Nope\" has no data entity in common to break down or filter by.",
+        "details": { "next": "Query the underlying event with breakdowns, or use sql." },
+    }});
+    for (body, status, response) in [
+        (json!({ "measures": [{ "metric": "New MRR" }] }), 200, governed),
+        (json!({ "sql": "SELECT 42 AS n" }), 200, sql),
+        (json!({ "measures": [{ "metric": "Nope" }] }), 422, refused),
+    ] {
+        Mock::given(method("POST"))
+            .and(path(query.clone()))
+            .and(body_partial_json(body))
+            .respond_with(ResponseTemplate::new(status).set_body_json(response))
+            .mount(server)
+            .await;
+    }
+}
+
+#[tokio::test]
+async fn query_output() {
+    let (server, mut s) = Session::start("query").await;
+    mount_query(&server).await;
+    let trend = ["query", "--metric", "New MRR", "--granularity", "month", "--range", "last_90_days"];
+    s.record("governed", &trend);
+    s.record("governed_json", &[&trend[..], &["--json"]].concat());
+    s.record("sql", &["query", "--sql", "SELECT 42 AS n"]);
+    s.record("sql_json", &["query", "--sql", "SELECT 42 AS n", "--json"]);
+    let refused = ["query", "--metric", "Nope", "--breakdown", "plan", "--range", "last_month"];
+    s.record("not_expressible", &refused);
+    s.record("not_expressible_json", &[&refused[..], &["--json"]].concat());
+    s.record("no_measure", &["query", "--range", "last_7_days"]);
     s.finish();
 }
 

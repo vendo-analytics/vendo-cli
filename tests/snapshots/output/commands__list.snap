@@ -42,6 +42,7 @@ Data catalog:
   measurement   Inspect Marketing Measurement methodologies, LTV, and signals
                 methodologies list, methodologies get, rules preview, ltv list,
                 ltv cohort, ltv customer, signals list, signals click-path
+  query         Query saved metrics, events or read-only SQL
 
 Options:
       --profile <name>  Use a specific account profile (or set VENDO_PROFILE)

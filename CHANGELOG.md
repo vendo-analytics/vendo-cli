@@ -5,6 +5,10 @@ release's notes, so every release needs a `## X.Y.Z` section here before it is t
 
 ## Unreleased
 
+- New `vendo query` runs a question against your data, the same way Claude does through Vendo's MCP server: saved
+  metrics (`--metric`) or event aggregates (`--event`, `--agg`, `--property`), with `--breakdown`, `--granularity`,
+  `--filter`, `--range` or `--from`/`--to`, and `--compare`. `--sql` (or `--sql-file`) runs one read-only SELECT
+  instead, for Editors and above. The result prints as a table; `--json` prints the API response.
 - `vendo login` signs in to `stg.vendodata.com`, where Vendo workspaces live, by default; `--env prod` still signs in
   to `app2.vendodata.com`. A profile you already saved keeps the host it signed in to.
 - The config file that holds your API keys is now readable only by you (`0600`, in a `0700` folder) and is replaced

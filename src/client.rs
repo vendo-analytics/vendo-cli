@@ -31,6 +31,7 @@ const ACCOUNT_SCOPED_PREFIXES: &[&str] = &[
     "/dictionary",
     "/pulse",
     "/bigquery",
+    "/query",
 ];
 /// Share an account-scoped prefix but are global routes (scoped by the key).
 const GLOBAL_PATH_EXCEPTIONS: &[&str] = &["/apps/oauth-session"];
