@@ -310,7 +310,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::config::{DEFAULT_BASE_URL, STAGING_BASE_URL, Source};
+    use crate::config::{STAGING_BASE_URL, Source};
 
     fn profile(name: &str, active: bool, account: Option<&str>, base_url: &str) -> ProfileSummary {
         ProfileSummary { name: name.into(), active, account_id: account.map(Into::into), base_url: base_url.into() }
@@ -381,15 +381,15 @@ mod tests {
         let rows = profile_rows(&[
             profile("provin", false, Some("28bb9a3b-1c2d-4e5f-8a9b-0c1d2e3f4a5b"), STAGING_BASE_URL),
             profile("t101", true, Some("73743172-2a4c-4f0e-9a8b-3f1d2c4b5a69"), "https://stg.vendodata.com/"),
-            profile("prod", false, Some("short"), DEFAULT_BASE_URL),
+            profile("prod", false, Some("short"), crate::config::PROD_BASE_URL),
             profile("local", false, None, "http://127.0.0.1:3031"),
         ]);
         assert_eq!(
             rows,
             [
-                "    provin  28bb9a3b…   stg.vendodata.com",
+                "    provin  28bb9a3b…",
                 "  * t101    73743172…   stg.vendodata.com",
-                "    prod    short",
+                "    prod    short       app2.vendodata.com",
                 "    local   no account  127.0.0.1:3031",
             ]
         );
@@ -449,8 +449,8 @@ mod tests {
                 "  API key:     vend...0000",
                 "",
                 "Profiles",
-                "  * a  acct-a      stg.vendodata.com",
-                "    b  no account  stg.vendodata.com",
+                "  * a  acct-a",
+                "    b  no account",
                 "",
                 "Checks",
                 "  [fail] API auth: fetch failed",
@@ -481,8 +481,8 @@ mod tests {
                 "  Env overrides active: VENDO_API_KEY",
                 "",
                 "Profiles",
-                "    a  acct-a      stg.vendodata.com",
-                "  * b  no account  stg.vendodata.com",
+                "    a  acct-a",
+                "  * b  no account",
                 "  VENDO_PROFILE=b overrides the active profile in this shell: change or unset VENDO_PROFILE to switch here.",
                 "",
                 "Checks",

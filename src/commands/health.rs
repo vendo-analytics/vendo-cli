@@ -495,7 +495,9 @@ const INSTALL_URL: &str = "https://app2.vendodata.com/install.sh";
 /// binary that ran, which the text's note compares. A failed installer is the JSON error.
 pub fn self_update(ctx: &Ctx, version: Option<String>, json: bool) -> Result<ExitCode> {
     let mut cmd = Command::new("bash");
-    cmd.args(["-lc", &format!("curl -fsSL {INSTALL_URL} | bash")]);
+    // pipefail: without it a failed download pipes an empty script to bash, which exits 0 and the
+    // update reports success.
+    cmd.args(["-lc", &format!("set -o pipefail; curl -fsSL {INSTALL_URL} | bash")]);
     if let Some(version) = version.filter(|v| !v.is_empty()) {
         cmd.env("VENDO_VERSION", version);
     }
@@ -605,7 +607,7 @@ mod tests {
                 ("Config /h/.config/vendo/config.json", Listed::Alone),
                 ("Selected profile: p", Listed::WhenNotOk),
                 ("API key: vend...ghij (from profile)", Listed::WhenNotOk),
-                ("Base URL: https://app2.vendodata.com (default)", Listed::WhenNotOk),
+                ("Base URL: https://stg.vendodata.com (default)", Listed::WhenNotOk),
                 ("Account ID: acct (from env)", Listed::WhenNotOk),
                 ("Zsh completions installed", Listed::Alone),
             ]

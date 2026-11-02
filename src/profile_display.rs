@@ -204,8 +204,8 @@ mod tests {
         assert_eq!(format_profile_label(&profile("a", true, Some("acct"), DEFAULT_BASE_URL), true), "a (active)  acct");
         assert_eq!(format_profile_label(&profile("a", true, Some("acct"), DEFAULT_BASE_URL), false), "a  acct");
         assert_eq!(
-            format_profile_label(&profile("b", false, None, "https://stg.vendodata.com"), true),
-            "b  no account  https://stg.vendodata.com"
+            format_profile_label(&profile("b", false, None, crate::config::PROD_BASE_URL), true),
+            "b  no account  https://app2.vendodata.com"
         );
     }
 

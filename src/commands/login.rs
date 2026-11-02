@@ -37,7 +37,7 @@ use uuid::Uuid;
 
 use crate::{
     commands::workspace,
-    config::{DEFAULT_BASE_URL, EffectiveConfig, Source, vendo_profile_overrides},
+    config::{EffectiveConfig, Source, vendo_profile_overrides},
     context::Ctx,
     identity::{Identity, IdentityError, fetch_identity},
     output::{bold, dim, print_json, print_success, prompts_off, run_action},
@@ -405,9 +405,8 @@ fn profile(api_key: &str, account_id: Option<&str>, base_url: &str) -> Map<Strin
     if let Some(account_id) = account_id {
         profile.insert("accountId".into(), Value::String(account_id.to_string()));
     }
-    if base_url != DEFAULT_BASE_URL {
-        profile.insert("baseUrl".into(), Value::String(base_url.to_string()));
-    }
+    // Always saved: a profile without one reads as the legacy app2 default (`config.rs`).
+    profile.insert("baseUrl".into(), Value::String(base_url.to_string()));
     profile
 }
 
@@ -569,6 +568,7 @@ fn escape_html(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::DEFAULT_BASE_URL;
 
     async fn hit(port: u16, path: &str) -> (u16, String) {
         let res = reqwest::get(format!("http://127.0.0.1:{port}{path}")).await.unwrap();
@@ -635,9 +635,9 @@ mod tests {
     }
 
     #[test]
-    fn saved_profile_omits_default_base_url_and_missing_account() {
+    fn saved_profile_always_has_its_base_url_and_omits_a_missing_account() {
         let p = profile("k", None, DEFAULT_BASE_URL);
-        assert_eq!(Value::Object(p), serde_json::json!({ "apiKey": "k" }));
+        assert_eq!(Value::Object(p), serde_json::json!({ "apiKey": "k", "baseUrl": DEFAULT_BASE_URL }));
         let p = profile("k", Some("a"), "https://stg.vendodata.com");
         assert_eq!(
             Value::Object(p),
@@ -723,7 +723,10 @@ mod tests {
     #[test]
     fn an_empty_account_id_is_saved() {
         let p = profile("k", Some(""), DEFAULT_BASE_URL);
-        assert_eq!(Value::Object(p), serde_json::json!({ "apiKey": "k", "accountId": "" }));
+        assert_eq!(
+            Value::Object(p),
+            serde_json::json!({ "apiKey": "k", "accountId": "", "baseUrl": DEFAULT_BASE_URL })
+        );
     }
 
     #[test]
@@ -806,7 +809,7 @@ mod tests {
     fn instances_compare_by_origin() {
         assert!(same_instance("https://stg.vendodata.com", "https://stg.vendodata.com/"));
         assert!(same_instance("https://stg.vendodata.com/api", "https://stg.vendodata.com"));
-        assert!(!same_instance(DEFAULT_BASE_URL, crate::config::STAGING_BASE_URL));
+        assert!(!same_instance(crate::config::PROD_BASE_URL, crate::config::STAGING_BASE_URL));
         assert!(!same_instance("http://127.0.0.1:1", "http://127.0.0.1:2"));
         assert!(same_instance("not a url", "not a url"));
     }
