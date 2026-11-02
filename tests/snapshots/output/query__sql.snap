@@ -1,0 +1,9 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo query --sql 'SELECT 42 AS n'
+exit: 0
+--- stdout ---
+ n  
+ 42 
+1 row · custom SQL

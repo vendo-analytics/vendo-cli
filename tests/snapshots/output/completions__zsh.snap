@@ -1053,6 +1053,30 @@ esac
     ;;
 esac
 ;;
+(query)
+_arguments "${_arguments_options[@]}" : \
+'(--sql --sql-file)*--metric=[Saved metric by exact name or ID (repeatable)]:name|id:_default' \
+'(--sql --sql-file)*--event=[Event to aggregate (repeatable; the i-th --agg applies to the i-th --event)]:name:_default' \
+'*--agg=[Aggregation for each --event\: count (default), unique_users, sum, avg, min, max]:agg:(count unique_users sum avg min max)' \
+'*--property=[Property to aggregate, in order, for each --event whose --agg is sum, avg, min or max]:property:_default' \
+'*--breakdown=[Break down by an event property, user\:<source>\:<key> or group\:<type>\:<column> (repeatable)]:property:_default' \
+'--granularity=[Trend by day, week, month or quarter]:grain:(day week month quarter)' \
+'*--filter=[Filter as field\:op\:value; op is eq, neq, in, not_in (comma-separated values), gt, gte, lt, lte, contains, not_contains, is_set or is_not_set (no value) (repeatable)]:field:op:value:_default' \
+'(--from --to)--range=[Time range preset\: last_7_days, last_30_days, last_90_days, this_month, last_month]:preset:(last_7_days last_30_days last_90_days this_month last_month)' \
+'--from=[First day, YYYY-MM-DD (with --to)]:date:_default' \
+'--to=[Last day, inclusive, YYYY-MM-DD (with --from)]:date:_default' \
+'--compare=[Compare with the previous period or the previous year]:period:(previous_period previous_year)' \
+'--limit=[Maximum rows returned (1-1000, default 100)]:n:_default' \
+'(--sql-file)--sql=[One read-only BigQuery SELECT over this workspace'\''s datasets (needs Editor access)]:query:_default' \
+'--sql-file=[Read the SQL from a file]:path:_default' \
+'--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
+'--include-sql[Also print the SQL a governed query ran]' \
+'--json[Output raw JSON]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'--debug[Enable verbose request diagnostics]' \
+&& ret=0
+;;
 (completions)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
@@ -1563,6 +1587,10 @@ esac
     ;;
 esac
 ;;
+(query)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (completions)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1609,6 +1637,7 @@ _vendo_commands() {
 'metrics:Manage custom metrics in the Metrics Library' \
 'models:Manage data models' \
 'measurement:Inspect Marketing Measurement methodologies, LTV, and signals' \
+'query:Query saved metrics, events or read-only SQL' \
 'completions:Generate shell completion script (bash, zsh, fish)' \
 'commands:List every command, or with --json the command tree with arguments and flags' \
 'version:Print version' \
@@ -1806,6 +1835,7 @@ _vendo__subcmd__help_commands() {
 'metrics:Manage custom metrics in the Metrics Library' \
 'models:Manage data models' \
 'measurement:Inspect Marketing Measurement methodologies, LTV, and signals' \
+'query:Query saved metrics, events or read-only SQL' \
 'completions:Generate shell completion script (bash, zsh, fish)' \
 'commands:List every command, or with --json the command tree with arguments and flags' \
 'version:Print version' \
@@ -2203,6 +2233,11 @@ _vendo__subcmd__help__subcmd__profile__subcmd__switch_commands() {
     local commands; commands=()
     _describe -t commands 'vendo help profile switch commands' commands "$@"
 }
+(( $+functions[_vendo__subcmd__help__subcmd__query_commands] )) ||
+_vendo__subcmd__help__subcmd__query_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo help query commands' commands "$@"
+}
 (( $+functions[_vendo__subcmd__help__subcmd__sources_commands] )) ||
 _vendo__subcmd__help__subcmd__sources_commands() {
     local commands; commands=(
@@ -2488,6 +2523,11 @@ _vendo__subcmd__profile__subcmd__set_commands() {
 _vendo__subcmd__profile__subcmd__switch_commands() {
     local commands; commands=()
     _describe -t commands 'vendo profile switch commands' commands "$@"
+}
+(( $+functions[_vendo__subcmd__query_commands] )) ||
+_vendo__subcmd__query_commands() {
+    local commands; commands=()
+    _describe -t commands 'vendo query commands' commands "$@"
 }
 (( $+functions[_vendo__subcmd__sources_commands] )) ||
 _vendo__subcmd__sources_commands() {

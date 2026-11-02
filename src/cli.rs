@@ -77,7 +77,7 @@ fn no_help_rows(cmd: clap::Command) -> clap::Command {
 pub const HELP_SECTIONS: [(&str, &[&str]); 3] = [
     ("Account", &["login", "logout", "workspace", "status", "help", "version", "profile", "update"]),
     ("Data pipeline", &["apps", "sources", "destinations", "jobs"]),
-    ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement"]),
+    ("Data catalog", &["catalog", "dictionary", "metrics", "models", "measurement", "query"]),
 ];
 
 /// The root help fits 80 columns: a description, or the list of commands under a group, that would
@@ -681,6 +681,62 @@ pub enum Command {
     Measurement {
         #[command(subcommand)]
         command: MeasurementCommand,
+    },
+    /// Query saved metrics, events or read-only SQL
+    // The route the MCP `query` tool shares (vendo-web-v2 `lib/vendo/query-api/run-query.ts`).
+    #[command(
+        after_help = "Examples:\n  $ vendo query --metric \"New MRR\" --granularity month --range last_90_days\n  $ vendo query --metric \"New MRR\" --breakdown plan --range last_month\n  $ vendo query --event Purchase --agg sum --property revenue --from 2026-10-01 --to 2026-10-31\n  $ vendo query --event Purchase --filter country:eq:AU --range last_7_days --json\n  $ vendo query --sql \"SELECT COUNT(*) AS n FROM my_dataset.orders\""
+    )]
+    Query {
+        /// Saved metric by exact name or ID (repeatable)
+        #[arg(long = "metric", value_name = "name|id", conflicts_with_all = ["sql", "sql_file"])]
+        metrics: Vec<String>,
+        /// Event to aggregate (repeatable; the i-th --agg applies to the i-th --event)
+        #[arg(long = "event", value_name = "name", conflicts_with_all = ["sql", "sql_file"])]
+        events: Vec<String>,
+        /// Aggregation for each --event: count (default), unique_users, sum, avg, min, max
+        #[arg(long = "agg", value_name = "agg", value_parser = QUERY_AGGS)]
+        aggs: Vec<String>,
+        /// Property to aggregate, in order, for each --event whose --agg is sum, avg, min or max
+        #[arg(long = "property", value_name = "property")]
+        properties: Vec<String>,
+        /// Break down by an event property, user:<source>:<key> or group:<type>:<column> (repeatable)
+        #[arg(long = "breakdown", value_name = "property")]
+        breakdowns: Vec<String>,
+        /// Trend by day, week, month or quarter
+        #[arg(long, value_name = "grain", value_parser = QUERY_GRAINS)]
+        granularity: Option<String>,
+        /// Filter as field:op:value; op is eq, neq, in, not_in (comma-separated values), gt, gte, lt, lte,
+        /// contains, not_contains, is_set or is_not_set (no value) (repeatable)
+        #[arg(long = "filter", value_name = "field:op:value")]
+        filters: Vec<String>,
+        /// Time range preset: last_7_days, last_30_days, last_90_days, this_month, last_month
+        #[arg(long, value_name = "preset", value_parser = QUERY_RANGES, conflicts_with_all = ["from", "to"])]
+        range: Option<String>,
+        /// First day, YYYY-MM-DD (with --to)
+        #[arg(long, value_name = "date")]
+        from: Option<String>,
+        /// Last day, inclusive, YYYY-MM-DD (with --from)
+        #[arg(long, value_name = "date")]
+        to: Option<String>,
+        /// Compare with the previous period or the previous year
+        #[arg(long, value_name = "period", value_parser = QUERY_COMPARES)]
+        compare: Option<String>,
+        /// Maximum rows returned (1-1000, default 100)
+        #[arg(long, value_name = "n")]
+        limit: Option<u32>,
+        /// One read-only BigQuery SELECT over this workspace's datasets (needs Editor access)
+        #[arg(long, value_name = "query", conflicts_with = "sql_file")]
+        sql: Option<String>,
+        /// Read the SQL from a file
+        #[arg(long = "sql-file", value_name = "path")]
+        sql_file: Option<String>,
+        /// Also print the SQL a governed query ran
+        #[arg(long = "include-sql")]
+        include_sql: bool,
+        /// Output raw JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Generate shell completion script (bash, zsh, fish)
     // Hidden from the help, the menus and `vendo commands` (VE-4109, Yalcin 2026-10-10); the installer
@@ -1950,6 +2006,14 @@ const JOB_STATUSES: Suggest = Suggest(&["queued", "pending", "running", "complet
 /// `jobs list --type`, which its help lists: the job types `GET /api/v1/jobs` documents for `job_type` (`route-handlers/jobs/collection.ts`).
 /// `jobs.job_type` allows more (internal DAG steps), which still pass.
 const JOB_TYPES: Suggest = Suggest(&["import", "export", "data_quality", "attribution"]);
+/// `query --agg`: the route's event aggregations (vendo-web-v2 `lib/vendo/query-api/run-query.ts`).
+const QUERY_AGGS: Suggest = Suggest(&["count", "unique_users", "sum", "avg", "min", "max"]);
+/// `query --granularity`: the route's `granularity`.
+const QUERY_GRAINS: Suggest = Suggest(&["day", "week", "month", "quarter"]);
+/// `query --range`: the route's `time_range` presets.
+const QUERY_RANGES: Suggest = Suggest(&["last_7_days", "last_30_days", "last_90_days", "this_month", "last_month"]);
+/// `query --compare`: the route's `compare`.
+const QUERY_COMPARES: Suggest = Suggest(&["previous_period", "previous_year"]);
 /// `login --env`: the instances its help names, as `ConfigStore::resolve_login_base_url` reads them.
 const ENVIRONMENTS: Suggest = Suggest(&["staging", "prod"]);
 
@@ -2594,6 +2658,10 @@ mod tests {
             suggested("metrics update --status", METRIC_STATUSES),
             suggested("measurement ltv list --granularity", GRANULARITIES),
             suggested("measurement ltv cohort --granularity", GRANULARITIES),
+            suggested("query --agg", QUERY_AGGS),
+            suggested("query --granularity", QUERY_GRAINS),
+            suggested("query --range", QUERY_RANGES),
+            suggested("query --compare", QUERY_COMPARES),
             // The one list clap always knew, which the help shows.
             ("vendo completions <shell>".to_string(), "bash zsh fish".to_string()),
         ];

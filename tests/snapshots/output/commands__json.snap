@@ -3733,6 +3733,213 @@ exit: 0
           ]
         }
       ]
+    },
+    {
+      "name": "query",
+      "path": "query",
+      "description": "Query saved metrics, events or read-only SQL",
+      "aliases": [],
+      "arguments": [],
+      "options": [
+        {
+          "name": "--metric",
+          "short": null,
+          "valueName": "name|id",
+          "description": "Saved metric by exact name or ID (repeatable)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--event",
+          "short": null,
+          "valueName": "name",
+          "description": "Event to aggregate (repeatable; the i-th --agg applies to the i-th --event)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--agg",
+          "short": null,
+          "valueName": "agg",
+          "description": "Aggregation for each --event: count (default), unique_users, sum, avg, min, max",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [
+            "count",
+            "unique_users",
+            "sum",
+            "avg",
+            "min",
+            "max"
+          ],
+          "global": false
+        },
+        {
+          "name": "--property",
+          "short": null,
+          "valueName": "property",
+          "description": "Property to aggregate, in order, for each --event whose --agg is sum, avg, min or max",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--breakdown",
+          "short": null,
+          "valueName": "property",
+          "description": "Break down by an event property, user:<source>:<key> or group:<type>:<column> (repeatable)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--granularity",
+          "short": null,
+          "valueName": "grain",
+          "description": "Trend by day, week, month or quarter",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [
+            "day",
+            "week",
+            "month",
+            "quarter"
+          ],
+          "global": false
+        },
+        {
+          "name": "--filter",
+          "short": null,
+          "valueName": "field:op:value",
+          "description": "Filter as field:op:value; op is eq, neq, in, not_in (comma-separated values), gt, gte, lt, lte, contains, not_contains, is_set or is_not_set (no value) (repeatable)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--range",
+          "short": null,
+          "valueName": "preset",
+          "description": "Time range preset: last_7_days, last_30_days, last_90_days, this_month, last_month",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [
+            "last_7_days",
+            "last_30_days",
+            "last_90_days",
+            "this_month",
+            "last_month"
+          ],
+          "global": false
+        },
+        {
+          "name": "--from",
+          "short": null,
+          "valueName": "date",
+          "description": "First day, YYYY-MM-DD (with --to)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--to",
+          "short": null,
+          "valueName": "date",
+          "description": "Last day, inclusive, YYYY-MM-DD (with --from)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--compare",
+          "short": null,
+          "valueName": "period",
+          "description": "Compare with the previous period or the previous year",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [
+            "previous_period",
+            "previous_year"
+          ],
+          "global": false
+        },
+        {
+          "name": "--limit",
+          "short": null,
+          "valueName": "n",
+          "description": "Maximum rows returned (1-1000, default 100)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--sql",
+          "short": null,
+          "valueName": "query",
+          "description": "One read-only BigQuery SELECT over this workspace's datasets (needs Editor access)",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--sql-file",
+          "short": null,
+          "valueName": "path",
+          "description": "Read the SQL from a file",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--include-sql",
+          "short": null,
+          "valueName": null,
+          "description": "Also print the SQL a governed query ran",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        },
+        {
+          "name": "--json",
+          "short": null,
+          "valueName": null,
+          "description": "Output raw JSON",
+          "required": false,
+          "default": null,
+          "possibleValues": [],
+          "suggestedValues": [],
+          "global": false
+        }
+      ],
+      "commands": []
     }
   ]
 }

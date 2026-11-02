@@ -64,6 +64,9 @@ _vendo() {
             vendo,profile)
                 cmd="vendo__subcmd__profile"
                 ;;
+            vendo,query)
+                cmd="vendo__subcmd__query"
+                ;;
             vendo,sources)
                 cmd="vendo__subcmd__sources"
                 ;;
@@ -189,6 +192,9 @@ _vendo() {
                 ;;
             vendo__subcmd__help,profile)
                 cmd="vendo__subcmd__help__subcmd__profile"
+                ;;
+            vendo__subcmd__help,query)
+                cmd="vendo__subcmd__help__subcmd__query"
                 ;;
             vendo__subcmd__help,sources)
                 cmd="vendo__subcmd__help__subcmd__sources"
@@ -497,7 +503,7 @@ _vendo() {
 
     case "${cmd}" in
         vendo)
-            opts="-h -V --profile --debug --help --version login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help"
+            opts="-h -V --profile --debug --help --version login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement query completions commands version update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1277,7 +1283,7 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__help)
-            opts="login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement completions commands version update help"
+            opts="login logout profile status workspace apps sources destinations jobs catalog dictionary metrics models measurement query completions commands version update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2189,6 +2195,20 @@ _vendo() {
         vendo__subcmd__help__subcmd__profile__subcmd__switch)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        vendo__subcmd__help__subcmd__query)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -3214,6 +3234,80 @@ _vendo() {
             fi
             case "${prev}" in
                 --account)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        vendo__subcmd__query)
+            opts="-h --metric --event --agg --property --breakdown --granularity --filter --range --from --to --compare --limit --sql --sql-file --include-sql --json --help --profile --debug"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --metric)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --event)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --agg)
+                    COMPREPLY=($(compgen -W "count unique_users sum avg min max" -- "${cur}"))
+                    return 0
+                    ;;
+                --property)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --breakdown)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --granularity)
+                    COMPREPLY=($(compgen -W "day week month quarter" -- "${cur}"))
+                    return 0
+                    ;;
+                --filter)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --range)
+                    COMPREPLY=($(compgen -W "last_7_days last_30_days last_90_days this_month last_month" -- "${cur}"))
+                    return 0
+                    ;;
+                --from)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --to)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --compare)
+                    COMPREPLY=($(compgen -W "previous_period previous_year" -- "${cur}"))
+                    return 0
+                    ;;
+                --limit)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --sql)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --sql-file)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

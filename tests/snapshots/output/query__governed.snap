@@ -1,0 +1,11 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo query --metric 'New MRR' --granularity month --range last_90_days
+exit: 0
+--- stdout ---
+ Date        New MRR (AUD) 
+ 2026-08-01  18250.5       
+ 2026-09-01  21410         
+ 2026-10-01  —             
+3 rows · 2026-08-04 to 2026-11-01 · governed
