@@ -5,6 +5,10 @@ release's notes, so every release needs a `## X.Y.Z` section here before it is t
 
 ## Unreleased
 
+- New `vendo query` runs a question against your data, the same way Claude does through Vendo's MCP server: saved
+  metrics (`--metric`) or event aggregates (`--event`, `--agg`, `--property`), with `--breakdown`, `--granularity`,
+  `--filter`, `--range` or `--from`/`--to`, and `--compare`. `--sql` (or `--sql-file`) runs one read-only SELECT
+  instead, for Editors and above. The result prints as a table; `--json` prints the API response.
 - `vendo status` counts an app as errored when its status needs attention (reconnect required or disconnected),
   the apps `vendo apps diagnose` lists as broken, instead of always showing 0.
 

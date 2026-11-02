@@ -13,6 +13,7 @@ pub mod measurement;
 pub mod metrics;
 pub mod models;
 pub mod pipeline_resource;
+pub mod query;
 pub mod sources;
 pub mod tree;
 pub mod version;

@@ -54,7 +54,7 @@ use crate::{
         account, apps, catalog, completions, dictionary as dictionary_cmd, health, integrations, jobs as jobs_cmd,
         login, measurement, metrics, models,
         pipeline_resource::{self as resource, ActionOpts},
-        sources, tree, version, workspace,
+        query, sources, tree, version, workspace,
     },
     context::Ctx,
 };
@@ -319,6 +319,46 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             }
             ModelsCommand::Get { id, json } => models::get(ctx, &id, json).await.map(|_| ok),
         },
+        Command::Query {
+            metrics,
+            events,
+            aggs,
+            properties,
+            breakdowns,
+            granularity,
+            filters,
+            range,
+            from,
+            to,
+            compare,
+            limit,
+            sql,
+            sql_file,
+            include_sql,
+            json,
+        } => query::run(
+            ctx,
+            query::QueryArgs {
+                metrics,
+                events,
+                aggs,
+                properties,
+                breakdowns,
+                granularity,
+                filters,
+                range,
+                from,
+                to,
+                compare,
+                limit,
+                sql,
+                sql_file,
+                include_sql,
+                json,
+            },
+        )
+        .await
+        .map(|_| ok),
         Command::Measurement { command } => match command {
             MeasurementCommand::Methodologies { command } => match command {
                 MethodologiesCommand::List { no_system, json, output } => {

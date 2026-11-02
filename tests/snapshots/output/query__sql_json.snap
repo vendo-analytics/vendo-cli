@@ -1,0 +1,25 @@
+---
+source: tests/cli/snapshots.rs
+---
+$ vendo query --sql 'SELECT 42 AS n' --json
+exit: 0
+--- stdout ---
+{
+  "data": {
+    "source": "sql",
+    "columns": [
+      {
+        "name": "n",
+        "type": "INTEGER"
+      }
+    ],
+    "rows": [
+      [
+        42
+      ]
+    ],
+    "row_count": 1,
+    "truncated": false,
+    "bytes_processed": "0"
+  }
+}
