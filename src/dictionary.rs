@@ -168,12 +168,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_cli_sends_exactly_the_server_params() {
-        assert_eq!(LIST_PARAMS, SERVER_LIST_PARAMS);
-        assert_eq!(LOOKUP_PARAM, SERVER_LOOKUP_PARAM);
-    }
-
     #[tokio::test]
     async fn list_and_lookup_send_the_server_params_to_the_account_routes() {
         let server = MockServer::start().await;

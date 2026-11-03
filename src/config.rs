@@ -688,13 +688,6 @@ mod tests {
     }
 
     #[test]
-    fn default_base_url_when_nothing_is_configured() {
-        let e = store(&fixture(Some(json!({})))).effective();
-        assert_eq!(e.base_url, DEFAULT_BASE_URL);
-        assert_eq!(e.base_url_source, Source::Default);
-    }
-
-    #[test]
     fn legacy_config_with_missing_active_profile_still_resolves() {
         let f = fixture(Some(
             json!({ "apiKey": "legacy_key", "accountId": "legacy-id", "activeProfile": "nonexistent", "profiles": {} }),
@@ -835,8 +828,10 @@ mod tests {
     }
 
     #[test]
-    fn require_api_key_message() {
+    fn empty_config_uses_default_base_url_and_requires_an_api_key() {
         let e = store(&fixture(Some(json!({})))).effective();
+        assert_eq!(e.base_url, DEFAULT_BASE_URL);
+        assert_eq!(e.base_url_source, Source::Default);
         assert!(require_api_key(&e).unwrap_err().to_string().starts_with("No API key configured."));
     }
 

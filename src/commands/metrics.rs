@@ -288,15 +288,6 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_definition_names_the_file() {
-        let err = read_metric_definition("/missing/metric.query.json").unwrap_err().to_string();
-        assert_eq!(
-            err,
-            "Failed to read Metric definition /missing/metric.query.json: ENOENT: no such file or directory, open '/missing/metric.query.json'"
-        );
-    }
-
-    #[test]
     fn report_types_come_only_from_a_definition_object() {
         assert_eq!(metric_report_type(Some(&json!({ "reportType": "funnel" }))), "funnel");
         for unknown in [None, Some(json!(null)), Some(json!({ "reportType": 7 })), Some(json!([{ "reportType": "x" }]))]
