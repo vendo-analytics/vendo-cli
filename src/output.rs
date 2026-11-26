@@ -20,7 +20,6 @@ use serde_json::Value;
 use crate::client::ApiError;
 
 mod locale;
-mod usd_patterns;
 mod v8_json;
 mod ymd_patterns;
 
@@ -226,12 +225,6 @@ pub fn format_number(n: Option<&Value>) -> String {
 /// `n.toLocaleString()` for a JavaScript number, in the user's locale.
 pub fn to_locale_number(n: f64) -> String {
     locale::with_current(|format| format.number(n))
-}
-
-/// The measurement views' money format, `n.toLocaleString(undefined, { style: 'currency',
-/// currency: 'USD', maximumFractionDigits: 2 })`, in the user's locale.
-pub fn format_usd(n: f64) -> String {
-    locale::with_current(|format| format.usd(n))
 }
 
 /// `value.toLocaleString()`: numbers in the user's locale, strings as they are, arrays element by
@@ -1101,8 +1094,7 @@ fn select(
 /// command and the option, `vendo apps create --name`), then what is typed; Enter answers. The answer
 /// is taken without the spaces and line ends around it, as a shell takes a word: a line copied whole
 /// or a cell from a spreadsheet brought its line end, so a date the screen showed as `2025-01-01`
-/// went out as `2025-01-01\n` and the API refused it, and a customer ID went out with it and
-/// `measurement ltv customer` said the customer had no cohort. An answer that is empty without them
+/// went out as `2025-01-01\n` and the API refused it. An answer that is empty without them
 /// is refused with inquire's "A response is required." line above the question. Keys typed before
 /// it opened are thrown away ([`discard_typed_ahead`]). Esc, Ctrl-C, Ctrl-D and a terminal that
 /// hangs up leave quietly, as at the group menu. `None` when the question cannot run. Only where
@@ -2312,8 +2304,8 @@ mod tests {
         assert_eq!(count_text(None, "metric"), "undefined metrics");
         assert_eq!(count_text(Some(&json!(null)), "metric"), "null metrics");
         assert_eq!(count_text(Some(&json!("5")), "metric"), "5 metrics");
-        assert_eq!(count_text(Some(&json!(2.5)), "cohort"), "2.5 cohorts");
-        assert_eq!(count_text(Some(&json!(1)), "cohort"), "1 cohort");
+        assert_eq!(count_text(Some(&json!(2.5)), "app"), "2.5 apps");
+        assert_eq!(count_text(Some(&json!(1)), "app"), "1 app");
     }
 
     #[test]

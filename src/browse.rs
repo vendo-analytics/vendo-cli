@@ -26,8 +26,8 @@
 //! Every visible list command ([`Group`]): `vendo apps list`, `vendo sources list`, `vendo destinations
 //! list` (its hidden `integrations list` and `int list` too), `vendo jobs list`, `vendo catalog list`,
 //! `vendo dictionary list` (not `dictionary search`, which prints the same table), `vendo metrics list`,
-//! `vendo models list`, `vendo measurement methodologies list`, `vendo measurement ltv list`, `vendo
-//! measurement signals list` and `vendo profile list` (its hidden `config list` too), which prints
+//! `vendo models list`, `vendo measurement methodologies list`, `vendo measurement signals list` and
+//! `vendo profile list` (its hidden `config list` too), which prints
 //! lines rather than a table ([`profiles`]).
 
 use std::{
@@ -83,9 +83,6 @@ pub enum Group {
     /// `vendo measurement methodologies list`: shown from the list's own row, as `methodologies get`
     /// reads the same route.
     Methodologies,
-    /// `vendo measurement ltv list`: the cohorts of the list's `--granularity` and `--segment`, which
-    /// the cohort shown takes too.
-    Cohorts { granularity: String, segment: String },
     /// `vendo measurement signals list`: nothing to show of a signal (the group has no `get`).
     Signals,
     /// `vendo profile list` (hidden `config list`): `saved`, the saved `activeProfile`, which
@@ -203,20 +200,18 @@ mod menu {
                 Group::Metrics => "metrics",
                 Group::Models => "models",
                 Group::Methodologies => "measurement methodologies",
-                Group::Cohorts { .. } => "measurement ltv",
                 Group::Signals => "measurement signals",
                 Group::Profiles { .. } => "profile",
             }
         }
 
         /// The item's full ID, which `get` and its actions take: a platform's app type, a dictionary
-        /// entry's subject ID, a cohort's period (`ltv cohort`'s), a profile's name, any other item's
+        /// entry's subject ID, a profile's name, any other item's
         /// `id` (a signal's is its name, `click_path`).
         fn id(&self, row: &Value) -> String {
             match self {
                 Group::Catalog => Job(row).text("appType").unwrap_or_default(),
                 Group::Dictionary => Job(row).text("subjectId").unwrap_or_default(),
-                Group::Cohorts { .. } => Job(row).text("cohort_period").unwrap_or_default(),
                 Group::Profiles { .. } => Job(row).text("name").unwrap_or_default(),
                 _ => Job(row).id(),
             }
@@ -226,7 +221,7 @@ mod menu {
         /// `9c0d1e2f... (Analytics BQ → Demo Pixel)`, a job by its short ID alone, on one line as its row
         /// is ([`one_line`]). A platform by its app type alone, a dictionary entry by its subject ID (not
         /// a short ID, in full) and its display name: `<subject ID> (Checkout Completed)`. A methodology
-        /// as VE-3881's list names it, a cohort by its period, a signal by its ID and a profile by its
+        /// as VE-3881's list names it, a signal by its ID and a profile by its
         /// name, each alone.
         fn answer(&self, row: &Value) -> String {
             let listed = match self {
@@ -237,7 +232,7 @@ mod menu {
                 Group::Metrics => Listed::Metrics,
                 Group::Models => Listed::Models,
                 Group::Methodologies => Listed::Methodologies,
-                Group::Catalog | Group::Cohorts { .. } | Group::Signals | Group::Profiles { .. } => {
+                Group::Catalog | Group::Signals | Group::Profiles { .. } => {
                     return one_line(&self.id(row));
                 }
                 Group::Dictionary => {
@@ -251,8 +246,7 @@ mod menu {
         /// Shows what the group's `get` shows of the item, from its code, spinner and requests; the item
         /// as that request returned it. A request that fails is `get`'s error (exit 1). A methodology as
         /// `methodologies get` shows it, from the list's row (its `get` reads the same route, so nothing
-        /// is sent); a cohort as `ltv cohort` shows it with the list's `--granularity` and
-        /// `--segment`; nothing for a signal or a profile, which have no `get` (the row itself).
+        /// is sent); nothing for a signal or a profile, which have no `get` (the row itself).
         async fn show(&self, client: Option<&Client>, row: &Value) -> Result<Value> {
             let id = self.id(row);
             match self {
@@ -274,9 +268,6 @@ mod menu {
                 Group::Dictionary => dictionary::show(client, &id).await,
                 Group::Metrics => metrics::show(client, &id).await,
                 Group::Models => models::show(client, &id).await,
-                Group::Cohorts { granularity, segment } => {
-                    measurement::show_cohort(client, &id, granularity.clone(), segment.clone()).await
-                }
                 Group::Methodologies | Group::Signals | Group::Profiles { .. } => Ok(row.clone()),
             }
         }
@@ -295,8 +286,8 @@ mod menu {
         /// job's tail would repeat what `get` showed), nothing otherwise. Metrics: `activate` for a draft
         /// (the help's 'Activate a draft metric'; not an archived one), then `delete`, always. Platforms, dictionary entries and models: nothing (their groups have no command that
         /// changes one; the hidden `catalog credential-schema` is never offered, and creating an app with
-        /// a platform is another group's command). Methodologies and cohorts: nothing (the CLI has no
-        /// command that changes one; `ltv customer` takes a customer). Signals: the `click_path` signal
+        /// a platform is another group's command). Methodologies: nothing (the CLI has no
+        /// command that changes one). Signals: the `click_path` signal
         /// its group's `click-path` (which takes no ID), any other nothing. Profiles: `switch` unless the
         /// profile is the saved `activeProfile` (not the `*`, which `--profile` and `VENDO_PROFILE` move:
         /// switching to the saved one changes nothing). Only visible commands of the group that take the
@@ -340,9 +331,7 @@ mod menu {
                     let name = item.text("name");
                     if name.is_some() && name == *saved { Vec::new() } else { vec!["switch"] }
                 }
-                Group::Catalog | Group::Dictionary | Group::Models | Group::Methodologies | Group::Cohorts { .. } => {
-                    Vec::new()
-                }
+                Group::Catalog | Group::Dictionary | Group::Models | Group::Methodologies => Vec::new(),
             }
         }
 
@@ -456,7 +445,7 @@ mod tests {
 
     use super::{Group, menu::one_line};
 
-    const GROUPS: [Group; 12] = [
+    const GROUPS: [Group; 11] = [
         Group::Apps,
         Group::Sources,
         Group::Destinations,
@@ -466,7 +455,6 @@ mod tests {
         Group::Metrics,
         Group::Models,
         Group::Methodologies,
-        Group::Cohorts { granularity: String::new(), segment: String::new() },
         Group::Signals,
         Group::Profiles { saved: None },
     ];
@@ -549,12 +537,9 @@ mod tests {
     }
 
     #[test]
-    fn a_methodology_or_a_cohort_offers_nothing_but_back() {
+    fn a_methodology_offers_nothing_but_back() {
         let item = json!({ "id": "click_path", "status": "draft", "state": "active", "is_system": false });
-        let cohorts = Group::Cohorts { granularity: "monthly".into(), segment: "all".into() };
-        for group in [Group::Methodologies, cohorts] {
-            assert!(group.actions(&item).is_empty(), "{group:?}");
-        }
+        assert!(Group::Methodologies.actions(&item).is_empty());
     }
 
     #[test]

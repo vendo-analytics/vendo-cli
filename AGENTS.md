@@ -30,10 +30,10 @@ differs from it.
   built its own JSON (whoami's `config`, now in `workspace --json`; the `metrics` `{ data }` envelope), Rust keeps that shape (Yalcin,
   2026-10-05, VE-3668). Numbers print as the API sent them (serde_json `arbitrary_precision`), and keys take
   JavaScript's order, array-index keys first, as `JSON.parse` gave the TS CLI (VE-3728).
-- Locale (VE-3728): dates, numbers, the rate-limit time and measurement money follow `LC_ALL`/`LC_MESSAGES`/
-  `LANG` as Node's ICU does (ICU4X, `src/output/locale.rs`). Node-generated tables fill ICU4X's gaps
-  (`scripts/gen-ymd-patterns.mjs`, `scripts/gen-usd-patterns.mjs`), and `scripts/gen-locale-fixture.mjs`
-  writes the Node values the tests check. Regenerate all three when Node's ICU changes.
+- Locale (VE-3728): dates, numbers and the rate-limit time follow `LC_ALL`/`LC_MESSAGES`/`LANG` as Node's ICU
+  does (ICU4X, `src/output/locale.rs`). A Node-generated table fills ICU4X's gap (`scripts/gen-ymd-patterns.mjs`),
+  and `scripts/gen-locale-fixture.mjs` writes the Node values the tests check. Regenerate both when Node's ICU
+  changes. The USD money format went with `measurement ltv` (VE-5770), its only user.
 - Confirmation (VE-3823, decided by Yalcin, 2026-10-05): delete, cancel, reset and `logout --all` ask y/N only when
   stdin and stdout are both terminals and prompts are not off (`CI`/`VENDO_NO_INPUT`, VE-3826). Otherwise they need
   `--yes` and stop with exit 1 before any request, where the TS CLI went ahead; `--json` no longer implies `--yes`.
@@ -49,7 +49,7 @@ differs from it.
   `help`, which the root help lists, takes no `--help`: its own screen is `vendo help help`, recorded as
   `help/help.snap`; VE-3893), the table, `--json` and confirmation output of each command against
   the stub's synthetic account in `tests/snapshots/output/`, and the usage error of every command that requires
-  a value (37 with the hidden `catalog credential-schema`), as text and with `--json`, in
+  a value (35 with the hidden `catalog credential-schema`), as text and with `--json`, in
   `tests/snapshots/usage/` (VE-3881), with that of `--profile` typed last with no name (`usage/profile_flag`,
   VE-3892). Any change to them fails `cargo test`. After a deliberate change run
   `INSTA_UPDATE=always cargo test --test cli` (it also deletes stale snapshots), review
@@ -72,7 +72,7 @@ differs from it.
   `HELP_SECTIONS` in `src/cli.rs` places each command, and a test fails when a visible command is in none.
   Each group is one row, its name as typed (`apps`) and description, with its visible commands under the description,
   in its column, as one comma-separated list of bold names (`list, diagnose, get, …`; nested ones by their path,
-  `methodologies list, ltv cohort`; `command_paths`); a command that runs on its own (`login`, `status`) is one row.
+  `methodologies list, rules preview`; `command_paths`); a command that runs on its own (`login`, `status`) is one row.
   Descriptions start in one column for the whole help, two spaces after the longest name, and descriptions and lists
   wrap at word breaks to fit 80 columns (`HELP_COLUMNS`, `wrapped`); `vendo help`, `vendo --help` and bare `vendo`
   without a terminal print it. VE-4109 (Yalcin 2026-10-10: "combine help and commands, list commands under the
@@ -300,7 +300,7 @@ differs from it.
   profile still says to run `vendo profile list`.
   Renaming "Account" to "Workspace" in the labels is not decided.
 - Group menus (VE-3826, decided by Yalcin 2026-10-05, CLI 1.1): a group run without its command (`vendo apps`,
-  `vendo measurement ltv`, the hidden `config`; bare `vendo` is unchanged) opens an arrow-key menu of its visible
+  `vendo measurement methodologies`, the hidden `config`; bare `vendo` is unchanged) opens an arrow-key menu of its visible
   commands and their descriptions where `output::can_show_menu` holds: `can_prompt` (stdin and stdout terminals and
   prompts not off, the rule `confirm` asks by), stderr a terminal too, as inquire draws the menu there (`vendo apps
   2>err.log` keeps the usage error), and `TERM` not `dumb` (Yalcin, 2026-10-06). ↑↓ move, typing filters by name
@@ -370,10 +370,7 @@ differs from it.
   columns as plain text, a job's platform and start time `—` when it has none), a platform ready to connect as
   `catalog list` lists them by default (VE-3829) for `apps create --type`, `catalog get` and the hidden
   `catalog credential-schema`, a methodology as `measurement methodologies list` lists them (the system's and the
-  account's, one response; short ID, name, `system` or `account`, click-path model), a cohort period for
-  `measurement ltv cohort` from the cohorts `measurement ltv list` lists for the typed `--granularity` and `--segment`
-  or their defaults (newest first, as many as the route sends, 500 at most, without predictions; period, segment, size;
-  with 500 the hint ends `· newest 500 shown`, the route sending no total), for `dictionary get` first a subject type
+  account's, one response; short ID, name, `system` or `account`, click-path model), for `dictionary get` first a subject type
   (`dictionary::SUBJECT_TYPES`, event first; titled `vendo dictionary get · subject type`), then that type's entries as
   `dictionary list --type` lists them (the route's order, pages of 100, at most 5, with more the hint ends
   `· first 500 shown`; name, the table's dash for none, and subject ID), `sources create --sync-type` the one type the
@@ -381,7 +378,7 @@ differs from it.
   an app that cannot be read is that error, exit 1), in a list of that one row, and `destinations create --data-type`
   the 13 data types vendo-web-v2's `DataTypeSchema` (`lib/vendo/data-model.ts`) takes, in its order, the deprecated
   legacy ones too (`ask::DATA_TYPES`). Free text (`apps create --name`, `metrics create --name`,
-  `measurement ltv customer`, `dictionary search`, an answer starting with `-` going in after `--` and `help` staying
+  `dictionary search`, an answer starting with `-` going in after `--` and `help` staying
   the query), a date (`measurement rules preview --from` and `--to`, not checked: the API decides) and a file's path
   (`destinations create --config-file`, `metrics create --definition`, taken as typed, relative to the current
   directory, `~` not expanded) are a one-line question (`output::ask_text`): the answer is taken without the spaces and
@@ -392,7 +389,7 @@ differs from it.
   `vendo destinations get` for `vendo int get`), and the answered line reads like the command so far,
   `vendo apps get a1b2c3d4... (Menu Shop)`,
   `vendo destinations get 9c0d1e2f... (Analytics BQ → Demo Pixel)`, a job, which has no name, by its short ID alone
-  (`vendo jobs cancel 1f2e3d4c...`), a cohort by its period, a dictionary entry by its whole subject ID and name (the
+  (`vendo jobs cancel 1f2e3d4c...`), a dictionary entry by its whole subject ID and name (the
   dictionary's IDs are no short IDs), after inquire's mark for an answer: a green `>`, or `?` with `NO_COLOR` (as the
   tests run); the title of an open list or question and the `<canceled>` line start with `?` either way. The values go
   into the words where they would have been typed (an option as `--type=shopify`, an ID whole) and `cli::parse` parses
@@ -405,26 +402,25 @@ differs from it.
   values is missing (`destinations create --dest-app <id>` too, before its data type and path; `dictionary search`
   before its question), exit 1 with nothing sent; the platforms, the metrics and measurement are the key's (the catalog
   route, the web app's `/api/metrics` and `/api/measurement/*`), so `apps create`, `catalog get`, the metrics and the
-  measurement commands ask without an account. A list that fails is its error (exit 1, the JSON error with `--json`; a
-  `--granularity` the LTV route does not know is its 400); an empty one says `No apps to choose from.` (`sources`,
-  `destinations`, `jobs`, `models`, `metrics`, `platforms`, `methodologies`, `cohorts`, `event entries` and so on for
+  measurement commands ask without an account. A list that fails is its error (exit 1, the JSON error with `--json`);
+  an empty one says `No apps to choose from.` (`sources`,
+  `destinations`, `jobs`, `models`, `metrics`, `platforms`, `methodologies`, `event entries` and so on for
   the type chosen) and is the usage error (exit 2). Esc, Ctrl-C, Ctrl-D and a hang-up exit 0 with nothing run. ❓ Open
   for Yalcin, built with the spec's cautious defaults: lists not narrowed beyond what the list command shows (Q2:
   `sources create`'s apps not narrowed to active source apps, nor by a typed `--sync-type`), the sync type as a one-row
   list to confirm (Q3), the empty-list line (Q4), the cut-off notes' wording (`newest 500 shown`, `first 500 shown`;
   Q6), all 13 data types (Q7), a path taken as typed (Q8), `apps create`'s platforms not narrowed by `--role` (Q9),
   `catalog get` listing only the ready platforms and the hidden `credential-schema` asking as it does (Q10),
-  `dictionary get`'s subject-type step and its title (Q11), the cohort periods as a list and the dates as unchecked
-  questions (Q12), an `update` with no change asking first (Q13), and `--dry-run` sending the list request (Q14); not
+  `dictionary get`'s subject-type step and its title (Q11), the dates as unchecked questions (Q12), an `update` with no change asking first (Q13), and `--dry-run` sending the list request (Q14); not
   narrowed either: `jobs cancel` to running and queued jobs, `metrics activate` to drafts (Q2). Without a terminal, with
   prompts off, on `TERM=dumb`, with stderr redirected or a write-only stdin, the usage error stays byte for byte and
-  nothing is sent (`tests/snapshots/usage/`). Every required value of every command is asked for (43 values of 37
+  nothing is sent (`tests/snapshots/usage/`). Every required value of every command is asked for (41 values of 35
   commands, the hidden `catalog credential-schema` and the `integrations`/`int` aliases too); `ask.rs`'s coverage test
   fails when a required value has no row in `VALUES`. An agent that runs `vendo` on a pseudo-terminal without `CI` or
   `VENDO_NO_INPUT` now waits at the question where it got exit 2, as at the group menu and the y/N questions;
   `VENDO_NO_INPUT=1` turns it off. Since VE-3894 it also waits at `vendo apps list`, `sources list`, `destinations list`,
   `jobs list`, `catalog list`, `dictionary list`, `metrics list`, `models list`, `measurement methodologies list`,
-  `measurement ltv list`, `measurement signals list` and `profile list` (`config list`), where it got the table (the
+  `measurement signals list` and `profile list` (`config list`), where it got the table (the
   profile lines) and exit 0,
   a worse change than this one's (a run that succeeded now waits);
   `VENDO_NO_INPUT=1`, `--json` or `--output` give the table back (`signals list` and `profile list` take no
@@ -477,8 +473,7 @@ differs from it.
   `integrations::show`, `jobs::show`, `catalog::show`, `dictionary::show`, `metrics::show`, `models::show`, which
   `get` calls after its short-ID lookup; a source or destination with its active job, as `get` reads it; a
   methodology `render_methodology` of the list's own row, as `methodologies get` reads the same route, so nothing is
-  sent; a cohort `measurement::show_cohort`, `ltv cohort`'s view, with the list's `--granularity` and `--segment`; a
-  signal or a profile nothing, as neither has a `get`), then the
+  sent; a signal or a profile nothing, as neither has a `get`), then the
   item's action menu: titled with the group (`vendo apps`), the actions that
   apply to the item as that request returned it, each with its description from the tree, then `back   Back to the
   list`, the cursor on the first and the keys typed while the item loaded thrown away. Apps: `pause` when active,
@@ -491,8 +486,7 @@ differs from it.
   for apps. Jobs: `tail` and `cancel` while queued, pending or running (`jobs/cancel.ts` cancels only those), nothing
   else, so a finished job shows its details and `back` only. Metrics: `activate` for a draft (the help's 'Activate a
   draft metric'), then `delete` (its y/N, then `Cancelled` on n, as typed). Platforms, dictionary entries
-  and models: nothing, so `back` only (never the hidden `catalog credential-schema`). Methodologies and cohorts:
-  nothing. Signals: the `click_path` row `click-path` (it runs `vendo measurement signals click-path`, which takes no
+  and models: nothing, so `back` only (never the hidden `catalog credential-schema`). Methodologies: nothing. Signals: the `click_path` row `click-path` (it runs `vendo measurement signals click-path`, which takes no
   ID), the others nothing. Profiles: `switch` unless the profile is the saved `activeProfile`
   (`ConfigStore::saved_active_profile`, not the `*`, which follows `--profile` and VENDO_PROFILE: with
   VENDO_PROFILE=beta and alpha saved, beta offers switch, which saves it, and alpha does not, as switching to it would
@@ -526,8 +520,7 @@ differs from it.
   typed filters, or `N platforms` with `--all`), `dictionary list` (an entry answered by its full subject ID and
   display name, `· 57 events`; a description's line break a space, so a row stays one line; `dictionary search`, which
   prints the same table, is unchanged), `metrics list`, `models list`, `measurement methodologies list` (`·
-  3 methodologys`, the table's word as it is), `measurement ltv list` (a cohort answered by its period, every money
-  column in its row: VE-3881's cohort cells would hide them), `measurement signals list` (answered by its ID) and
+  3 methodologys`, the table's word as it is), `measurement signals list` (answered by its ID) and
   `profile list` (`config list` titled `vendo profile list`): no request, its lines (`* alpha (active)`, the account ID
   or `no account`, the base URL unless the default) split into cells, no footer, answered by the name; it has no
   `browse::Table` (`browse::profiles` takes the cells and the code that prints the lines), and with no profiles it
@@ -554,7 +547,7 @@ differs from it.
   a failed details request ending with `get`'s error rather than returning to the list, agents on a
   pseudo-terminal now waiting at the list (see Missing values), `--output ""` keeping the table, the list
   commands' `--help` unchanged, signals showing no details (the `click_path` row offers `click-path` as an action
-  rather than showing its view on Enter, which would send a request each time), a methodology, a cohort and the
+  rather than showing its view on Enter, which would send a request each time), a methodology and the
   mmm and survey signals offering back only, and a profile offering `switch` by the saved `activeProfile` and nothing
   else (proposed, not built: that profile's `--profile <name> workspace` screen, and logging out of it).
 - Commands: login, logout, workspace, status, profile, completions and update (VE-3665; whoami and doctor are
@@ -562,7 +555,9 @@ differs from it.
   Yalcin 2026-10-10: "it can't be done from the CLI, we have this in the docs", so `vendo mcp` is clap's
   unknown-subcommand error and the MCP setup lives at docs.vendodata.com); jobs list/get/cancel/watch/tail and the
   shared watcher (VE-3666); apps, sources, destinations (`integrations`, `int`) and catalog (VE-3667); metrics,
-  models and measurement (VE-3668); dictionary (VE-3713). `src/web_app.rs` is the one place that knows the web-app
+  models and measurement (VE-3668; `measurement ltv list|cohort|customer` removed in VE-5770, Yalcin 2026-11-26:
+  the web app deleted its `/api/measurement/ltv*` routes, LTV becomes a computed property and Data Apps replace the
+  LTV page); dictionary (VE-3713). `src/web_app.rs` is the one place that knows the web-app
   routes (`/api/metrics`, `/api/measurement/*`), which go out as raw paths with no account prefix.
   `src/dictionary.rs` pins the dictionary field and param names to vendo-web-v2's
   `route-handlers/dictionary/serialize.ts`, like `dictionary-contract.test.ts`.
@@ -578,7 +573,7 @@ differs from it.
   `tests/cli/snapshots.rs` with the insta snapshots in `tests/snapshots/` (`help/`, `output/`, `usage/`);
   `tests/fixtures/` holds the Node-generated locale and JSON-error tables.
 - `scripts/menu-size.sh`: the menu's size report (bash). `scripts/gen-*.mjs` and `scripts/node-locales.mjs`
-  regenerate `src/output/ymd_patterns.rs`, `src/output/usd_patterns.rs` and the two fixtures from Node's ICU and V8
+  regenerate `src/output/ymd_patterns.rs` and the two fixtures from Node's ICU and V8
   (they need Node and no npm packages; each file's header has its command). Run them only when
   Node's ICU changes.
 - `install.sh`: the installer served at `https://app2.vendodata.com/install.sh`.

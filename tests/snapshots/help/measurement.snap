@@ -1,14 +1,13 @@
 ---
 source: tests/cli/snapshots.rs
 ---
-Inspect Marketing Measurement methodologies, LTV, and signals
+Inspect Marketing Measurement methodologies, rules, and signals
 
 Usage: vendo measurement [OPTIONS] <COMMAND>
 
 Commands:
   methodologies  List measurement methodologies
   rules          Methodology segmentation rules
-  ltv            Cohort lifetime-value views
   signals        Measurement signal availability
 
 Options:

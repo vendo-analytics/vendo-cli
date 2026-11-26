@@ -47,8 +47,8 @@ use std::{ffi::OsString, process::ExitCode};
 use crate::{
     cli::{
         AppsCommand, CatalogCommand, Command, DictionaryCommand, IntegrationsCommand, Invocation, JobsCommand,
-        LtvCommand, MeasurementCommand, MethodologiesCommand, MetricsCommand, ModelsCommand, ProfileCommand,
-        RulesCommand, SignalsCommand, SourcesCommand,
+        MeasurementCommand, MethodologiesCommand, MetricsCommand, ModelsCommand, ProfileCommand, RulesCommand,
+        SignalsCommand, SourcesCommand,
     },
     commands::{
         account, apps, catalog, completions, dictionary as dictionary_cmd, health, integrations, jobs as jobs_cmd,
@@ -371,19 +371,6 @@ async fn run(ctx: &Ctx, command: Command) -> anyhow::Result<ExitCode> {
             MeasurementCommand::Rules { command: RulesCommand::Preview { from, to, limit, json } } => {
                 measurement::rules_preview(ctx, from, to, &limit, json).await.map(|_| ok)
             }
-            MeasurementCommand::Ltv { command } => match command {
-                LtvCommand::List { granularity, segment, from, to, limit, no_predicted, json, output } => {
-                    let args =
-                        measurement::LtvListArgs { granularity, segment, from, to, limit, no_predicted, json, output };
-                    measurement::ltv_list(ctx, args).await.map(|_| ok)
-                }
-                LtvCommand::Cohort { period, granularity, segment, json } => {
-                    measurement::ltv_cohort(ctx, &period, granularity, segment, json).await.map(|_| ok)
-                }
-                LtvCommand::Customer { customer_id, json } => {
-                    measurement::ltv_customer(ctx, &customer_id, json).await.map(|_| ok)
-                }
-            },
             MeasurementCommand::Signals { command } => match command {
                 SignalsCommand::List { json } => measurement::signals_list(ctx, json).await.map(|_| ok),
                 SignalsCommand::ClickPath { sample_limit, json } => {

@@ -179,7 +179,8 @@ fn record_screen(sandbox: &Sandbox, recorder: &mut Recorder, args: &[&str], name
 fn record_help(sandbox: &Sandbox, recorder: &mut Recorder, path: &[String]) -> usize {
     let mut args: Vec<&str> = path.iter().map(String::as_str).collect();
     args.push("--help");
-    // `help/vendo.snap` for the root, `help/measurement__ltv__list.snap` for `vendo measurement ltv list`.
+    // `help/vendo.snap` for the root, `help/measurement__methodologies__list.snap` for
+    // `vendo measurement methodologies list`.
     let name = if path.is_empty() { "vendo".to_string() } else { path.join("__") };
     let screen = record_screen(sandbox, recorder, &args, &name);
     // `vendo help <command>` stays; only the root lists clap's `help` (VE-3827, VE-3893).
@@ -264,7 +265,7 @@ fn the_help_walk_reads_clap_command_lists() {
     assert_eq!(subcommands(root), ["login", "apps"]);
 }
 
-/// The commands under `path` as its help screens list them, as typed after it: `list`, `ltv cohort`.
+/// The commands under `path` as its help screens list them, as typed after it: `list`, `methodologies list`.
 fn listed_paths(sandbox: &Sandbox, path: &[&str]) -> Vec<String> {
     let screen = text(&sandbox.run(&[path, &["--help"]].concat()).stdout);
     let mut paths = Vec::new();
@@ -338,7 +339,7 @@ fn vendo_commands_and_vendo_help_print_exactly_the_root_help() {
     assert!(text(&sandbox.run(&["commands", "--json"]).stdout).starts_with("{\n  \"name\": \"vendo\""));
 }
 
-/// Every group as typed, depth first in help order: `apps`, `measurement ltv`.
+/// Every group as typed, depth first in help order: `apps`, `measurement methodologies`.
 fn groups(sandbox: &Sandbox, path: &[&str], found: &mut Vec<Vec<String>>) {
     let screen = text(&sandbox.run(&[path, &["--help"]].concat()).stdout);
     let names = walked(&screen);
@@ -413,7 +414,7 @@ fn moved_commands_print_their_targets_help() {
         // A group's `help` command, no longer listed, is the root's.
         (&["apps", "help"], &["apps", "--help"]),
         (&["apps", "help", "list"], &["apps", "list", "--help"]),
-        (&["measurement", "ltv", "help", "cohort"], &["measurement", "ltv", "cohort", "--help"]),
+        (&["measurement", "rules", "help", "preview"], &["measurement", "rules", "preview", "--help"]),
         (&["help", "apps", "list"], &["apps", "list", "--help"]),
     ] {
         let expected = run(new);
@@ -529,11 +530,11 @@ async fn without_a_terminal_a_missing_value_is_the_usage_error() {
     let sandbox = Sandbox::new(&server.uri());
     let mut recorder = Recorder::new("usage", "");
     let commands = commands_requiring_values(&sandbox);
-    // 37 commands, the hidden `catalog credential-schema` among them, requiring 43 values: 11
-    // options in 5 commands, and one argument in each of the other 32.
+    // 35 commands, the hidden `catalog credential-schema` among them, requiring 41 values: 11
+    // options in 5 commands, and one argument in each of the other 30.
     let values: usize = commands.iter().map(|(_, values)| values.len()).sum();
     let options = commands.iter().flat_map(|(_, values)| values).filter(|value| value.starts_with("--")).count();
-    assert_eq!((commands.len(), values, options), (37, 43, 11), "{commands:?}");
+    assert_eq!((commands.len(), values, options), (35, 41, 11), "{commands:?}");
     assert!(commands.iter().any(|(path, _)| path == &["catalog", "credential-schema"]), "{commands:?}");
     for (path, _) in &commands {
         let mut shown = String::new();
@@ -652,7 +653,7 @@ fn every_command_that_takes_json_has_a_json_snapshot() {
         }
         pending.extend(node["commands"].as_array().unwrap());
     }
-    assert!(takes_json.len() >= 60 && takes_json.contains("apps create"), "{takes_json:?}");
+    assert!(takes_json.len() >= 55 && takes_json.contains("apps create"), "{takes_json:?}");
 
     let mut recorded = BTreeSet::new();
     for entry in std::fs::read_dir(Path::new(SNAPSHOTS).join("output")).unwrap().flatten() {
@@ -1288,44 +1289,6 @@ async fn mount_account(server: &MockServer, s: &mut Session) {
         "total_distinct_contexts": 2,
     });
     serve(server, "POST", "/api/measurement/methodologies/rules/preview", 200, previews).await;
-    let realised = |l30: f64, l90: f64, cac: f64| {
-        json!({ "ltv_30d": l30, "ltv_90d": l90, "ltv_12m": null, "ltv_full": null, "cac": cac,
-                "cac_ltv_ratio": cac / l90, "payback_period_days": null, "computed_at": null })
-    };
-    let cohort_row = |period: &str, size: u64, realised: Value| {
-        json!({ "cohort_period": period, "cohort_granularity": "monthly", "segment_key": "all", "cohort_size": size,
-                "realised": realised, "predicted": null })
-    };
-    let ltv = json!({ "data": {
-        "granularity": "monthly", "segment_key": "all",
-        "cohorts": [cohort_row("2026-08-01", 1200, realised(42.5, 85.25, 20.0)),
-                    cohort_row("2026-07-01", 980, realised(38.0, 80.0, 25.0))],
-        "total_returned": 2,
-    } });
-    serve(server, "GET", "/api/measurement/ltv", 200, ltv).await;
-    let cohort = json!({
-        "cohort_period": "2026-08-01", "cohort_granularity": "monthly", "segment_key": "all", "cohort_size": 1200,
-        "retention_matrix": [
-            { "period_offset_days": 0, "retained_customers": 1200, "retained_revenue": 51000, "retention_rate": 1 },
-            { "period_offset_days": 30, "retained_customers": 300, "retained_revenue": 12750, "retention_rate": 0.25 },
-        ],
-        "cumulative_curve": [
-            { "period_offset_days": 0, "cumulative_gross_revenue": 51000, "cumulative_revenue_after_cogs": 40800 },
-            { "period_offset_days": 30, "cumulative_gross_revenue": 63750, "cumulative_revenue_after_cogs": 51000 },
-        ],
-        "prediction": { "method": "naive_decay", "ltv_30d_predicted": 42.5, "ltv_90d_predicted": 85.25,
-                        "ltv_12m_predicted": null, "metadata": null, "computed_at": null },
-    });
-    serve(server, "GET", "/api/measurement/ltv/cohort/2026-08-01", 200, cohort).await;
-    let customer = json!({
-        "cohort": { "customer_id": "cust_demo_001", "acquisition_date": "2026-01-05", "cohort_period_daily": "2026-01-05",
-                    "cohort_period_weekly": "2026-01-05", "cohort_period_monthly": "2026-01-01",
-                    "acquisition_channel": "Paid Social", "acquisition_campaign": null, "country": "AU",
-                    "is_reactivated": false },
-        "revenue": [{ "revenue_period_daily": "2026-01-05", "period_offset_days": 0, "gross_revenue": 42.5 }],
-        "realised": { "ltv_30d": 42.5, "ltv_90d": 85.25, "ltv_12m": null, "ltv_full": 85.25 },
-    });
-    serve(server, "GET", "/api/measurement/ltv/customer/cust_demo_001", 200, customer).await;
     let signals = json!({ "data": { "signals": [
         { "id": "click_path", "state": "live", "availability": { "available": true } },
         { "id": "mmm", "state": "stub", "availability": { "available": false, "reason": "Not enough spend history" } },
@@ -1727,9 +1690,6 @@ async fn measurement_output() {
         ("methodologies_list", vec!["measurement", "methodologies", "list"]),
         ("methodologies_get", vec!["measurement", "methodologies", "get", "m-account-2-with-a-long-id"]),
         ("rules_preview", [&["measurement", "rules", "preview"][..], &window[..]].concat()),
-        ("ltv_list", vec!["measurement", "ltv", "list"]),
-        ("ltv_cohort", vec!["measurement", "ltv", "cohort", "2026-08-01"]),
-        ("ltv_customer", vec!["measurement", "ltv", "customer", "cust_demo_001"]),
         ("signals_list", vec!["measurement", "signals", "list"]),
         ("signals_click_path", vec!["measurement", "signals", "click-path"]),
     ] {

@@ -93,7 +93,7 @@ const CLAP_HELP: (&str, &str) = ("help", "Print this message or the help of the 
 /// the command tree so the list cannot drift from what the CLI runs. `vendo <command> --help`
 /// keeps the flags and examples. Styled like clap's own lists; clap drops the styles without colour.
 /// A group is one row, its name as typed (`apps`), with its visible commands comma-separated under
-/// its description (`list, diagnose, get`), nested ones by their path (`ltv cohort`): the layout
+/// its description (`list, diagnose, get`), nested ones by their path (`methodologies list`): the layout
 /// before VE-4109's list of a row per command, restored by Yalcin 2026-10-10 ("this was looking much
 /// more tidier").
 fn root_help_template(root: &clap::Command) -> String {
@@ -169,7 +169,7 @@ fn styled(items: &[String], style: &clap::builder::styling::Style) -> String {
     items.iter().map(item).collect::<Vec<_>>().join(" ")
 }
 
-/// The visible commands under `group`, as typed after its name: `list`, `ltv cohort`.
+/// The visible commands under `group`, as typed after its name: `list`, `methodologies list`.
 fn command_paths(group: &clap::Command) -> Vec<String> {
     let mut paths = Vec::new();
     for command in group.get_subcommands().filter(|c| !c.is_hide_set()) {
@@ -677,7 +677,7 @@ pub enum Command {
         #[command(subcommand)]
         command: ModelsCommand,
     },
-    /// Inspect Marketing Measurement methodologies, LTV, and signals
+    /// Inspect Marketing Measurement methodologies, rules, and signals
     Measurement {
         #[command(subcommand)]
         command: MeasurementCommand,
@@ -1642,11 +1642,6 @@ pub enum MeasurementCommand {
         #[command(subcommand)]
         command: RulesCommand,
     },
-    /// Cohort lifetime-value views
-    Ltv {
-        #[command(subcommand)]
-        command: LtvCommand,
-    },
     /// Measurement signal availability
     Signals {
         #[command(subcommand)]
@@ -1700,68 +1695,6 @@ pub enum RulesCommand {
         /// Max distinct contexts to return
         #[arg(long, value_name = "n", default_value = "50")]
         limit: String,
-        /// Output raw JSON
-        #[arg(long)]
-        json: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum LtvCommand {
-    /// List cohort LTV rows
-    #[command(
-        after_help = "Examples:\n  $ vendo measurement ltv list\n  $ vendo measurement ltv list --granularity weekly --segment channel:meta\n  $ vendo measurement ltv list --from 2025-01-01 --to 2025-06-30 --no-predicted"
-    )]
-    List {
-        /// daily | weekly | monthly
-        #[arg(long, value_name = "value", default_value = "monthly", value_parser = GRANULARITIES)]
-        granularity: String,
-        /// Segment key (e.g. "all", "channel:meta")
-        #[arg(long, value_name = "key", default_value = "all")]
-        segment: String,
-        /// Inclusive ISO cohort period (YYYY-MM-DD)
-        #[arg(long, value_name = "period")]
-        from: Option<String>,
-        /// Inclusive ISO cohort period (YYYY-MM-DD)
-        #[arg(long, value_name = "period")]
-        to: Option<String>,
-        /// Max rows
-        #[arg(long, value_name = "n", default_value = "50")]
-        limit: String,
-        /// Skip the naive-decay prediction join
-        #[arg(long = "no-predicted")]
-        no_predicted: bool,
-        /// Output raw JSON
-        #[arg(long)]
-        json: bool,
-        /// Print one field per row
-        #[arg(long, value_name = "field")]
-        output: Option<String>,
-    },
-    /// Show one cohort by period — retention matrix + cumulative LTV curve + prediction
-    #[command(
-        after_help = "Examples:\n  $ vendo measurement ltv cohort 2025-01-01\n  $ vendo measurement ltv cohort 2025-01-01 --granularity weekly --segment channel:meta\n  $ vendo measurement ltv cohort 2025-01-01 --json"
-    )]
-    Cohort {
-        #[arg(value_name = "period")]
-        period: String,
-        /// daily | weekly | monthly
-        #[arg(long, value_name = "value", default_value = "monthly", value_parser = GRANULARITIES)]
-        granularity: String,
-        /// Segment key
-        #[arg(long, value_name = "key", default_value = "all")]
-        segment: String,
-        /// Output raw JSON
-        #[arg(long)]
-        json: bool,
-    },
-    /// Show one customer's cohort + realised LTV + revenue timeline
-    #[command(
-        after_help = "Examples:\n  $ vendo measurement ltv customer cust_abc123\n  $ vendo measurement ltv customer cust_abc123 --json"
-    )]
-    Customer {
-        #[arg(value_name = "customerId")]
-        customer_id: String,
         /// Output raw JSON
         #[arg(long)]
         json: bool,
@@ -1998,8 +1931,6 @@ const METRIC_STATUSES: Suggest = Suggest(&["draft", "active", "archived"]);
 /// `metrics create|update --format`: `custom_metrics.format` as `savedMetricFormatDefaults` reads it
 /// (`apps/web/lib/vendo/catalog/format-defaults.ts`), the formats the help lists.
 const METRIC_FORMATS: Suggest = Suggest(&["number", "currency", "percentage", "multiplier"]);
-/// `measurement ltv list|cohort --granularity`: `VALID_GRANULARITIES` (`apps/web/app/api/measurement/ltv/route.ts`).
-const GRANULARITIES: Suggest = Suggest(&["daily", "weekly", "monthly"]);
 /// `jobs list --status`, which its help lists: the statuses `GET /api/v1/jobs` documents (`route-handlers/jobs/collection.ts`), which are
 /// vendo-pipelines-v2's `JobStatus` (`app/models/job_status.py`). The API spells `canceled` with one l.
 const JOB_STATUSES: Suggest = Suggest(&["queued", "pending", "running", "completed", "warning", "failed", "canceled"]);
@@ -2190,20 +2121,6 @@ mod tests {
             panic!()
         };
         assert!(no_system);
-        let cli = parse(&["vendo", "measurement", "ltv", "list", "--no-predicted"]).unwrap();
-        let Command::Measurement {
-            command:
-                MeasurementCommand::Ltv {
-                    command: LtvCommand::List { granularity, segment, limit, no_predicted, from, to, .. },
-                },
-        } = cli.command
-        else {
-            panic!()
-        };
-        assert_eq!(
-            (granularity.as_str(), segment.as_str(), limit.as_str(), no_predicted, from, to),
-            ("monthly", "all", "50", true, None, None)
-        );
         assert!(
             parse(&["vendo", "measurement", "rules", "preview", "--from", "2026-01-01"]).is_err(),
             "--to is required"
@@ -2405,7 +2322,10 @@ mod tests {
             // A group's `help` command is the root's.
             (&["vendo", "apps", "help", "list"], &["vendo", "help", "apps", "list"]),
             (&["vendo", "apps", "help"], &["vendo", "help", "apps"]),
-            (&["vendo", "measurement", "ltv", "help", "cohort"], &["vendo", "help", "measurement", "ltv", "cohort"]),
+            (
+                &["vendo", "measurement", "rules", "help", "preview"],
+                &["vendo", "help", "measurement", "rules", "preview"],
+            ),
             (&["vendo", "help", "profile", "current"], &["vendo", "help", "workspace"]),
             (&["vendo", "help", "config", "reset"], &["vendo", "help", "logout"]),
             (&["vendo", "config", "help", "show"], &["vendo", "help", "workspace"]),
@@ -2446,7 +2366,7 @@ mod tests {
             (&["vendo", "apps", "--debug"], "apps", "vendo apps", 2),
             (&["vendo", "apps", "--profile", "beta"], "apps", "vendo apps", 2),
             (&["vendo", "measurement"], "measurement", "vendo measurement", 2),
-            (&["vendo", "measurement", "--debug", "ltv"], "ltv", "vendo measurement ltv", 4),
+            (&["vendo", "measurement", "--debug", "rules"], "rules", "vendo measurement rules", 4),
             // Old names open the group they name, titled as the tree names it.
             (&["vendo", "config"], "profile", "vendo profile", 2),
             (&["vendo", "int"], "destinations", "vendo destinations", 2),
@@ -2656,8 +2576,6 @@ mod tests {
             suggested("metrics create --format", METRIC_FORMATS),
             suggested("metrics update --format", METRIC_FORMATS),
             suggested("metrics update --status", METRIC_STATUSES),
-            suggested("measurement ltv list --granularity", GRANULARITIES),
-            suggested("measurement ltv cohort --granularity", GRANULARITIES),
             suggested("query --agg", QUERY_AGGS),
             suggested("query --granularity", QUERY_GRAINS),
             suggested("query --range", QUERY_RANGES),
