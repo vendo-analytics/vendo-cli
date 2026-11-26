@@ -3,7 +3,7 @@
 Each release's notes. The release workflow publishes the section of a `cli-vX.Y.Z` tag's version as that GitHub
 release's notes, so every release needs a `## X.Y.Z` section here before it is tagged.
 
-## Unreleased
+## 1.2.0
 
 - New `vendo query` runs a question against your data, the same way Claude does through Vendo's MCP server: saved
   metrics (`--metric`) or event aggregates (`--event`, `--agg`, `--property`), with `--breakdown`, `--granularity`,
