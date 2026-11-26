@@ -7047,13 +7047,11 @@ async fn a_methodology_or_dictionary_list_that_fails_is_the_error_and_nothing_mo
     let refusal = json!({ "error": { "code": "INTERNAL_ERROR", "message": "Database unavailable" } });
     serve(&server, "GET", &format!("{V1}/dictionary"), 500, refusal).await;
     let sandbox = Sandbox::new(&server.uri());
-    for (args, message) in [(&["measurement", "methodologies", "get"][..], "BigQuery is unavailable")] {
-        let mut terminal = OnTerminal::start(&sandbox, args);
-        let (_, code) = terminal.finish();
-        let shown = shown_lines(&terminal, (40, 120));
-        assert_eq!((code, shown[0].as_str()), (Some(1), format!("Error: {message}").as_str()), "{shown:#?}");
-        assert!(!terminal.screen.contains("type to filter"), "{args:?}");
-    }
+    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "methodologies", "get"]);
+    let (_, code) = terminal.finish();
+    let shown = shown_lines(&terminal, (40, 120));
+    assert_eq!((code, shown[0].as_str()), (Some(1), "Error: BigQuery is unavailable"), "{shown:#?}");
+    assert!(!terminal.screen.contains("type to filter"));
     // The dictionary's entries, once the type is chosen: its list opens no more.
     let mut terminal = OnTerminal::start(&sandbox, &["dictionary", "get"]);
     terminal.wait_for("type to filter]");

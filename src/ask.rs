@@ -205,7 +205,7 @@ const DATA_TYPES: [&str; 13] = [
 
 /// Every required value a command asks for: the command as the tree names it, the value's clap ID,
 /// and how it is asked for. A value not here keeps the usage error.
-const VALUES: [(&str, &str, Ask); 43] = [
+const VALUES: [(&str, &str, Ask); 41] = [
     ("apps get", "id", Ask::Listed(Listed::Apps)),
     ("apps pause", "id", Ask::Listed(Listed::Apps)),
     ("apps resume", "id", Ask::Listed(Listed::Apps)),
@@ -632,7 +632,7 @@ mod tests {
         let requiring: Vec<&(String, Vec<String>)> =
             found.iter().filter(|(_, required)| !required.is_empty()).collect();
         let values: usize = requiring.iter().map(|(_, required)| required.len()).sum();
-        assert_eq!((requiring.len(), values, VALUES.len()), (37, 43, 43), "{requiring:?}");
+        assert_eq!((requiring.len(), values, VALUES.len()), (35, 41, 41), "{requiring:?}");
         for (command, required) in &requiring {
             for id in required {
                 assert!(asked_by(command, id).is_some(), "{command}: the required {id} has no row in VALUES");
