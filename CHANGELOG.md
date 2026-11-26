@@ -14,6 +14,10 @@ release's notes, so every release needs a `## X.Y.Z` section here before it is t
 - The config file that holds your API keys is now readable only by you (`0600`, in a `0700` folder) and is replaced
   in one step, so an interrupted save can no longer leave it half written. A file an older version left readable is
   fixed the next time the CLI saves it.
+- `vendo measurement ltv` (`ltv list`, `ltv cohort` and `ltv customer`) is removed, as Vendo no longer has an LTV
+  page or its API: lifetime value becomes a computed property, and Data Apps replace the LTV page. Older CLIs get
+  an error from these commands; update to drop them. `vendo measurement` keeps `methodologies`, `rules` and
+  `signals`.
 - `vendo update` no longer reports success when the installer could not be downloaded.
 - `vendo status` counts an app as errored when its status needs attention (reconnect required or disconnected),
   the apps `vendo apps diagnose` lists as broken, instead of always showing 0.

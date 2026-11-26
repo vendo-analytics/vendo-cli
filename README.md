@@ -85,7 +85,7 @@ first; pass `--yes` in scripts).
 ## Commands
 
 `vendo help` (or `vendo --help`) lists every command with its description, each group with the commands under it
-on the lines below (`list, diagnose, get, …`; nested ones as `ltv cohort`), in three sections:
+on the lines below (`list, diagnose, get, …`; nested ones as `methodologies list`), in three sections:
 
 | Section | Commands |
 | --- | --- |
@@ -105,7 +105,7 @@ The commands in each group:
 | `dictionary` | `list`, `search`, `get` |
 | `metrics` | `list`, `get`, `create`, `update`, `activate`, `delete` |
 | `models` | `list`, `get` |
-| `measurement` | `methodologies list`, `methodologies get`, `rules preview`, `ltv list`, `ltv cohort`, `ltv customer`, `signals list`, `signals click-path` |
+| `measurement` | `methodologies list`, `methodologies get`, `rules preview`, `signals list`, `signals click-path` |
 | `profile` | `list`, `switch`, `set` |
 
 `vendo <command> --help` shows a command's flags and examples, and `vendo help <command>` shows the same screen.
@@ -132,10 +132,10 @@ included, and the y/N of `delete` and `jobs cancel` still apply.
   `--profile` with no name at the end of a command (`vendo status --profile`) uses the profile you pick for that
   command only.
 - **A list.** `vendo apps list`, `sources list`, `destinations list`, `jobs list`, `catalog list`,
-  `dictionary list`, `metrics list`, `models list`, `measurement methodologies list`, `measurement ltv list`,
+  `dictionary list`, `metrics list`, `models list`, `measurement methodologies list`,
   `measurement signals list` and `profile list` show their rows as a list to pick from instead of printing the
   table: the same rows, from the same flags, with the table's count after the keys. Enter on an item shows it as
-  `get` does (a cohort as `ltv cohort` does; a signal or a profile shows nothing first), then what you can do with
+  `get` does (a signal or a profile shows nothing first), then what you can do with
   it, or `back` to the list:
 
   | Item | Actions offered |
@@ -148,7 +148,7 @@ included, and the y/N of `delete` and `jobs cancel` still apply.
   | The `click_path` signal | click-path |
   | Profile | switch, unless it is the active profile |
 
-  A platform, a dictionary entry, a model, a methodology or a cohort shows its details and `back`. The action runs
+  A platform, a dictionary entry, a model or a methodology shows its details and `back`. The action runs
   as if you had typed it and the CLI ends there. To change an item, type `vendo <group> update <id>` with the flags
   to change; the list does not offer it, as it needs at least one. `vendo dictionary search` prints its table as before, and with
   `--json` or `--output` every list command prints what it did before.
@@ -265,7 +265,6 @@ vendo metrics activate <metric-id>
 vendo models list --valid
 vendo models get <model-id>
 vendo measurement methodologies list
-vendo measurement ltv list --granularity weekly
 vendo measurement signals list
 ```
 
@@ -415,7 +414,7 @@ empty, `0` or `false` and it asks none, at a terminal too:
 - A group run without its command (`vendo apps`) prints its help and exits 2 instead of opening the menu.
 - A command missing a value it requires (`vendo apps get`) stops with its usage error, exit 2, instead of asking.
 - `vendo apps list`, `sources list`, `destinations list`, `jobs list`, `catalog list`, `dictionary list`,
-  `metrics list`, `models list`, `measurement methodologies list`, `measurement ltv list` and
+  `metrics list`, `models list`, `measurement methodologies list` and
   `measurement signals list` print their table, and `vendo profile list` its lines, instead of a list to pick from.
 - `vendo profile switch` without a profile name prints `Cancelled.` instead of a list to pick from, and `--profile`
   without a name exits 2 with its usage error.

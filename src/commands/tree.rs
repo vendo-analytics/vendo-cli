@@ -56,7 +56,7 @@ pub fn tree(root: &clap::Command) -> Value {
     node_with(root, "", commands)
 }
 
-/// One command: `path` is how it is typed after `vendo` (`measurement ltv list`).
+/// One command: `path` is how it is typed after `vendo` (`measurement methodologies list`).
 fn node(cmd: &clap::Command, path: &str) -> Value {
     let commands = visible(cmd).map(|sub| node(sub, &format!("{path} {}", sub.get_name()))).collect();
     node_with(cmd, path, commands)

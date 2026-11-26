@@ -295,9 +295,6 @@ _vendo() {
             vendo__subcmd__help__subcmd__jobs,watch)
                 cmd="vendo__subcmd__help__subcmd__jobs__subcmd__watch"
                 ;;
-            vendo__subcmd__help__subcmd__measurement,ltv)
-                cmd="vendo__subcmd__help__subcmd__measurement__subcmd__ltv"
-                ;;
             vendo__subcmd__help__subcmd__measurement,methodologies)
                 cmd="vendo__subcmd__help__subcmd__measurement__subcmd__methodologies"
                 ;;
@@ -306,15 +303,6 @@ _vendo() {
                 ;;
             vendo__subcmd__help__subcmd__measurement,signals)
                 cmd="vendo__subcmd__help__subcmd__measurement__subcmd__signals"
-                ;;
-            vendo__subcmd__help__subcmd__measurement__subcmd__ltv,cohort)
-                cmd="vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__cohort"
-                ;;
-            vendo__subcmd__help__subcmd__measurement__subcmd__ltv,customer)
-                cmd="vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__customer"
-                ;;
-            vendo__subcmd__help__subcmd__measurement__subcmd__ltv,list)
-                cmd="vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__list"
                 ;;
             vendo__subcmd__help__subcmd__measurement__subcmd__methodologies,get)
                 cmd="vendo__subcmd__help__subcmd__measurement__subcmd__methodologies__subcmd__get"
@@ -403,9 +391,6 @@ _vendo() {
             vendo__subcmd__jobs,watch)
                 cmd="vendo__subcmd__jobs__subcmd__watch"
                 ;;
-            vendo__subcmd__measurement,ltv)
-                cmd="vendo__subcmd__measurement__subcmd__ltv"
-                ;;
             vendo__subcmd__measurement,methodologies)
                 cmd="vendo__subcmd__measurement__subcmd__methodologies"
                 ;;
@@ -414,15 +399,6 @@ _vendo() {
                 ;;
             vendo__subcmd__measurement,signals)
                 cmd="vendo__subcmd__measurement__subcmd__signals"
-                ;;
-            vendo__subcmd__measurement__subcmd__ltv,cohort)
-                cmd="vendo__subcmd__measurement__subcmd__ltv__subcmd__cohort"
-                ;;
-            vendo__subcmd__measurement__subcmd__ltv,customer)
-                cmd="vendo__subcmd__measurement__subcmd__ltv__subcmd__customer"
-                ;;
-            vendo__subcmd__measurement__subcmd__ltv,list)
-                cmd="vendo__subcmd__measurement__subcmd__ltv__subcmd__list"
                 ;;
             vendo__subcmd__measurement__subcmd__methodologies,get)
                 cmd="vendo__subcmd__measurement__subcmd__methodologies__subcmd__get"
@@ -1829,64 +1805,8 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__help__subcmd__measurement)
-            opts="methodologies rules ltv signals"
+            opts="methodologies rules signals"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        vendo__subcmd__help__subcmd__measurement__subcmd__ltv)
-            opts="list cohort customer"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__cohort)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__customer)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__list)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -2619,116 +2539,12 @@ _vendo() {
             return 0
             ;;
         vendo__subcmd__measurement)
-            opts="-h --help --profile --debug methodologies rules ltv signals"
+            opts="-h --help --profile --debug methodologies rules signals"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --profile)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        vendo__subcmd__measurement__subcmd__ltv)
-            opts="-h --help --profile --debug list cohort customer"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                --profile)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        vendo__subcmd__measurement__subcmd__ltv__subcmd__cohort)
-            opts="-h --granularity --segment --json --help --profile --debug"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                --granularity)
-                    COMPREPLY=($(compgen -W "daily weekly monthly" -- "${cur}"))
-                    return 0
-                    ;;
-                --segment)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --profile)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        vendo__subcmd__measurement__subcmd__ltv__subcmd__customer)
-            opts="-h --json --help --profile --debug"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                --profile)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        vendo__subcmd__measurement__subcmd__ltv__subcmd__list)
-            opts="-h --granularity --segment --from --to --limit --no-predicted --json --output --help --profile --debug"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                --granularity)
-                    COMPREPLY=($(compgen -W "daily weekly monthly" -- "${cur}"))
-                    return 0
-                    ;;
-                --segment)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --from)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --to)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --limit)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --output)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
                 --profile)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0

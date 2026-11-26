@@ -425,7 +425,7 @@ async fn web_app_errors_print_the_servers_reason() {
     let zod = "[\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"id\"\n    ],\n    \"message\": \"Required\"\n  }\n]";
     serve(&server, "POST", "/api/metrics", 400, json!({ "error": zod })).await;
     serve(&server, "DELETE", "/api/metrics/empty", 400, json!({ "error": "" })).await;
-    serve(&server, "GET", "/api/measurement/ltv/customer/c1", 500, json!({ "error": "BigQuery is unavailable" })).await;
+    serve(&server, "GET", "/api/measurement/signals", 500, json!({ "error": "BigQuery is unavailable" })).await;
     let v1 = json!({ "error": { "code": "INTERNAL_ERROR", "message": "Methodologies are unavailable" } });
     serve(&server, "GET", "/api/measurement/methodologies", 500, v1).await;
     Mock::given(wiremock::matchers::method("PATCH"))
@@ -438,7 +438,7 @@ async fn web_app_errors_print_the_servers_reason() {
     std::fs::write(&def, r#"{"version":2,"reportType":"segmentation"}"#).unwrap();
 
     assert_api_error(&sandbox.run(&["metrics", "create", "--name", "x", "--definition", def.to_str().unwrap()]), zod);
-    assert_api_error(&sandbox.run(&["measurement", "ltv", "customer", "c1"]), "BigQuery is unavailable");
+    assert_api_error(&sandbox.run(&["measurement", "signals", "list"]), "BigQuery is unavailable");
     assert_api_error(&sandbox.run(&["measurement", "methodologies", "list"]), "Methodologies are unavailable");
     assert_api_error(&sandbox.run(&["metrics", "delete", "empty", "--yes"]), "HTTP 400");
     assert_api_error(&sandbox.run(&["metrics", "activate", "html"]), "HTTP 502: Bad Gateway");
@@ -942,189 +942,6 @@ async fn measurement_rules_preview_reports_the_server_refusal() {
     );
 }
 
-fn cohort_row(period: &str, size: Value, realised: Value) -> Value {
-    json!({ "cohort_period": period, "cohort_granularity": "monthly", "segment_key": "all", "cohort_size": size,
-            "realised": realised, "predicted": null })
-}
-
-#[tokio::test]
-async fn measurement_ltv_list_formats_money_and_ratios_like_node() {
-    let server = MockServer::start().await;
-    let realised = |l30: Value, l90: Value, l12: Value, cac: Value, ratio: Value| {
-        json!({ "ltv_30d": l30, "ltv_90d": l90, "ltv_12m": l12, "ltv_full": null, "cac": cac, "cac_ltv_ratio": ratio,
-                "payback_period_days": null, "computed_at": null })
-    };
-    let body = json!({ "data": {
-        "granularity": "monthly", "segment_key": "all",
-        "cohorts": [
-            cohort_row("2026-08-01", json!(1200), realised(json!(10), json!(1234.5), json!(null), json!(5), json!(0.5))),
-            cohort_row("2026-07-01", json!(0), realised(json!(1.005), json!(2.675), json!(-1.005), json!(0), json!(0.125))),
-            cohort_row("2026-06-01", json!(1234567.891), realised(json!(-0.001), json!(1e21), json!(0.30000000000000004), json!(-5), json!(2.675))),
-            cohort_row("2026-05-01", json!(null), realised(json!(null), json!(null), json!(null), json!(null), json!(-0.001))),
-        ],
-        "total_returned": 4,
-    } });
-    serve(&server, "GET", "/api/measurement/ltv", 200, body.clone()).await;
-    let sandbox = Sandbox::new(&server.uri());
-
-    assert_eq!(
-        cells(ok_output(&sandbox.run(&["measurement", "ltv", "list"])).as_bytes()),
-        rows(&[
-            &["Cohort", "Segment", "Size", "LTV 30d", "LTV 90d", "LTV 12m", "CAC", "CAC:LTV"],
-            &["2026-08-01", "all", "1,200", "$10.00", "$1,234.50", "—", "$5.00", "0.50"],
-            &["2026-07-01", "all", "0", "$1.01", "$2.68", "-$1.01", "$0.00", "0.13"],
-            &[
-                "2026-06-01",
-                "all",
-                "1,234,567.891",
-                "-$0.00",
-                "$1,000,000,000,000,000,000,000.00",
-                "$0.30",
-                "-$5.00",
-                "2.67"
-            ],
-            &["2026-05-01", "all", "—", "—", "—", "—", "—", "-0.00"],
-            &["4 cohorts"],
-        ])
-    );
-    let printed: Value =
-        serde_json::from_str(&ok_output(&sandbox.run(&["measurement", "ltv", "list", "--json"]))).unwrap();
-    assert_eq!(printed, body);
-    assert_eq!(
-        ok_output(&sandbox.run(&["measurement", "ltv", "list", "--output", "cohort_period"])),
-        "2026-08-01\n2026-07-01\n2026-06-01\n2026-05-01\n"
-    );
-    assert_eq!(
-        ok_output(&sandbox.run(&["measurement", "ltv", "list", "--output", "cohortSize"])),
-        "1200\n0\n1234567.891\n"
-    );
-    ok_output(&sandbox.run(&[
-        "measurement",
-        "ltv",
-        "list",
-        "--granularity",
-        "weekly",
-        "--segment",
-        "channel:meta",
-        "--from",
-        "2026-01-01",
-        "--to",
-        "2026-06-30",
-        "--limit",
-        "5",
-        "--no-predicted",
-    ]));
-    let requests = sent(&server).await;
-    assert_eq!(requests[0], "GET /api/measurement/ltv?granularity=monthly&segment_key=all&limit=50");
-    assert_eq!(
-        requests[4],
-        "GET /api/measurement/ltv?granularity=weekly&segment_key=channel%3Ameta&from_period=2026-01-01&to_period=2026-06-30&limit=5&include_predicted=false"
-    );
-}
-
-#[tokio::test]
-async fn measurement_ltv_cohort_and_customer_like_ts() {
-    let server = MockServer::start().await;
-    let cohort = json!({
-        "cohort_period": "2026-08-01", "cohort_granularity": "monthly", "segment_key": "channel:meta", "cohort_size": 12345,
-        "retention_matrix": [
-            { "period_offset_days": 0, "retained_customers": 12345, "retained_revenue": 100.5, "retention_rate": 1 },
-            { "period_offset_days": 30, "retained_customers": 100, "retained_revenue": 50, "retention_rate": 0.008 },
-        ],
-        "cumulative_curve": [
-            { "period_offset_days": 0, "cumulative_gross_revenue": 100.5, "cumulative_revenue_after_cogs": 80 },
-            { "period_offset_days": 30, "cumulative_gross_revenue": 1234.567, "cumulative_revenue_after_cogs": 999.999 },
-        ],
-        "prediction": { "method": "naive_decay", "ltv_30d_predicted": 10, "ltv_90d_predicted": null,
-                        "ltv_12m_predicted": 30.456, "metadata": null, "computed_at": null },
-    });
-    serve(&server, "GET", "/api/measurement/ltv/cohort/2026-08-01", 200, cohort.clone()).await;
-    let mut empty = cohort.clone();
-    empty["cohort_size"] = json!(0);
-    empty["retention_matrix"] = json!([]);
-    empty["cumulative_curve"] = json!([]);
-    empty["prediction"] = json!(null);
-    serve(&server, "GET", "/api/measurement/ltv/cohort/2026-07-01", 200, empty).await;
-    let mut no_offsets = cohort.clone();
-    no_offsets["cumulative_curve"] =
-        json!([{ "cumulative_gross_revenue": null, "cumulative_revenue_after_cogs": null }]);
-    serve(&server, "GET", "/api/measurement/ltv/cohort/2026-06-01", 200, no_offsets).await;
-    let customer = json!({
-        "cohort": { "customer_id": "cust 1/2", "acquisition_date": "2026-01-05", "cohort_period_daily": "2026-01-05",
-                    "cohort_period_weekly": "2026-01-05", "cohort_period_monthly": "2026-01-01",
-                    "acquisition_channel": "Paid Social", "acquisition_campaign": null, "country": "AU", "is_reactivated": true },
-        "revenue": [{ "revenue_period_daily": "2026-01-05", "period_offset_days": 0, "gross_revenue": 10 }],
-        "realised": { "ltv_30d": 10, "ltv_90d": 10.5, "ltv_12m": null, "ltv_full": 1234.5678 },
-    });
-    serve(&server, "GET", "/api/measurement/ltv/customer/cust%201%2F2", 200, customer.clone()).await;
-    serve(&server, "GET", "/api/measurement/ltv/customer/cust_%C3%A9%3F%23", 200, customer.clone()).await;
-    let none = json!({ "cohort": null, "revenue": [],
-                       "realised": { "ltv_30d": null, "ltv_90d": null, "ltv_12m": null, "ltv_full": null } });
-    serve(&server, "GET", "/api/measurement/ltv/customer/parity-missing-customer", 200, none).await;
-    let sandbox = Sandbox::new(&server.uri());
-
-    assert_eq!(
-        ok_output(&sandbox.run(&["measurement", "ltv", "cohort", "2026-08-01"])),
-        "\nCohort 2026-08-01 (monthly, segment=channel:meta)\n\n  Size:           12,345\n  Retention pts:  2\n  Curve points:   2\n  Cum revenue:    $1,234.57 (t+30d)\n  After COGS:     $1,000.00\n\n  Prediction:\n    Method:       naive_decay\n    LTV 30d:      $10.00\n    LTV 90d:      —\n    LTV 12m:      $30.46\n    Computed:     —\n"
-    );
-    assert_eq!(
-        ok_output(&sandbox.run(&[
-            "measurement",
-            "ltv",
-            "cohort",
-            "2026-07-01",
-            "--granularity",
-            "weekly",
-            "--segment",
-            "channel:meta & co"
-        ])),
-        "\nCohort 2026-08-01 (monthly, segment=channel:meta)\n\n  Size:           0\n  Retention pts:  0\n  Curve points:   0\n  Prediction:     (none)\n"
-    );
-    assert!(
-        ok_output(&sandbox.run(&["measurement", "ltv", "cohort", "2026-06-01"]))
-            .contains("  Curve points:   1\n  Cum revenue:    $0.00 (t+0d)\n  After COGS:     $0.00\n")
-    );
-    let printed: Value =
-        serde_json::from_str(&ok_output(&sandbox.run(&["measurement", "ltv", "cohort", "2026-08-01", "--json"])))
-            .unwrap();
-    assert_eq!(printed, cohort);
-    assert_eq!(
-        ok_output(&sandbox.run(&["measurement", "ltv", "customer", "cust 1/2"])),
-        "\nCustomer cust 1/2\n\n  Acquired:        2026-01-05\n  Channel:         Paid Social\n  Campaign:        —\n  Country:         AU\n  Reactivated:     yes\n  Monthly cohort:  2026-01-01\n\n  Realised LTV:\n    30d:           $10.00\n    90d:           $10.50\n    12m:           —\n    full:          $1,234.57\n    after-COGS variants in --json\n\n  Revenue points:  1\n"
-    );
-    assert_eq!(
-        ok_output(&sandbox.run(&["measurement", "ltv", "customer", "parity-missing-customer"])),
-        "\nCustomer parity-missing-customer\n  (no cohort row — customer not in customer_cohorts)\n\n  Realised LTV:\n    30d:           —\n    90d:           —\n    12m:           —\n    full:          —\n    after-COGS variants in --json\n\n  Revenue points:  0\n"
-    );
-    let printed: Value =
-        serde_json::from_str(&ok_output(&sandbox.run(&["measurement", "ltv", "customer", "cust_é?#", "--json"])))
-            .unwrap();
-    assert_eq!(printed, customer);
-
-    let requests = sent(&server).await;
-    assert_eq!(requests[0], "GET /api/measurement/ltv/cohort/2026-08-01?granularity=monthly&segment_key=all");
-    assert_eq!(
-        requests[1],
-        "GET /api/measurement/ltv/cohort/2026-07-01?granularity=weekly&segment_key=channel%3Ameta+%26+co"
-    );
-
-    let keyless = Sandbox::without_api_keys(CLOSED);
-    for period in ["2026-8-01", "2026-08-01x", "", "２０２６-08-01"] {
-        let out = keyless.run(&["measurement", "ltv", "cohort", period]);
-        assert_eq!(out.status.code(), Some(1), "{period:?}");
-        assert_eq!(
-            text(&out.stderr),
-            "Error: cohort period must be YYYY-MM-DD\n\nUsage:\n  $ vendo measurement ltv cohort 2025-01-01\n"
-        );
-    }
-    let out = keyless.run(&["measurement", "ltv", "customer", ""]);
-    assert_eq!(out.status.code(), Some(1));
-    assert_eq!(
-        text(&out.stderr),
-        "Error: customerId is required\n\nUsage:\n  $ vendo measurement ltv customer cust_abc123\n"
-    );
-}
-
 #[tokio::test]
 async fn measurement_signals_like_ts() {
     let server = MockServer::start().await;
@@ -1211,7 +1028,7 @@ fn data_commands_need_an_api_key_like_ts() {
         &["metrics", "delete", "m1", "--yes"],
         &["models", "list"],
         &["measurement", "signals", "list"],
-        &["measurement", "ltv", "cohort", "2026-01-01"],
+        &["measurement", "methodologies", "get", "m1"],
     ] {
         let out = keyless.run(args);
         assert_eq!(
@@ -4431,8 +4248,8 @@ async fn the_menu_exits_as_ctrl_d_does_when_its_terminal_hangs_up() {
             "a chosen group's menu",
             "measurement",
             "Measurement signal availability",
-            b"ltv\r",
-            Some("Show one customer"),
+            b"methodologies\r",
+            Some("Show one methodology"),
         ),
     ] {
         let mut terminal = OnTerminal::start_detached(&sandbox, &[group]);
@@ -4615,17 +4432,17 @@ printf done"#;
 #[cfg(unix)]
 #[test]
 fn choosing_a_group_opens_its_menu() {
-    // `vendo measurement` → `ltv` → the menu of `vendo measurement ltv`.
+    // `vendo measurement` → `methodologies` → the menu of `vendo measurement methodologies`.
     let sandbox = Sandbox::new(CLOSED);
     let mut terminal = OnTerminal::start(&sandbox, &["measurement"]);
     let menu = plain(&terminal.wait_for("Measurement signal availability"));
     for row in command_rows(&sandbox, &["measurement"]) {
         assert!(menu.contains(row.as_str()), "{row:?} is not in the menu:\n{menu}");
     }
-    terminal.press("ltv\r");
-    terminal.wait_for("vendo measurement ltv");
-    let rows = command_rows(&sandbox, &["measurement", "ltv"]);
-    let menu = plain(&terminal.wait_for("Show one customer's cohort"));
+    terminal.press("methodologies\r");
+    terminal.wait_for("vendo measurement methodologies");
+    let rows = command_rows(&sandbox, &["measurement", "methodologies"]);
+    let menu = plain(&terminal.wait_for("Show one methodology by ID"));
     for row in &rows[..2] {
         assert!(menu.contains(row.as_str()), "{row:?} is not in the menu:\n{menu}");
     }
@@ -6708,11 +6525,9 @@ async fn a_job_model_metric_or_platform_list_that_fails_is_the_error_and_nothing
 
 // ── VE-3881, measurement and the dictionary ──────────────────────────────────
 // `measurement methodologies get` asks for a methodology from the ones `methodologies list` shows
-// (the system's and the account's, one response); `measurement ltv cohort` for a cohort period from
-// the cohorts `ltv list` shows for the typed `--granularity` and `--segment`, or their defaults
-// (newest first, at most the route's 500); `dictionary get` for a subject type, then for one of that
-// type's entries (Q11's default); `rules preview --from`/`--to`, `ltv customer` and `dictionary
-// search` ask a one-line question. The measurement routes are the key's, so no account is needed
+// (the system's and the account's, one response); `dictionary get` for a subject type, then for one
+// of that type's entries (Q11's default); `rules preview --from`/`--to` and `dictionary search` ask a
+// one-line question. The measurement routes are the key's, so no account is needed
 // for them; the dictionary is the account's.
 
 const METHODOLOGY_BLENDED: &str = "0d0e0f10-0000-4000-8000-000000000061";
@@ -6741,31 +6556,6 @@ const METHODOLOGY_ROWS: [&str; 3] = [
     "1e1f2021...  Last Click  system   last_click",
     "2f303132...  Media Mix   system   position_based",
 ];
-
-/// `GET /api/measurement/ltv`'s answer: the cohorts of `granularity` and `segment`, each period with
-/// its size, newest first as the route orders them.
-fn cohorts(granularity: &str, segment: &str, periods: &[(&str, u64)]) -> Value {
-    let cohorts: Vec<Value> = periods
-        .iter()
-        .map(|(period, size)| {
-            json!({
-                "cohort_period": period, "cohort_granularity": granularity, "segment_key": segment,
-                "cohort_size": size, "predicted": null,
-                "realised": { "ltv_30d": 12.5, "ltv_90d": null, "ltv_12m": null, "cac": null, "cac_ltv_ratio": null },
-            })
-        })
-        .collect();
-    let total = cohorts.len();
-    json!({ "data": { "granularity": granularity, "segment_key": segment, "cohorts": cohorts, "total_returned": total } })
-}
-
-/// The monthly cohorts of every customer (`all`), the defaults of `ltv cohort`.
-const MONTHLY: [(&str, u64); 3] = [("2026-09-01", 1204), ("2026-08-01", 987), ("2026-07-01", 15)];
-/// [`MONTHLY`] as the list shows them: period, segment and size.
-const COHORT_ROWS: [&str; 3] = ["2026-09-01  all  1,204", "2026-08-01  all  987", "2026-07-01  all  15"];
-/// The weekly cohorts of `channel:meta`.
-const WEEKLY: [(&str, u64); 2] = [("2026-09-28", 88), ("2026-09-21", 90)];
-const WEEKLY_ROWS: [&str; 2] = ["2026-09-28  channel:meta  88", "2026-09-21  channel:meta  90"];
 
 const EVENT_CHECKOUT: &str = "9f8e7d6c5b4a39281706f5e4d3c2b1a0";
 const EVENT_PAGE: &str = "0a1b2c3d4e5f60718293a4b5c6d7e8f9";
@@ -6807,8 +6597,8 @@ const EVENT_ROWS: [&str; 3] = [
 const PROP_ROWS: [&str; 1] = ["Email  aa11bb22cc33dd44ee55ff6600112233"];
 
 const METHODOLOGIES_LISTED: &str = "GET /api/measurement/methodologies";
-const COHORTS_LISTED: &str =
-    "GET /api/measurement/ltv?granularity=monthly&segment_key=all&limit=500&include_predicted=false";
+/// What `vendo dictionary search checkout` sends: the events, the first page of 20.
+const SEARCHED_CHECKOUT: &str = "GET /api/v1/accounts/acct-alpha/dictionary?type=event&q=checkout&limit=20&offset=0";
 
 /// The first page of the dictionary's entries of `subject_type`.
 fn dictionary_listed(subject_type: &str) -> String {
@@ -6830,46 +6620,12 @@ fn table_cells(lines: &[String]) -> Vec<Vec<String>> {
     cells(text.as_bytes())
 }
 
-/// [`methodologies_to_choose`], the [`MONTHLY`] cohorts (the [`WEEKLY`] ones of `channel:meta`),
-/// each cohort's detail, any customer, a rules preview, and [`dictionary_entries`] in acct-alpha
-/// with each entry's lookup (any other subject type has none).
+/// [`methodologies_to_choose`], a rules preview, and [`dictionary_entries`] in acct-alpha with each
+/// entry's lookup (any other subject type has none).
 async fn measurement_and_dictionary_stub() -> MockServer {
     use wiremock::matchers::{method, query_param};
     let server = MockServer::start().await;
     serve(&server, "GET", "/api/measurement/methodologies", 200, methodologies_to_choose()).await;
-    // Mounted first, matched first.
-    Mock::given(method("GET"))
-        .and(path("/api/measurement/ltv"))
-        .and(query_param("granularity", "weekly"))
-        .and(query_param("segment_key", "channel:meta"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(cohorts("weekly", "channel:meta", &WEEKLY)))
-        .mount(&server)
-        .await;
-    serve(&server, "GET", "/api/measurement/ltv", 200, cohorts("monthly", "all", &MONTHLY)).await;
-    for (granularity, segment, periods) in [("monthly", "all", &MONTHLY[..]), ("weekly", "channel:meta", &WEEKLY[..])] {
-        for (period, size) in periods {
-            let curve = json!({
-                "period_offset_days": 30, "cumulative_gross_revenue": 1500.5, "cumulative_revenue_after_cogs": 900,
-            });
-            let detail = json!({
-                "cohort_period": period, "cohort_granularity": granularity, "segment_key": segment,
-                "cohort_size": size, "retention_matrix": [{}, {}], "cumulative_curve": [curve], "prediction": null,
-            });
-            serve(&server, "GET", &format!("/api/measurement/ltv/cohort/{period}"), 200, detail).await;
-        }
-    }
-    let customer = json!({
-        "cohort": {
-            "acquisition_date": "2026-08-03", "acquisition_channel": "paid_social", "acquisition_campaign": null,
-            "country": "AU", "is_reactivated": false, "cohort_period_monthly": "2026-08-01",
-        },
-        "realised": { "ltv_30d": 120.5, "ltv_90d": 240, "ltv_12m": null, "ltv_full": 240 },
-        "revenue": [{}, {}],
-    });
-    Mock::given(wiremock::matchers::path_regex("^/api/measurement/ltv/customer/[^/]+$"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(customer))
-        .mount(&server)
-        .await;
     let preview = json!({
         "context": { "campaign_objective": "sales", "channel_grouping": "paid_social", "custom_label": null },
         "resolved_methodology": { "name": "Blended" }, "via": "rule", "sample_count": 12,
@@ -6900,25 +6656,15 @@ async fn measurement_and_dictionary_stub() -> MockServer {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn a_missing_methodology_or_cohort_is_chosen_from_its_list_and_the_command_runs_as_typed() {
+async fn a_missing_methodology_is_chosen_from_its_list_and_the_command_runs_as_typed() {
     let server = measurement_and_dictionary_stub().await;
     let sandbox = Sandbox::new(&server.uri());
-    // (the rows, the second one's value, how its answer names it, the list's request). A cohort is
-    // answered by its period, the value the command takes.
+    // (the rows, the second one's value, how its answer names it, the list's request).
     let methodologies =
         (&METHODOLOGY_ROWS[..], METHODOLOGY_LAST_CLICK, "1e1f2021... (Last Click)", METHODOLOGIES_LISTED.to_string());
-    let monthly = (&COHORT_ROWS[..], "2026-08-01", "2026-08-01", COHORTS_LISTED.to_string());
-    let weekly_listed =
-        "GET /api/measurement/ltv?granularity=weekly&segment_key=channel%3Ameta&limit=500&include_predicted=false";
-    let weekly = (&WEEKLY_ROWS[..], "2026-09-21", "2026-09-21", weekly_listed.to_string());
-    let cases: [(&[&str], _); 6] = [
+    let cases: [(&[&str], _); 2] = [
         (&["measurement", "methodologies", "get"], &methodologies),
         (&["measurement", "methodologies", "get", "--json"], &methodologies),
-        (&["measurement", "ltv", "cohort"], &monthly),
-        (&["measurement", "ltv", "cohort", "--json"], &monthly),
-        // The cohorts of the granularity and segment typed.
-        (&["measurement", "ltv", "cohort", "--granularity", "weekly", "--segment", "channel:meta"], &weekly),
-        (&["measurement", "ltv", "cohort", "--segment=channel:meta", "--json", "--granularity", "weekly"], &weekly),
     ];
     for (args, (rows, chosen, named, list)) in cases {
         let case = args.join(" ");
@@ -7016,15 +6762,15 @@ async fn dictionary_get_asks_for_a_subject_type_then_one_of_its_entries_and_runs
 
 #[cfg(unix)]
 #[tokio::test]
-async fn rules_preview_ltv_customer_and_dictionary_search_ask_a_question_and_run_as_typed() {
+async fn rules_preview_and_dictionary_search_ask_a_question_and_run_as_typed() {
     let server = measurement_and_dictionary_stub().await;
     let sandbox = Sandbox::new(&server.uri());
     let preview = "vendo measurement rules preview";
-    let (customer, search) = ("vendo measurement ltv customer", "vendo dictionary search");
+    let search = "vendo dictionary search";
     // (the title of the command, the words, each question's option and answer in clap's order, the
     // same command typed)
     type Case<'a> = (&'a str, &'a [&'a str], &'a [(&'a str, &'a str)], &'a [&'a str]);
-    let cases: [Case; 10] = [
+    let cases: [Case; 8] = [
         (
             preview,
             &["measurement", "rules", "preview"],
@@ -7042,18 +6788,6 @@ async fn rules_preview_ltv_customer_and_dictionary_search_ask_a_question_and_run
             &["measurement", "rules", "preview", "--to", "2025-01-31", "--json"],
             &[("--from", "2025-01-01")],
             &["measurement", "rules", "preview", "--to", "2025-01-31", "--json", "--from", "2025-01-01"],
-        ),
-        (
-            customer,
-            &["measurement", "ltv", "customer"],
-            &[("", "cust_abc123")],
-            &["measurement", "ltv", "customer", "cust_abc123"],
-        ),
-        (
-            customer,
-            &["measurement", "ltv", "customer", "--json"],
-            &[("", "cust 1/2")],
-            &["measurement", "ltv", "customer", "--json", "cust 1/2"],
         ),
         (search, &["dictionary", "search"], &[("", "checkout")], &["dictionary", "search", "checkout"]),
         (
@@ -7105,14 +6839,14 @@ async fn rules_preview_ltv_customer_and_dictionary_search_ask_a_question_and_run
     }
     // An empty answer is refused.
     let before = sent(&server).await.len();
-    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "ltv", "customer"]);
-    terminal.wait_for(customer);
+    let mut terminal = OnTerminal::start(&sandbox, &["dictionary", "search"]);
+    terminal.wait_for(search);
     terminal.press("\r");
     terminal.wait_for("A response is required.");
-    terminal.press("cust_abc123\r");
-    terminal.wait_for("vendo measurement ltv customer cust_abc123");
+    terminal.press("checkout\r");
+    terminal.wait_for("vendo dictionary search checkout");
     assert_eq!(terminal.finish().1, Some(0));
-    assert_eq!(sent(&server).await[before..], ["GET /api/measurement/ltv/customer/cust_abc123"]);
+    assert_eq!(sent(&server).await[before..], [SEARCHED_CHECKOUT]);
 }
 
 #[cfg(unix)]
@@ -7120,29 +6854,28 @@ async fn rules_preview_ltv_customer_and_dictionary_search_ask_a_question_and_run
 async fn a_one_line_answer_is_taken_without_the_spaces_and_line_ends_around_it() {
     // A shell takes a word without the spaces and the line end around it; the question took them
     // too. A line copied whole, or a spreadsheet's cell, brought its line end: the screen showed
-    // `2025-01-01`, the API got `2025-01-01\n` and refused it, and a customer ID with it found no
-    // cohort. A paste comes in brackets (`ESC[200~`…`ESC[201~`), as a terminal sends it.
+    // `2025-01-01`, the API got `2025-01-01\n` and refused it. A paste comes in brackets (`ESC[200~`…`ESC[201~`), as a terminal sends it.
     let server = measurement_and_dictionary_stub().await;
     let sandbox = Sandbox::new(&server.uri());
     let paste = |text: &str| format!("\u{1b}[200~{text}\u{1b}[201~");
-    let customer = "vendo measurement ltv customer";
-    for keys in [paste(" cust_abc123\n"), paste("cust_abc123\r"), "  cust_abc123  ".to_string()] {
+    let search = "vendo dictionary search";
+    for keys in [paste(" checkout\n"), paste("checkout\r"), "  checkout  ".to_string()] {
         let case = format!("{keys:?}");
         let before = sent(&server).await.len();
-        let mut terminal = OnTerminal::start(&sandbox, &["measurement", "ltv", "customer"]);
-        terminal.wait_for(customer);
+        let mut terminal = OnTerminal::start(&sandbox, &["dictionary", "search"]);
+        terminal.wait_for(search);
         terminal.press(&keys);
         terminal.press("\r");
         let (_, code) = terminal.finish();
         assert_eq!(code, Some(0), "{case}");
-        assert_eq!(sent(&server).await[before..], ["GET /api/measurement/ltv/customer/cust_abc123"], "{case}");
+        assert_eq!(sent(&server).await[before..], [SEARCHED_CHECKOUT], "{case}");
         // The answered line shows the answer as it is taken.
-        assert_eq!(shown_lines(&terminal, (40, 120))[0], format!("? {customer} cust_abc123"), "{case}");
+        assert_eq!(shown_lines(&terminal, (40, 120))[0], format!("? {search} checkout"), "{case}");
     }
     // Only spaces and line ends: refused as an empty answer, nothing sent.
     let before = sent(&server).await.len();
-    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "ltv", "customer"]);
-    terminal.wait_for(customer);
+    let mut terminal = OnTerminal::start(&sandbox, &["dictionary", "search"]);
+    terminal.wait_for(search);
     terminal.press(&paste("   \n"));
     terminal.press("\r");
     terminal.wait_for("A response is required.");
@@ -7168,18 +6901,15 @@ async fn a_one_line_answer_is_taken_without_the_spaces_and_line_ends_around_it()
 
 #[cfg(unix)]
 #[tokio::test]
-async fn typing_filters_the_methodologies_cohorts_subject_types_and_dictionary_entries() {
+async fn typing_filters_the_methodologies_subject_types_and_dictionary_entries() {
     let server = measurement_and_dictionary_stub().await;
     let sandbox = Sandbox::new(&server.uri());
     let methodologies = ["measurement", "methodologies", "get"];
-    let cohort = ["measurement", "ltv", "cohort"];
     // (the words, what answers the type first, the list's title, what is typed, the rows left)
     for (args, first, title, typed, rows) in [
         (&methodologies[..], "", "vendo measurement methodologies get", "SYSTEM", &METHODOLOGY_ROWS[1..]),
         (&methodologies, "", "vendo measurement methodologies get", "linear", &METHODOLOGY_ROWS[..1]),
         (&methodologies, "", "vendo measurement methodologies get", "2F303132...", &METHODOLOGY_ROWS[2..]),
-        (&cohort, "", "vendo measurement ltv cohort", "2026-08", &COHORT_ROWS[1..2]),
-        (&cohort, "", "vendo measurement ltv cohort", "1,204", &COHORT_ROWS[..1]),
         (&["dictionary", "get"], "", "vendo dictionary get · subject type", "PR", &SUBJECT_TYPE_ROWS[1..2]),
         (&["dictionary", "get"], "", "vendo dictionary get · subject type", "mo", &SUBJECT_TYPE_ROWS[5..6]),
         (&["dictionary", "get"], "\r", "vendo dictionary get", "viewed", &EVENT_ROWS[1..2]),
@@ -7215,21 +6945,13 @@ async fn esc_ctrl_c_or_ctrl_d_at_a_measurement_or_dictionary_list_or_question_le
     // (words, what opens first, what answers it, the line left, what was sent, whether the last
     // prompt is a list)
     type Case<'a> = (&'a [&'a str], &'a str, &'a str, &'a str, Vec<String>, bool);
-    let cases: [Case; 8] = [
+    let cases: [Case; 6] = [
         (
             &["measurement", "methodologies", "get"],
             "",
             "",
             "? vendo measurement methodologies get <canceled>",
             vec![METHODOLOGIES_LISTED.into()],
-            true,
-        ),
-        (
-            &["measurement", "ltv", "cohort"],
-            "",
-            "",
-            "? vendo measurement ltv cohort <canceled>",
-            vec![COHORTS_LISTED.into()],
             true,
         ),
         (&["dictionary", "get"], "", "", "? vendo dictionary get · subject type <canceled>", vec![], true),
@@ -7250,7 +6972,6 @@ async fn esc_ctrl_c_or_ctrl_d_at_a_measurement_or_dictionary_list_or_question_le
             vec![],
             false,
         ),
-        (&["measurement", "ltv", "customer"], "", "", "? vendo measurement ltv customer <canceled>", vec![], false),
         (&["dictionary", "search"], "", "", "? vendo dictionary search <canceled>", vec![], false),
     ];
     for (args, first, answers, last, requests, list) in cases {
@@ -7278,17 +6999,14 @@ async fn esc_ctrl_c_or_ctrl_d_at_a_measurement_or_dictionary_list_or_question_le
 
 #[cfg(unix)]
 #[tokio::test]
-async fn with_no_methodology_cohort_or_dictionary_entry_to_choose_from_it_says_so_and_is_the_usage_error() {
+async fn with_no_methodology_or_dictionary_entry_to_choose_from_it_says_so_and_is_the_usage_error() {
     let server = MockServer::start().await;
     serve(&server, "GET", "/api/measurement/methodologies", 200, json!({ "data": { "methodologies": [] } })).await;
-    serve(&server, "GET", "/api/measurement/ltv", 200, cohorts("monthly", "all", &[])).await;
     serve(&server, "GET", &format!("{V1}/dictionary"), 200, page_of(Vec::new(), 0, false)).await;
     let sandbox = Sandbox::new(&server.uri());
     for (args, nothing) in [
         (&["measurement", "methodologies", "get"][..], "No methodologies to choose from."),
         (&["measurement", "methodologies", "get", "--json"], "No methodologies to choose from."),
-        (&["measurement", "ltv", "cohort"], "No cohorts to choose from."),
-        (&["measurement", "ltv", "cohort", "--json"], "No cohorts to choose from."),
     ] {
         let typed = sandbox.run(args);
         assert_eq!(typed.status.code(), Some(2));
@@ -7316,30 +7034,20 @@ async fn with_no_methodology_cohort_or_dictionary_entry_to_choose_from_it_says_s
         assert_eq!((code, shown), (Some(2), expected.trim_end().to_string()), "{args:?}");
     }
     let mut expected = vec![METHODOLOGIES_LISTED.to_string(); 2];
-    expected.extend([COHORTS_LISTED.to_string(), COHORTS_LISTED.to_string()]);
     expected.extend([dictionary_listed("prop"), dictionary_listed("prop")]);
     assert_eq!(sent(&server).await, expected);
 }
 
 #[cfg(unix)]
 #[tokio::test]
-async fn a_methodology_cohort_or_dictionary_list_that_fails_is_the_error_and_nothing_more_is_asked() {
+async fn a_methodology_or_dictionary_list_that_fails_is_the_error_and_nothing_more_is_asked() {
     let server = MockServer::start().await;
     // The web app's routes send their error as a string, with no code (VE-3668, VE-3831).
     serve(&server, "GET", "/api/measurement/methodologies", 500, json!({ "error": "BigQuery is unavailable" })).await;
-    // A granularity the route does not know is its 400, as for the typed command.
-    let refused = json!({ "error": "granularity must be one of daily | weekly | monthly" });
-    serve(&server, "GET", "/api/measurement/ltv", 400, refused).await;
     let refusal = json!({ "error": { "code": "INTERNAL_ERROR", "message": "Database unavailable" } });
     serve(&server, "GET", &format!("{V1}/dictionary"), 500, refusal).await;
     let sandbox = Sandbox::new(&server.uri());
-    for (args, message) in [
-        (&["measurement", "methodologies", "get"][..], "BigQuery is unavailable"),
-        (
-            &["measurement", "ltv", "cohort", "--granularity", "yearly"],
-            "granularity must be one of daily | weekly | monthly",
-        ),
-    ] {
+    for (args, message) in [(&["measurement", "methodologies", "get"][..], "BigQuery is unavailable")] {
         let mut terminal = OnTerminal::start(&sandbox, args);
         let (_, code) = terminal.finish();
         let shown = shown_lines(&terminal, (40, 120));
@@ -7364,13 +7072,6 @@ async fn a_methodology_cohort_or_dictionary_list_that_fails_is_the_error_and_not
     assert_eq!(terminal.screen.matches("type to filter]").count(), opened, "{shown:#?}");
     for (args, first, message, code, status) in [
         (&["measurement", "methodologies", "get", "--json"][..], false, "BigQuery is unavailable", Value::Null, 500),
-        (
-            &["measurement", "ltv", "cohort", "--json", "--granularity", "yearly"],
-            false,
-            "granularity must be one of daily | weekly | monthly",
-            Value::Null,
-            400,
-        ),
         (&["dictionary", "get", "--json"], true, "Database unavailable", json!("INTERNAL_ERROR"), 500),
     ] {
         let mut terminal = OnTerminal::start_with(&sandbox, args, WIDE, "", None);
@@ -7388,8 +7089,7 @@ async fn a_methodology_cohort_or_dictionary_list_that_fails_is_the_error_and_not
             "{args:?}"
         );
     }
-    let yearly = "GET /api/measurement/ltv?granularity=yearly&segment_key=all&limit=500&include_predicted=false";
-    let listed = [METHODOLOGIES_LISTED.to_string(), yearly.to_string(), dictionary_listed("event")];
+    let listed = [METHODOLOGIES_LISTED.to_string(), dictionary_listed("event")];
     assert_eq!(sent(&server).await, [&listed[..], &listed[..]].concat());
 }
 
@@ -7415,39 +7115,29 @@ async fn the_dictionary_needs_the_account_before_anything_is_asked_and_measureme
     assert_eq!(listed_rows(&terminal), marked(&METHODOLOGY_ROWS));
     terminal.press("\r");
     assert_eq!(terminal.finish().1, Some(0));
-    for (args, title) in [
-        (&["measurement", "ltv", "cohort"][..], "type to filter]"),
-        (&["measurement", "rules", "preview"], "vendo measurement rules preview --from"),
-        (&["measurement", "ltv", "customer"], "vendo measurement ltv customer"),
-    ] {
-        let mut terminal = OnTerminal::start(&sandbox, args);
-        terminal.wait_for(title);
-        terminal.press("\u{1b}");
-        assert_eq!(terminal.finish().1, Some(0), "{args:?}");
-    }
-    assert_eq!(sent(&server).await, [METHODOLOGIES_LISTED, METHODOLOGIES_LISTED, COHORTS_LISTED]);
+    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "rules", "preview"]);
+    terminal.wait_for("vendo measurement rules preview --from");
+    terminal.press("\u{1b}");
+    assert_eq!(terminal.finish().1, Some(0));
+    assert_eq!(sent(&server).await, [METHODOLOGIES_LISTED, METHODOLOGIES_LISTED]);
     // No key: its error before anything is asked, a question too.
     let sandbox = Sandbox::without_api_keys(&server.uri());
     let no_key = text(&sandbox.run(&["measurement", "methodologies", "list"]).stderr);
     assert!(no_key.starts_with("Error: No API key configured."), "{no_key}");
-    for args in [
-        &["measurement", "methodologies", "get"][..],
-        &["measurement", "ltv", "cohort"],
-        &["measurement", "rules", "preview"],
-        &["measurement", "ltv", "customer"],
-        &["dictionary", "search"],
-    ] {
+    for args in
+        [&["measurement", "methodologies", "get"][..], &["measurement", "rules", "preview"], &["dictionary", "search"]]
+    {
         let mut terminal = OnTerminal::start(&sandbox, args);
         let (_, code) = terminal.finish();
         let shown = shown_lines(&terminal, (40, 120)).join("\n");
         assert_eq!((code, shown), (Some(1), no_key.trim_end().to_string()), "{args:?}");
     }
-    assert_eq!(sent(&server).await.len(), 3);
+    assert_eq!(sent(&server).await.len(), 2);
 }
 
 #[cfg(unix)]
 #[tokio::test]
-async fn of_more_than_500_entries_the_first_500_are_listed_and_of_500_cohorts_the_hint_says_newest_500() {
+async fn of_more_than_500_entries_the_first_500_are_listed() {
     use wiremock::matchers::query_param;
     let server = MockServer::start().await;
     // Six pages of 100 events, in the route's order: the list reads five, as a short-ID lookup does.
@@ -7463,11 +7153,6 @@ async fn of_more_than_500_entries_the_first_500_are_listed_and_of_500_cohorts_th
             .await;
     }
     serve(&server, "GET", &format!("{V1}/dictionary/lookup"), 200, json!({ "data": { "found": false } })).await;
-    // The route sends at most 500 cohorts, newest first: 500 may leave older ones out.
-    let periods: Vec<String> =
-        (0..500).map(|n| format!("{:04}-{:02}-01", 2026 - (n + 3) / 12, 12 - (n + 3) % 12)).collect();
-    let periods: Vec<(&str, u64)> = periods.iter().map(|period| (period.as_str(), 10)).collect();
-    serve(&server, "GET", "/api/measurement/ltv", 200, cohorts("monthly", "all", &periods)).await;
     let sandbox = Sandbox::new(&server.uri());
     let mut terminal = OnTerminal::start(&sandbox, &["dictionary", "get"]);
     terminal.wait_for("type to filter]");
@@ -7483,32 +7168,6 @@ async fn of_more_than_500_entries_the_first_500_are_listed_and_of_500_cohorts_th
         (0..5).map(|page| format!("GET {V1}/dictionary?type=event&limit=100&offset={}", page * 100)).collect();
     pages.push(format!("GET {V1}/dictionary/lookup?subject_id={}", id(499)));
     assert_eq!(sent(&server).await, pages);
-    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "ltv", "cohort"]);
-    terminal.wait_for("[↑↓ to move, enter to select, type to filter · newest 500 shown]");
-    terminal.press("\u{1b}");
-    assert_eq!(terminal.finish().1, Some(0));
-    assert_eq!(sent(&server).await[5 + 1..], [COHORTS_LISTED]);
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn a_cohort_chosen_from_the_ltv_menu_is_asked_for_as_when_typed() {
-    // `vendo measurement ltv` → cohort asks for the cohort as `vendo measurement ltv cohort` does.
-    let server = measurement_and_dictionary_stub().await;
-    let sandbox = Sandbox::new(&server.uri());
-    let mut terminal = OnTerminal::start(&sandbox, &["measurement", "ltv"]);
-    terminal.wait_for("Show one customer's cohort");
-    terminal.press("\u{1b}[B");
-    terminal.wait_for("> cohort");
-    terminal.press("\r");
-    terminal.wait_for(COHORT_ROWS[2]);
-    terminal.press("\r");
-    terminal.wait_for("vendo measurement ltv cohort 2026-09-01");
-    let (ran, code) = terminal.finish();
-    assert_eq!(code, Some(0), "{ran:?}");
-    assert!(plain(&ran).contains("Cohort 2026-09-01"), "{ran:?}");
-    let cohort = "GET /api/measurement/ltv/cohort/2026-09-01?granularity=monthly&segment_key=all";
-    assert_eq!(sent(&server).await, [COHORTS_LISTED, cohort]);
 }
 
 // ── VE-3826: CI and VENDO_NO_INPUT turn prompts off; no menu on TERM=dumb ───
@@ -10332,11 +9991,10 @@ async fn an_empty_platform_dictionary_metric_or_model_list_prints_the_table_and_
 }
 
 // ── VE-3894: measurement lists and profile list ──────────────────────────────
-// `vendo measurement methodologies list`, `vendo measurement ltv list`, `vendo measurement signals list`
-// and `vendo profile list` (its old name `config list` too) at a terminal, as `vendo apps list` above:
-// the rows they print, to choose from. Enter on a methodology shows it as `methodologies get` does,
-// from the list's row (nothing sent); on a cohort as `ltv cohort` does with the list's granularity and
-// segment; on a signal or a profile nothing, as they have no `get`. Then the actions that apply: the
+// `vendo measurement methodologies list`, `vendo measurement signals list` and `vendo profile list`
+// (its old name `config list` too) at a terminal, as `vendo apps list` above: the rows they print, to
+// choose from. Enter on a methodology shows it as `methodologies get` does, from the list's row
+// (nothing sent); on a signal or a profile nothing, as they have no `get`. Then the actions that apply: the
 // `click_path` signal `click-path`, a profile `switch` unless it is the saved active profile; anything
 // else nothing; then `back`.
 
@@ -10360,8 +10018,8 @@ fn signals_to_browse() -> Value {
     ] } })
 }
 
-/// [`measurement_and_dictionary_stub`] (the methodologies, the monthly and weekly cohorts and each
-/// cohort's detail), with [`signals_to_browse`] and the click-path status.
+/// [`measurement_and_dictionary_stub`] (the methodologies), with [`signals_to_browse`] and the
+/// click-path status.
 async fn measurement_lists_stub() -> MockServer {
     let server = measurement_and_dictionary_stub().await;
     serve(&server, "GET", "/api/measurement/signals", 200, signals_to_browse()).await;
@@ -10382,7 +10040,7 @@ struct Measured {
     group: &'static str,
     /// The request the list sends, at a terminal as on a pipe.
     listed: &'static str,
-    /// The items' IDs as their `get` takes them (a cohort's period), in the list's order.
+    /// The items' IDs as their `get` takes them, in the list's order.
     ids: &'static [&'static str],
     /// The items as the list shows them: the table's cells as plain text, padded per column.
     rows: &'static [&'static str],
@@ -10409,34 +10067,6 @@ const METHODOLOGIES_MEASURED: Measured = Measured {
     actions: &[&[], &[], &[]],
 };
 
-const COHORTS_MEASURED: Measured = Measured {
-    args: &["measurement", "ltv", "list"],
-    group: "measurement ltv",
-    listed: "GET /api/measurement/ltv?granularity=monthly&segment_key=all&limit=50",
-    ids: &["2026-09-01", "2026-08-01", "2026-07-01"],
-    // Every column the table shows, the money ones too.
-    rows: &[
-        "2026-09-01  all  1,204  $12.50  —  —  —  —",
-        "2026-08-01  all  987    $12.50  —  —  —  —",
-        "2026-07-01  all  15     $12.50  —  —  —  —",
-    ],
-    answers: &["2026-09-01", "2026-08-01", "2026-07-01"],
-    footer: "3 cohorts",
-    actions: &[&[], &[], &[]],
-};
-
-/// `vendo measurement ltv list --granularity weekly --segment channel:meta`.
-const WEEKLY_MEASURED: Measured = Measured {
-    args: &["measurement", "ltv", "list", "--granularity", "weekly", "--segment", "channel:meta"],
-    listed: "GET /api/measurement/ltv?granularity=weekly&segment_key=channel%3Ameta&limit=50",
-    ids: &["2026-09-28", "2026-09-21"],
-    rows: &["2026-09-28  channel:meta  88  $12.50  —  —  —  —", "2026-09-21  channel:meta  90  $12.50  —  —  —  —"],
-    answers: &["2026-09-28", "2026-09-21"],
-    footer: "2 cohorts",
-    actions: &[&[], &[]],
-    ..COHORTS_MEASURED
-};
-
 const SIGNALS_MEASURED: Measured = Measured {
     args: &["measurement", "signals", "list"],
     group: "measurement signals",
@@ -10448,7 +10078,7 @@ const SIGNALS_MEASURED: Measured = Measured {
     actions: &[&["click-path"], &[], &[]],
 };
 
-const MEASURED: [Measured; 4] = [METHODOLOGIES_MEASURED, COHORTS_MEASURED, WEEKLY_MEASURED, SIGNALS_MEASURED];
+const MEASURED: [Measured; 2] = [METHODOLOGIES_MEASURED, SIGNALS_MEASURED];
 
 impl Measured {
     /// The open list's title.
@@ -10468,23 +10098,10 @@ impl Measured {
         [vec![self.title()], rows.collect(), vec![hint]].concat()
     }
 
-    /// The requests Enter sends for the item at `at`: a cohort's, with the list's granularity and
-    /// segment; nothing for a methodology (the list's row) or a signal.
-    fn item(self, at: usize) -> Vec<String> {
-        match self.group {
-            "measurement ltv" => {
-                let query = self.listed.split_once('?').unwrap().1.trim_end_matches("&limit=50");
-                vec![format!("GET /api/measurement/ltv/cohort/{}?{query}", self.ids[at])]
-            }
-            _ => Vec::new(),
-        }
-    }
-
     /// The command typed on a pipe that prints what Enter shows of the item at `at`; none for a signal.
     fn typed(self, at: usize) -> Option<Vec<&'static str>> {
         match self.group {
             "measurement methodologies" => Some(vec!["measurement", "methodologies", "get", self.ids[at]]),
-            "measurement ltv" => Some([&["measurement", "ltv", "cohort", self.ids[at]][..], &self.args[3..]].concat()),
             _ => None,
         }
     }
@@ -10533,8 +10150,7 @@ impl Measured {
 #[cfg(unix)]
 #[tokio::test]
 async fn measurement_lists_at_a_terminal_list_the_tables_rows_from_the_same_request() {
-    // Titled with the command, every row the table shows (its cells, plain, the LTV money columns
-    // too), the first marked, the table's footer after the hint. The flags go into the request as typed:
+    // Titled with the command, every row the table shows (its cells, plain), the first marked, the table's footer after the hint. The flags go into the request as typed:
     // the table's request, and nothing more.
     let no_system = Measured {
         args: &["measurement", "methodologies", "list", "--no-system"],
@@ -10563,9 +10179,9 @@ async fn measurement_lists_at_a_terminal_list_the_tables_rows_from_the_same_requ
 
 #[cfg(unix)]
 #[tokio::test]
-async fn enter_on_a_methodology_cohort_or_signal_shows_it_as_its_get_does_then_the_actions_that_apply() {
-    // A methodology as `methodologies get` shows it, from the list's row: nothing sent. A cohort as `ltv
-    // cohort` shows it, with the list's granularity and segment. A signal nothing (no `get`). Then the
+async fn enter_on_a_methodology_or_signal_shows_it_as_its_get_does_then_the_actions_that_apply() {
+    // A methodology as `methodologies get` shows it, from the list's row: nothing sent. A signal
+    // nothing (no `get`). Then the
     // `click_path` signal `click-path`; anything else nothing but back.
     for measured in MEASURED {
         for at in 0..measured.ids.len() {
@@ -10574,7 +10190,7 @@ async fn enter_on_a_methodology_cohort_or_signal_shows_it_as_its_get_does_then_t
             let sandbox = Sandbox::new(&server.uri());
             let mut terminal = measured.menu_of(&sandbox, at);
             let asked = sent(&server).await;
-            assert_eq!(asked, [vec![measured.listed.to_string()], measured.item(at)].concat(), "{case}");
+            assert_eq!(asked, [measured.listed], "{case}");
             let shown = shown_from(&terminal, &format!("{} {}", measured.title(), measured.answers[at]));
             let menu = measured.menu(&sandbox, at);
             let details = &shown[1..shown.len() - menu.len()];
@@ -10584,9 +10200,6 @@ async fn enter_on_a_methodology_cohort_or_signal_shows_it_as_its_get_does_then_t
                     let typed = sandbox.run(&typed);
                     assert_eq!(typed.status.code(), Some(0), "{case}");
                     assert_eq!(details, printed_lines(&typed), "{case}");
-                    if measured.group == "measurement ltv" {
-                        assert_eq!(sent(&server).await[asked.len()..], measured.item(at), "{case}: as typed");
-                    }
                 }
                 None => assert!(details.is_empty(), "{case}: {details:#?}"),
             }
@@ -10623,12 +10236,7 @@ async fn the_click_path_signals_action_runs_its_command_exactly_as_typed() {
 #[cfg(unix)]
 #[tokio::test]
 async fn back_opens_a_measurement_list_again_on_the_item_with_no_request() {
-    for (measured, filter) in [
-        (METHODOLOGIES_MEASURED, "last"),
-        (COHORTS_MEASURED, "987"),
-        (WEEKLY_MEASURED, "09-21"),
-        (SIGNALS_MEASURED, "mmm"),
-    ] {
+    for (measured, filter) in [(METHODOLOGIES_MEASURED, "last"), (SIGNALS_MEASURED, "mmm")] {
         let case = measured.args.join(" ");
         let server = measurement_lists_stub().await;
         let sandbox = Sandbox::new(&server.uri());
@@ -10662,8 +10270,6 @@ async fn typing_filters_the_measurement_lists_by_any_column() {
     for (measured, typed, rows) in [
         (METHODOLOGIES_MEASURED, "SYSTEM", &[1, 2][..]),
         (METHODOLOGIES_MEASURED, "position", &[2]),
-        (COHORTS_MEASURED, "1,204", &[0]),
-        (WEEKLY_MEASURED, "90", &[1]),
         (SIGNALS_MEASURED, "spend history", &[1]),
         (SIGNALS_MEASURED, "live", &[0, 2]),
     ] {
@@ -10708,38 +10314,11 @@ async fn esc_ctrl_c_or_ctrl_d_at_a_measurement_list_or_its_actions_leave_quietly
             let (shown, cursor) = screen(&terminal.screen, 40, 120);
             let last = shown.iter().rposition(|line| !line.is_empty()).unwrap();
             assert_eq!((shown[last].clone(), cursor), (format!("? {title} <canceled>"), (last + 1, 0)), "{case}");
-            let reads = if step == "list" { 1 } else { 1 + measured.item(0).len() };
             let asked = sent(&server).await;
-            assert_eq!(asked.len(), reads, "{case}: {asked:#?}");
+            assert_eq!(asked.len(), 1, "{case}: {asked:#?}");
             assert!(asked.iter().all(|request| request.starts_with("GET ")), "{case}: {asked:#?}");
         }
     }
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn a_cohort_that_cannot_be_read_ends_with_the_error_ltv_cohort_gives() {
-    // A 404, a 429 or the network: `ltv cohort`'s error, exit 1.
-    let server = MockServer::start().await;
-    serve(&server, "GET", "/api/measurement/ltv", 200, cohorts("monthly", "all", &MONTHLY)).await;
-    let missing = json!({ "error": "Cohort not found" });
-    Mock::given(path("/api/measurement/ltv/cohort/2026-07-01"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(missing).insert_header("x-request-id", "req_server_1"))
-        .mount(&server)
-        .await;
-    let sandbox = Sandbox::new(&server.uri());
-    let measured = COHORTS_MEASURED;
-    let mut terminal = measured.open(&sandbox);
-    terminal.press("\u{1b}[B\u{1b}[B");
-    terminal.wait_for(&format!("> {}", measured.rows[2]));
-    terminal.press("\r");
-    let answered = format!("{} {}", measured.title(), measured.answers[2]);
-    terminal.wait_for(&answered[2..]);
-    let (rest, code) = terminal.finish();
-    let typed = sandbox.run(&["measurement", "ltv", "cohort", "2026-07-01"]);
-    assert_eq!((code, typed.status.code()), (Some(1), Some(1)), "{rest:?}");
-    assert_eq!(after_answer(&terminal, &answered), printed_lines(&typed));
-    assert!(printed_lines(&typed)[0].starts_with("Error: "), "{:?}", printed_lines(&typed));
 }
 
 #[cfg(unix)]
@@ -10749,12 +10328,7 @@ async fn where_the_list_cannot_open_and_with_json_or_output_the_measurement_list
     // a terminal, and at a terminal with prompts off, on `TERM=dumb`, with stderr redirected or a
     // write-only stdin, where it prints the table a terminal shows. `--json` and `--output` print what
     // they print on a pipe; an empty `--output` the table. `signals list` has no `--output`.
-    for (measured, field) in [
-        (METHODOLOGIES_MEASURED, Some("clickPathModel")),
-        (COHORTS_MEASURED, Some("cohortPeriod")),
-        (WEEKLY_MEASURED, Some("cohort_size")),
-        (SIGNALS_MEASURED, None),
-    ] {
+    for (measured, field) in [(METHODOLOGIES_MEASURED, Some("clickPathModel")), (SIGNALS_MEASURED, None)] {
         let args = measured.args;
         let case = args.join(" ");
         let server = measurement_lists_stub().await;
@@ -10795,12 +10369,10 @@ async fn where_the_list_cannot_open_and_with_json_or_output_the_measurement_list
 async fn an_empty_measurement_list_prints_the_table_and_its_count_at_a_terminal_too() {
     let server = MockServer::start().await;
     serve(&server, "GET", "/api/measurement/methodologies", 200, json!({ "data": { "methodologies": [] } })).await;
-    serve(&server, "GET", "/api/measurement/ltv", 200, cohorts("monthly", "all", &[])).await;
     serve(&server, "GET", "/api/measurement/signals", 200, json!({ "data": { "signals": [] } })).await;
     let sandbox = Sandbox::new(&server.uri());
     for (args, footer) in [
         (&["measurement", "methodologies", "list"], "0 methodologys"),
-        (&["measurement", "ltv", "list"], "0 cohorts"),
         (&["measurement", "signals", "list"], "0 signals"),
     ] {
         let (reference, code) = OnTerminal::start_env(&sandbox, args, &[("CI", "1")]).finish();
@@ -10818,7 +10390,9 @@ async fn a_measurement_list_and_an_items_actions_exit_as_ctrl_d_does_when_their_
     let server = measurement_lists_stub().await;
     let sandbox = Sandbox::new(&server.uri());
     let mut outcomes = Vec::new();
-    for (measured, step) in [(SIGNALS_MEASURED, "list"), (SIGNALS_MEASURED, "actions"), (COHORTS_MEASURED, "actions")] {
+    for (measured, step) in
+        [(SIGNALS_MEASURED, "list"), (SIGNALS_MEASURED, "actions"), (METHODOLOGIES_MEASURED, "actions")]
+    {
         let mut terminal = OnTerminal::start_detached(&sandbox, measured.args);
         terminal.wait_for(&measured.hint_end());
         if step == "actions" {
@@ -10833,9 +10407,8 @@ async fn a_measurement_list_and_an_items_actions_exit_as_ctrl_d_does_when_their_
         outcomes.iter().all(|(_, _, exited, ended)| *exited && ended.code == Some(0) && ended.cpu < HUNG_UP_CPU),
         "each should exit 0 within {HUNG_UP_EXIT:?}, using under {HUNG_UP_CPU:?} of processor time: {outcomes:#?}"
     );
-    let cohort = COHORTS_MEASURED.item(0).remove(0);
-    let (signals, ltv) = (SIGNALS_MEASURED.listed, COHORTS_MEASURED.listed);
-    assert_eq!(sent(&server).await, [signals, signals, ltv, &cohort]);
+    let (signals, methodologies) = (SIGNALS_MEASURED.listed, METHODOLOGIES_MEASURED.listed);
+    assert_eq!(sent(&server).await, [signals, signals, methodologies]);
 }
 
 // `vendo profile list`: no request; the profiles as its lines show them, to choose from. Enter shows

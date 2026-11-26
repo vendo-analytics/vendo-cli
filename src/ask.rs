@@ -5,7 +5,7 @@
 //! instead of stopping with clap's usage error. A value with choices opens an arrow-key list with
 //! type-to-filter ([`output::choose_value`]), loaded as its list command lists it (the account's apps,
 //! sources, destinations, jobs, models and metrics, the methodologies, the platforms ready to connect,
-//! the LTV cohorts, a subject type's dictionary entries), or the values the API takes ([`DATA_TYPES`],
+//! a subject type's dictionary entries), or the values the API takes ([`DATA_TYPES`],
 //! the dictionary's subject types); free text, a date and a file's path are a one-line question
 //! ([`output::ask_text`]). Optional values are not asked. The values go into the
 //! words where they would have been typed and [`crate::cli::parse`] parses them again, so the
@@ -36,7 +36,7 @@ use crate::{
     dictionary::{self, SUBJECT_TYPES},
     jobs::Job,
     js_text::cell,
-    output::{self, ValueRow, js_to_locale_string, js_truthy, short_id, time_ago},
+    output::{self, ValueRow, js_truthy, short_id, time_ago},
     profile_display::shown_host,
     short_ids::{self, Listing, name_of},
     web_app,
@@ -58,9 +58,6 @@ enum Ask {
     TypeOfApp(&'static str),
     /// One of the data types the API takes for a destination ([`DATA_TYPES`]).
     DataType,
-    /// A cohort period of the LTV cohorts `vendo measurement ltv list` lists for the `--granularity`
-    /// and `--segment` typed, or their defaults (Q12's default, open for Yalcin): its period.
-    Cohort,
     /// A dictionary entry: its subject type first, from the ones the server accepts
     /// ([`SUBJECT_TYPES`], event first as `vendo dictionary list` lists events by default), then one
     /// of that type's entries as `vendo dictionary list --type <type>` lists them (Q11's default, open
@@ -251,8 +248,6 @@ const VALUES: [(&str, &str, Ask); 43] = [
     ("measurement methodologies get", "id", Ask::Listed(Listed::Methodologies)),
     ("measurement rules preview", "from", Ask::Text),
     ("measurement rules preview", "to", Ask::Text),
-    ("measurement ltv cohort", "period", Ask::Cohort),
-    ("measurement ltv customer", "customer_id", Ask::Text),
 ];
 
 fn asked_by(command: &str, value: &str) -> Option<Ask> {
@@ -314,10 +309,6 @@ pub async fn missing_values(
             Ask::DataType => {
                 let at = choose(&title, "data types", &DATA_TYPES, None, |t| vec![t.to_string()], |t| t.to_string())?;
                 Some(DATA_TYPES[at].to_string())
-            }
-            Ask::Cohort => {
-                let typed = |id: &str| given.try_get_one::<String>(id).ok().flatten().cloned();
-                choose_cohort(&client, typed("granularity"), typed("segment"), &title, json).await
             }
             Ask::DictionaryEntry => choose_dictionary_entry(&client, &title, json).await,
             Ask::Text => output::ask_text(&title),
@@ -414,44 +405,6 @@ pub(crate) fn named(id: String, name: &str) -> String {
 /// order rows were made (Q6's wording, open for Yalcin).
 fn shown_of(which: &str, count: usize) -> String {
     format!("{which} {count} shown")
-}
-
-/// The most cohorts `GET /api/measurement/ltv` sends (`limit` 1..500; vendo-web-v2
-/// `apps/web/app/api/measurement/ltv/route.ts`).
-const COHORTS: usize = 500;
-
-/// A cohort period, chosen from the cohorts `vendo measurement ltv list` lists for the
-/// `granularity` and `segment` typed, or their defaults, behind its spinner (`Fetching LTV
-/// cohorts...`): newest first, as many as the route sends ([`COHORTS`]), without the predictions
-/// the list does not show. With that many the hint says the newest are shown, as the route sends no
-/// total. Answered as the period, which the command takes.
-async fn choose_cohort(
-    client: &Client,
-    granularity: Option<String>,
-    segment: Option<String>,
-    title: &str,
-    json: bool,
-) -> Option<String> {
-    // In `ltv list`'s order.
-    let query = vec![
-        ("granularity", granularity),
-        ("segment_key", segment),
-        ("limit", Some(COHORTS.to_string())),
-        ("include_predicted", Some("false".to_string())),
-    ];
-    let res = output::run_action("Fetching LTV cohorts...", web_app::ltv(client, query))
-        .await
-        .unwrap_or_else(|err| fail(&err.into(), json));
-    let cohorts = res.pointer("/data/cohorts").and_then(Value::as_array).cloned().unwrap_or_default();
-    let period = |cohort: &Value| cell(cohort.get("cohort_period"));
-    // The table's size, plain: `format_number` dims its dash.
-    let size = |cohort: &Value| cohort.get("cohort_size").filter(|size| !size.is_null()).map(js_to_locale_string);
-    let cells = |cohort: &Value| {
-        vec![period(cohort), cell(cohort.get("segment_key")), size(cohort).unwrap_or_else(|| "—".into())]
-    };
-    let note = (cohorts.len() >= COHORTS).then(|| shown_of("newest", COHORTS));
-    let chosen = choose(title, "cohorts", &cohorts, note, cells, period)?;
-    Some(period(&cohorts[chosen]))
 }
 
 /// A dictionary entry (Q11's default, open for Yalcin): first its subject type, from the ones the

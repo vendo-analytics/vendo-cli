@@ -952,64 +952,6 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
-(ltv)
-_arguments "${_arguments_options[@]}" : \
-'--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'-h[Print help]' \
-'--help[Print help]' \
-'--debug[Enable verbose request diagnostics]' \
-":: :_vendo__subcmd__measurement__subcmd__ltv_commands" \
-"*::: :->ltv" \
-&& ret=0
-
-    case $state in
-    (ltv)
-        words=($line[1] "${words[@]}")
-        (( CURRENT += 1 ))
-        curcontext="${curcontext%:*:*}:vendo-measurement-ltv-command-$line[1]:"
-        case $line[1] in
-            (list)
-_arguments "${_arguments_options[@]}" : \
-'--granularity=[daily | weekly | monthly]:value:(daily weekly monthly)' \
-'--segment=[Segment key (e.g. "all", "channel\:meta")]:key:_default' \
-'--from=[Inclusive ISO cohort period (YYYY-MM-DD)]:period:_default' \
-'--to=[Inclusive ISO cohort period (YYYY-MM-DD)]:period:_default' \
-'--limit=[Max rows]:n:_default' \
-'--output=[Print one field per row]:field:_default' \
-'--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--no-predicted[Skip the naive-decay prediction join]' \
-'--json[Output raw JSON]' \
-'-h[Print help]' \
-'--help[Print help]' \
-'--debug[Enable verbose request diagnostics]' \
-&& ret=0
-;;
-(cohort)
-_arguments "${_arguments_options[@]}" : \
-'--granularity=[daily | weekly | monthly]:value:(daily weekly monthly)' \
-'--segment=[Segment key]:key:_default' \
-'--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--json[Output raw JSON]' \
-'-h[Print help]' \
-'--help[Print help]' \
-'--debug[Enable verbose request diagnostics]' \
-':period:_default' \
-&& ret=0
-;;
-(customer)
-_arguments "${_arguments_options[@]}" : \
-'--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
-'--json[Output raw JSON]' \
-'-h[Print help]' \
-'--help[Print help]' \
-'--debug[Enable verbose request diagnostics]' \
-':customer_id:_default' \
-&& ret=0
-;;
-        esac
-    ;;
-esac
-;;
 (signals)
 _arguments "${_arguments_options[@]}" : \
 '--profile=[Use a specific account profile (or set VENDO_PROFILE)]:name:_default' \
@@ -1531,34 +1473,6 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
-(ltv)
-_arguments "${_arguments_options[@]}" : \
-":: :_vendo__subcmd__help__subcmd__measurement__subcmd__ltv_commands" \
-"*::: :->ltv" \
-&& ret=0
-
-    case $state in
-    (ltv)
-        words=($line[1] "${words[@]}")
-        (( CURRENT += 1 ))
-        curcontext="${curcontext%:*:*}:vendo-help-measurement-ltv-command-$line[1]:"
-        case $line[1] in
-            (list)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
-(cohort)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
-(customer)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
-        esac
-    ;;
-esac
-;;
 (signals)
 _arguments "${_arguments_options[@]}" : \
 ":: :_vendo__subcmd__help__subcmd__measurement__subcmd__signals_commands" \
@@ -1636,7 +1550,7 @@ _vendo_commands() {
 'dictionary:Browse the data dictionary catalog' \
 'metrics:Manage custom metrics in the Metrics Library' \
 'models:Manage data models' \
-'measurement:Inspect Marketing Measurement methodologies, LTV, and signals' \
+'measurement:Inspect Marketing Measurement methodologies, rules, and signals' \
 'query:Query saved metrics, events or read-only SQL' \
 'completions:Generate shell completion script (bash, zsh, fish)' \
 'commands:List every command, or with --json the command tree with arguments and flags' \
@@ -1834,7 +1748,7 @@ _vendo__subcmd__help_commands() {
 'dictionary:Browse the data dictionary catalog' \
 'metrics:Manage custom metrics in the Metrics Library' \
 'models:Manage data models' \
-'measurement:Inspect Marketing Measurement methodologies, LTV, and signals' \
+'measurement:Inspect Marketing Measurement methodologies, rules, and signals' \
 'query:Query saved metrics, events or read-only SQL' \
 'completions:Generate shell completion script (bash, zsh, fish)' \
 'commands:List every command, or with --json the command tree with arguments and flags' \
@@ -2072,34 +1986,9 @@ _vendo__subcmd__help__subcmd__measurement_commands() {
     local commands; commands=(
 'methodologies:List measurement methodologies' \
 'rules:Methodology segmentation rules' \
-'ltv:Cohort lifetime-value views' \
 'signals:Measurement signal availability' \
     )
     _describe -t commands 'vendo help measurement commands' commands "$@"
-}
-(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__ltv_commands] )) ||
-_vendo__subcmd__help__subcmd__measurement__subcmd__ltv_commands() {
-    local commands; commands=(
-'list:List cohort LTV rows' \
-'cohort:Show one cohort by period — retention matrix + cumulative LTV curve + prediction' \
-'customer:Show one customer'\''s cohort + realised LTV + revenue timeline' \
-    )
-    _describe -t commands 'vendo help measurement ltv commands' commands "$@"
-}
-(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__cohort_commands] )) ||
-_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__cohort_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo help measurement ltv cohort commands' commands "$@"
-}
-(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__customer_commands] )) ||
-_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__customer_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo help measurement ltv customer commands' commands "$@"
-}
-(( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__list_commands] )) ||
-_vendo__subcmd__help__subcmd__measurement__subcmd__ltv__subcmd__list_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo help measurement ltv list commands' commands "$@"
 }
 (( $+functions[_vendo__subcmd__help__subcmd__measurement__subcmd__methodologies_commands] )) ||
 _vendo__subcmd__help__subcmd__measurement__subcmd__methodologies_commands() {
@@ -2363,34 +2252,9 @@ _vendo__subcmd__measurement_commands() {
     local commands; commands=(
 'methodologies:List measurement methodologies' \
 'rules:Methodology segmentation rules' \
-'ltv:Cohort lifetime-value views' \
 'signals:Measurement signal availability' \
     )
     _describe -t commands 'vendo measurement commands' commands "$@"
-}
-(( $+functions[_vendo__subcmd__measurement__subcmd__ltv_commands] )) ||
-_vendo__subcmd__measurement__subcmd__ltv_commands() {
-    local commands; commands=(
-'list:List cohort LTV rows' \
-'cohort:Show one cohort by period — retention matrix + cumulative LTV curve + prediction' \
-'customer:Show one customer'\''s cohort + realised LTV + revenue timeline' \
-    )
-    _describe -t commands 'vendo measurement ltv commands' commands "$@"
-}
-(( $+functions[_vendo__subcmd__measurement__subcmd__ltv__subcmd__cohort_commands] )) ||
-_vendo__subcmd__measurement__subcmd__ltv__subcmd__cohort_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo measurement ltv cohort commands' commands "$@"
-}
-(( $+functions[_vendo__subcmd__measurement__subcmd__ltv__subcmd__customer_commands] )) ||
-_vendo__subcmd__measurement__subcmd__ltv__subcmd__customer_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo measurement ltv customer commands' commands "$@"
-}
-(( $+functions[_vendo__subcmd__measurement__subcmd__ltv__subcmd__list_commands] )) ||
-_vendo__subcmd__measurement__subcmd__ltv__subcmd__list_commands() {
-    local commands; commands=()
-    _describe -t commands 'vendo measurement ltv list commands' commands "$@"
 }
 (( $+functions[_vendo__subcmd__measurement__subcmd__methodologies_commands] )) ||
 _vendo__subcmd__measurement__subcmd__methodologies_commands() {

@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-use crate::output::{js_string, js_template, js_truthy, time_ago};
+use crate::output::{js_string, js_truthy, time_ago};
 
 /// What cli-table3 prints for a cell: strings, numbers and booleans as
 /// `String()` gives them; null, missing, objects and arrays as an empty cell.
@@ -19,11 +19,6 @@ pub fn cell(value: Option<&Value>) -> String {
 /// The value unless it is null or missing (`value ?? …`).
 fn present(value: Option<&Value>) -> Option<&Value> {
     value.filter(|v| !v.is_null())
-}
-
-/// `${value ?? fallback}`: an empty string stays empty.
-pub fn template_or(value: Option<&Value>, fallback: impl FnOnce() -> String) -> String {
-    present(value).map(|v| js_template(Some(v))).unwrap_or_else(fallback)
 }
 
 /// A table cell holding `value ?? fallback`.
@@ -65,11 +60,6 @@ mod tests {
     #[test]
     fn nullish_values_take_the_fallback_but_empty_strings_do_not() {
         let dash = || "—".to_string();
-        assert_eq!(template_or(None, dash), "—");
-        assert_eq!(template_or(Some(&json!(null)), dash), "—");
-        assert_eq!(template_or(Some(&json!("")), dash), "");
-        assert_eq!(template_or(Some(&json!(0)), dash), "0");
-        assert_eq!(template_or(Some(&json!({})), dash), "[object Object]");
         assert_eq!(cell_or(Some(&json!(null)), dash), "—");
         assert_eq!(cell_or(Some(&json!("")), dash), "");
         assert_eq!(cell_or(Some(&json!({})), dash), "");
