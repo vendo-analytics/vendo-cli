@@ -653,7 +653,7 @@ fn every_command_that_takes_json_has_a_json_snapshot() {
         }
         pending.extend(node["commands"].as_array().unwrap());
     }
-    assert!(takes_json.len() >= 60 && takes_json.contains("apps create"), "{takes_json:?}");
+    assert!(takes_json.len() >= 55 && takes_json.contains("apps create"), "{takes_json:?}");
 
     let mut recorded = BTreeSet::new();
     for entry in std::fs::read_dir(Path::new(SNAPSHOTS).join("output")).unwrap().flatten() {

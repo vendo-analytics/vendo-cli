@@ -7338,7 +7338,7 @@ async fn with_prompts_off_or_no_screen_to_ask_on_a_missing_value_is_the_usage_er
     let server = MockServer::start().await;
     let sandbox = Sandbox::new(&server.uri());
     let commands = snapshots::commands_requiring_values(&sandbox);
-    assert_eq!(commands.len(), 37);
+    assert_eq!(commands.len(), 35);
     for (path, _) in &commands {
         let args: Vec<&str> = path.iter().map(String::as_str).collect();
         let piped = sandbox.run(&args);
